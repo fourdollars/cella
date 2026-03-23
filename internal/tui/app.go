@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -23,6 +24,8 @@ const (
 	panelExecInput
 	panelExecOutput
 	panelSyscall
+	panelSeccompGen
+	panelLogs
 )
 
 const tickInterval = 2 * time.Second
@@ -37,6 +40,8 @@ type execResultMsg struct {
 	stderr string
 	err    error
 }
+type logLinesMsg []string
+type logErrMsg error
 
 // ContainerMetrics holds computed metrics for a container
 type ContainerMetrics struct {
@@ -81,6 +86,16 @@ type App struct {
 
 	// Syscall tracing
 	tracers map[string]*trace.Tracer // container name → tracer
+
+	// Seccomp profile generator
+	seccompJSON   string
+	seccompSummary string
+	seccompScroll int
+
+	// Container logs
+	logLines  []string
+	logScroll int
+	logTarget string
 }
 
 func NewApp() App {
@@ -182,6 +197,20 @@ func enterShell(containerName string) tea.Cmd {
 	})
 }
 
+func fetchLogs(client *lxd.Client, containerName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		result, err := client.ExecCommand(ctx, containerName,
+			[]string{"/bin/sh", "-c", "journalctl --no-pager -n 200 2>/dev/null || tail -n 200 /var/log/syslog 2>/dev/null || echo 'No logs available'"})
+		if err != nil {
+			return logErrMsg(err)
+		}
+		lines := strings.Split(result.Stdout, "\n")
+		return logLinesMsg(lines)
+	}
+}
+
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -193,6 +222,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.focus == panelSyscall {
 			return a.handleSyscallPanel(msg)
+		}
+		if a.focus == panelSeccompGen {
+			return a.handleSeccompPanel(msg)
+		}
+		if a.focus == panelLogs {
+			return a.handleLogsPanel(msg)
 		}
 
 		switch msg.String() {
@@ -233,6 +268,41 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					t.Stop()
 					delete(a.tracers, name)
 					a.addEvent(fmt.Sprintf("🔬 syscall tracing stopped for %s", name))
+				}
+			}
+		case "G":
+			// Generate seccomp profile from trace data
+			if a.selected < len(a.containers) {
+				name := a.containers[a.selected].Name
+				if tracer, ok := a.tracers[name]; ok {
+					profile, err := trace.GenerateProfile(tracer, name)
+					if err != nil {
+						a.addEvent(fmt.Sprintf("⚠ seccomp gen failed: %v", err))
+					} else {
+						jsonStr, _ := trace.ProfileToJSON(profile)
+						a.seccompJSON = jsonStr
+						a.seccompSummary = trace.ProfileSummary(profile)
+						a.seccompScroll = 0
+						a.prevFocus = a.focus
+						a.focus = panelSeccompGen
+						a.addEvent(fmt.Sprintf("🛡 seccomp profile generated for %s (%d syscalls)",
+							name, len(profile.Syscalls[0].Names)))
+					}
+				} else {
+					a.addEvent(fmt.Sprintf("⚠ start tracing first (press t on %s)", name))
+				}
+			}
+		case "l":
+			// Container logs
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if c.Status == "Running" {
+					a.logTarget = c.Name
+					a.logLines = nil
+					a.logScroll = 0
+					a.prevFocus = a.focus
+					a.focus = panelLogs
+					return a, fetchLogs(a.client, c.Name)
 				}
 			}
 		case "e":
@@ -336,6 +406,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.focus = panelExecOutput
 		a.execScroll = 0
+		return a, nil
+
+	case logLinesMsg:
+		a.logLines = []string(msg)
+		a.logScroll = 0
+		// Auto-scroll to bottom
+		visibleH := a.height - 10
+		if visibleH < 5 {
+			visibleH = 5
+		}
+		if len(a.logLines) > visibleH {
+			a.logScroll = len(a.logLines) - visibleH
+		}
+		return a, nil
+
+	case logErrMsg:
+		a.logLines = []string{fmt.Sprintf("❌ Error fetching logs: %v", msg)}
 		return a, nil
 
 	case containersMsg:
@@ -532,6 +619,27 @@ func (a App) handleSyscallPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.focus = a.prevFocus
 		}
 		return a, nil
+	case "G":
+		// Generate seccomp profile from syscall panel
+		if a.selected < len(a.containers) {
+			name := a.containers[a.selected].Name
+			if tracer, ok := a.tracers[name]; ok {
+				profile, err := trace.GenerateProfile(tracer, name)
+				if err != nil {
+					a.addEvent(fmt.Sprintf("⚠ seccomp gen: %v", err))
+				} else {
+					jsonStr, _ := trace.ProfileToJSON(profile)
+					a.seccompJSON = jsonStr
+					a.seccompSummary = trace.ProfileSummary(profile)
+					a.seccompScroll = 0
+					a.prevFocus = panelSyscall
+					a.focus = panelSeccompGen
+					a.addEvent(fmt.Sprintf("🛡 seccomp profile: %d syscalls for %s",
+						len(profile.Syscalls[0].Names), name))
+				}
+			}
+		}
+		return a, nil
 	case "tab":
 		a.focus = panelSidebar
 		return a, nil
@@ -558,7 +666,78 @@ func (a *App) ensureTracing() {
 	}
 }
 
+func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.seccompScroll > 0 {
+			a.seccompScroll--
+		}
+	case "down", "j":
+		lines := strings.Split(a.seccompJSON, "\n")
+		maxScroll := len(lines) - (a.height - 14)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if a.seccompScroll < maxScroll {
+			a.seccompScroll++
+		}
+	case "S":
+		// Save profile to file
+		if a.seccompJSON != "" && a.selected < len(a.containers) {
+			name := a.containers[a.selected].Name
+			filename := fmt.Sprintf("/tmp/cella-seccomp-%s.json", name)
+			if err := saveToFile(filename, a.seccompJSON); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ save failed: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("💾 saved to %s", filename))
+			}
+		}
+	}
+	return a, nil
+}
+
+func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.logScroll > 0 {
+			a.logScroll--
+		}
+	case "down", "j":
+		maxScroll := len(a.logLines) - (a.height - 10)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if a.logScroll < maxScroll {
+			a.logScroll++
+		}
+	case "g":
+		a.logScroll = 0
+	case "G":
+		maxScroll := len(a.logLines) - (a.height - 10)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		a.logScroll = maxScroll
+	case "r":
+		// Refresh logs
+		if a.logTarget != "" {
+			return a, fetchLogs(a.client, a.logTarget)
+		}
+	}
+	return a, nil
+}
+
 // ── Helpers ──
+
+func saveToFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
+}
 
 func appendHist(hist []float64, val float64, maxLen int) []float64 {
 	hist = append(hist, val)
@@ -675,6 +854,10 @@ func (a App) View() string {
 		dashboard = a.renderExecOutput()
 	case panelSyscall:
 		dashboard = a.renderSyscallPanel()
+	case panelSeccompGen:
+		dashboard = a.renderSeccompPanel()
+	case panelLogs:
+		dashboard = a.renderLogsPanel()
 	default:
 		dashboard = a.renderDashboard()
 	}
@@ -720,7 +903,11 @@ func (a App) renderStatusBar() string {
 	case panelExecOutput:
 		return " OUTPUT │ ↑↓ scroll │ e: new command │ Esc/q: back to dashboard"
 	case panelSyscall:
-		return " SYSCALL TRACE │ ↑↓ switch container │ T: stop tracing │ Esc/q: back │ refreshes every 5s"
+		return " SYSCALL TRACE │ ↑↓ switch container │ G: generate seccomp │ T: stop │ Esc/q: back"
+	case panelSeccompGen:
+		return " SECCOMP PROFILE │ ↑↓ scroll │ S: save to file │ Esc/q: back"
+	case panelLogs:
+		return " LOGS │ ↑↓ scroll │ g/G: top/bottom │ r: refresh │ Esc/q: back"
 	default:
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
@@ -730,9 +917,9 @@ func (a App) renderStatusBar() string {
 				traceIndicator = " │ 🔬 tracing"
 			}
 			if c.Status == "Running" {
-				return fmt.Sprintf(" %s │ %s │ CPU %.1f%% │ MEM %s │ PIDs %d │ [e]xec [t]race%s",
+				return fmt.Sprintf(" %s │ %s │ CPU %.1f%% │ MEM %s │ [e]xec [l]ogs [t]race%s",
 					c.Name, c.IP, m.CPUPercent,
-					formatBytes(c.MemoryCur), c.PIDs, traceIndicator)
+					formatBytes(c.MemoryCur), traceIndicator)
 			}
 			return fmt.Sprintf(" %s [%s] │ [s]tart", c.Name, strings.ToLower(c.Status))
 		}
@@ -959,6 +1146,108 @@ func (a App) renderExecOutput() string {
 	return b.String()
 }
 
+// ── Seccomp panel ──
+
+func (a App) renderSeccompPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render("🛡 Generated Seccomp Profile ◆") + "\n")
+
+	// Summary
+	if a.seccompSummary != "" {
+		lines := strings.Split(a.seccompSummary, "\n")
+		for _, line := range lines {
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(ColorText).Render(line) + "\n")
+		}
+	}
+
+	b.WriteString("\n" + SectionHeaderStyle.Render("JSON Profile") + "\n")
+
+	// Scrollable JSON
+	lines := strings.Split(a.seccompJSON, "\n")
+	totalLines := len(lines)
+	visibleH := a.height - 18
+	if visibleH < 5 {
+		visibleH = 5
+	}
+
+	start := a.seccompScroll
+	end := start + visibleH
+	if end > totalLines {
+		end = totalLines
+	}
+	if start > totalLines {
+		start = totalLines
+	}
+
+	if totalLines > visibleH {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render(fmt.Sprintf("  [%d-%d of %d lines]\n", start+1, end, totalLines)))
+	}
+
+	jsonStyle := lipgloss.NewStyle().Foreground(ColorGreen)
+	for i := start; i < end; i++ {
+		b.WriteString("  " + jsonStyle.Render(lines[i]) + "\n")
+	}
+
+	b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorYellow).Bold(true).
+		Render("  Press S to save │ Esc to go back") + "\n")
+
+	return b.String()
+}
+
+// ── Logs panel ──
+
+func (a App) renderLogsPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("📋 Logs — %s ◆", a.logTarget)) + "\n")
+
+	if len(a.logLines) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
+			Render("\n  ⏳ Loading logs...\n"))
+		return b.String()
+	}
+
+	totalLines := len(a.logLines)
+	visibleH := a.height - 10
+	if visibleH < 5 {
+		visibleH = 5
+	}
+
+	start := a.logScroll
+	end := start + visibleH
+	if end > totalLines {
+		end = totalLines
+	}
+	if start > totalLines {
+		start = totalLines
+	}
+
+	if totalLines > visibleH {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render(fmt.Sprintf("  [%d-%d of %d lines]\n", start+1, end, totalLines)))
+	}
+
+	logStyle := lipgloss.NewStyle().Foreground(ColorText)
+	warnStyle := lipgloss.NewStyle().Foreground(ColorYellow)
+	errStyle := lipgloss.NewStyle().Foreground(ColorRed)
+
+	for i := start; i < end; i++ {
+		line := a.logLines[i]
+		style := logStyle
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "error") || strings.Contains(lower, "fatal") || strings.Contains(lower, "critical") {
+			style = errStyle
+		} else if strings.Contains(lower, "warn") || strings.Contains(lower, "timeout") {
+			style = warnStyle
+		}
+		b.WriteString("  " + style.Render(line) + "\n")
+	}
+
+	return b.String()
+}
+
 // ── Sidebar & Dashboard ──
 
 func (a App) renderSidebar() string {
@@ -1014,10 +1303,10 @@ func (a App) renderSidebar() string {
 	b.WriteString("\n")
 	b.WriteString(SectionHeaderStyle.Render("Keys") + "\n")
 	helps := [][]string{
-		{"↑↓", "select"}, {"e", "exec cmd"}, {"t", "trace"},
-		{"T", "stop trace"}, {"s", "start"}, {"x", "stop"},
-		{"p", "pause"}, {"1-3", "sort"},
-		{"tab", "panel"}, {"q", "quit"},
+		{"↑↓", "select"}, {"e", "exec"}, {"l", "logs"},
+		{"t", "trace"}, {"G", "gen seccomp"}, {"T", "stop trace"},
+		{"s", "start"}, {"x", "stop"}, {"p", "pause"},
+		{"1-3", "sort"}, {"tab", "panel"}, {"q", "quit"},
 	}
 	for _, h := range helps {
 		b.WriteString(fmt.Sprintf(" %s %s\n",
