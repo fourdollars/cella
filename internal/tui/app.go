@@ -87,6 +87,8 @@ type ContainerMetrics struct {
 	MemPercent    float64
 	CPUHist       []float64
 	MemHist       []float64
+	NetRxHist     []float64 // RX rate history (bytes/s)
+	NetTxHist     []float64 // TX rate history (bytes/s)
 	DiskRHist     []float64 // read rate history
 	DiskWHist     []float64 // write rate history
 }
@@ -1082,6 +1084,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.metrics[name] = &ContainerMetrics{
 					CPUHist:   make([]float64, 0, sparklineLen),
 					MemHist:   make([]float64, 0, sparklineLen),
+					NetRxHist: make([]float64, 0, sparklineLen),
+					NetTxHist: make([]float64, 0, sparklineLen),
 					DiskRHist: make([]float64, 0, sparklineLen),
 					DiskWHist: make([]float64, 0, sparklineLen),
 				}
@@ -1138,6 +1142,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.CPUHist = appendHist(m.CPUHist, m.CPUPercent, sparklineLen)
 				m.MemHist = appendHist(m.MemHist, m.MemPercent, sparklineLen)
+				m.NetRxHist = appendHist(m.NetRxHist, float64(m.NetRxRate), sparklineLen)
+				m.NetTxHist = appendHist(m.NetTxHist, float64(m.NetTxRate), sparklineLen)
 				m.DiskRHist = appendHist(m.DiskRHist, float64(m.DiskReadRate), sparklineLen)
 				m.DiskWHist = appendHist(m.DiskWHist, float64(m.DiskWriteRate), sparklineLen)
 
@@ -3087,6 +3093,10 @@ func (a App) renderDashboard() string {
 		formatBytes(m.NetTxRate), formatBytes(m.NetRxRate)))
 	b.WriteString(fmt.Sprintf("  Total: ↑ %s  ↓ %s\n",
 		formatBytes(c.NetTxBytes), formatBytes(c.NetRxBytes)))
+	if len(m.NetRxHist) > 1 || len(m.NetTxHist) > 1 {
+		b.WriteString("  ↓ " + renderSparkline(m.NetRxHist, ColorBlue) + "\n")
+		b.WriteString("  ↑ " + renderSparkline(m.NetTxHist, ColorGreen) + "\n")
+	}
 
 	// Disk I/O
 	b.WriteString(SectionHeaderStyle.Render("Disk I/O") + "\n")
