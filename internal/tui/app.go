@@ -2754,12 +2754,13 @@ func (a *App) ensureSidebarVisible() {
 
 // sidebarVisibleRows returns how many container rows fit in the sidebar
 // calcSidebarWidth dynamically sizes sidebar based on longest container name.
-// Layout per line: "▸"(1) + "%2d"(2-3) + indicator(2) + rtIcon(2) + name + " "(1) + rightInfo(~8)
-// Overhead = ~16 terminal cells (including ▸ prefix and right info)
+// Layout per line (worst case):
+//   "▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + " "(1) + "100% 99.9G"(10)
+//   = 19 cells + name length
 func (a App) calcSidebarWidth() int {
-	const overhead = 16 // fixed cells around the name
-	const minW = 30
-	const maxW = 50
+	const overhead = 19 // worst-case: ▸ + 2-3 digits + ● + 🔷 + space + "100% 99.9G"
+	const minW = 32
+	const maxW = 55
 
 	maxName := 0
 	for _, c := range a.containers {
@@ -2788,7 +2789,7 @@ func (a App) calcSidebarWidth() int {
 
 // sidebarNameMax returns how many chars of container name can fit in sidebar
 func (a App) sidebarNameMax() int {
-	const overhead = 16
+	const overhead = 19
 	w := a.calcSidebarWidth()
 	nameMax := w - overhead
 	if nameMax < 8 {
