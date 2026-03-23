@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -639,6 +641,33 @@ type HostResources struct {
 	MemoryUsed  int64
 }
 
+// PerCPUUsage holds per-CPU usage percentages
+type PerCPUUsage struct {
+	ID      int
+	Percent float64
+}
+
+// HostCPURaw holds raw /proc/stat values for delta calculation
+type HostCPURaw struct {
+	ID    int
+	User  int64
+	Nice  int64
+	Sys   int64
+	Idle  int64
+	IOW   int64
+	IRQ   int64
+	SIRQ  int64
+	Steal int64
+}
+
+func (r HostCPURaw) Total() int64 {
+	return r.User + r.Nice + r.Sys + r.Idle + r.IOW + r.IRQ + r.SIRQ + r.Steal
+}
+
+func (r HostCPURaw) Active() int64 {
+	return r.Total() - r.Idle - r.IOW
+}
+
 // GetHostResources fetches host CPU/memory info from /1.0/resources
 func (c *Client) GetHostResources(ctx context.Context) (*HostResources, error) {
 	resp, err := c.doGet(ctx, "/1.0/resources")
@@ -664,4 +693,83 @@ func (c *Client) GetHostResources(ctx context.Context) (*HostResources, error) {
 		MemoryTotal: res.Memory.Total,
 		MemoryUsed:  res.Memory.Used,
 	}, nil
+}
+
+// ReadPerCPURaw reads per-CPU stats from /proc/stat
+func ReadPerCPURaw() ([]HostCPURaw, error) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return nil, err
+	}
+
+	var cpus []HostCPURaw
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "cpu") || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 8 {
+			continue
+		}
+		// Skip the aggregate "cpu" line
+		name := fields[0]
+		if name == "cpu" {
+			continue
+		}
+		// "cpu0", "cpu1", etc.
+		id, err := strconv.Atoi(strings.TrimPrefix(name, "cpu"))
+		if err != nil {
+			continue
+		}
+		parseInt := func(s string) int64 {
+			v, _ := strconv.ParseInt(s, 10, 64)
+			return v
+		}
+		raw := HostCPURaw{
+			ID:   id,
+			User: parseInt(fields[1]),
+			Nice: parseInt(fields[2]),
+			Sys:  parseInt(fields[3]),
+			Idle: parseInt(fields[4]),
+		}
+		if len(fields) > 5 {
+			raw.IOW = parseInt(fields[5])
+		}
+		if len(fields) > 6 {
+			raw.IRQ = parseInt(fields[6])
+		}
+		if len(fields) > 7 {
+			raw.SIRQ = parseInt(fields[7])
+		}
+		if len(fields) > 8 {
+			raw.Steal = parseInt(fields[8])
+		}
+		cpus = append(cpus, raw)
+	}
+	return cpus, nil
+}
+
+// CalcPerCPUUsage calculates per-CPU usage from two raw snapshots
+func CalcPerCPUUsage(prev, cur []HostCPURaw) []PerCPUUsage {
+	prevMap := make(map[int]HostCPURaw)
+	for _, c := range prev {
+		prevMap[c.ID] = c
+	}
+
+	var result []PerCPUUsage
+	for _, c := range cur {
+		p, ok := prevMap[c.ID]
+		if !ok {
+			result = append(result, PerCPUUsage{ID: c.ID, Percent: 0})
+			continue
+		}
+		totalDelta := c.Total() - p.Total()
+		activeDelta := c.Active() - p.Active()
+		pct := 0.0
+		if totalDelta > 0 {
+			pct = float64(activeDelta) / float64(totalDelta) * 100
+		}
+		result = append(result, PerCPUUsage{ID: c.ID, Percent: pct})
+	}
+	return result
 }

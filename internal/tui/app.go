@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ type logErrMsg error
 type configMsg struct {
 	config  *lxd.InstanceConfig
 	hostRes *lxd.HostResources
+	cpuRaw  []lxd.HostCPURaw
 	err     error
 }
 type snapshotsMsg struct {
@@ -123,6 +125,8 @@ type App struct {
 	resInput     string
 	resEditing   bool
 	hostRes      *lxd.HostResources
+	prevCPURaw   []lxd.HostCPURaw
+	perCPUUsage  []lxd.PerCPUUsage
 
 	// Snapshots panel
 	snapshots    []lxd.SnapshotInfo
@@ -260,7 +264,8 @@ func fetchConfig(client *lxd.Client, name string) tea.Cmd {
 			return configMsg{err: err}
 		}
 		hostRes, _ := client.GetHostResources(ctx) // best effort
-		return configMsg{config: config, hostRes: hostRes}
+		cpuRaw, _ := lxd.ReadPerCPURaw()           // best effort
+		return configMsg{config: config, hostRes: hostRes, cpuRaw: cpuRaw}
 	}
 }
 
@@ -544,6 +549,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.hostRes != nil {
 				a.hostRes = msg.hostRes
 			}
+			if msg.cpuRaw != nil {
+				if a.prevCPURaw != nil {
+					a.perCPUUsage = lxd.CalcPerCPUUsage(a.prevCPURaw, msg.cpuRaw)
+				}
+				a.prevCPURaw = msg.cpuRaw
+			}
 		}
 		return a, nil
 
@@ -644,6 +655,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tickCmd()
 
 	case tickMsg:
+		// Also refresh per-CPU stats when in resources panel
+		if a.focus == panelResources && a.resTarget != "" {
+			return a, tea.Batch(fetchContainers(a.client), fetchConfig(a.client, a.resTarget))
+		}
 		return a, fetchContainers(a.client)
 	}
 
@@ -1688,10 +1703,26 @@ func (a App) renderResourcesPanel() string {
 	for _, c := range a.containers {
 		if c.Name == a.resTarget {
 			if m, ok := a.metrics[c.Name]; ok {
-				// CPU bar
-				cpuPct := m.CPUPercent
-				cpuBar := renderProgressBar(cpuPct, 100.0, barWidth)
-				b.WriteString(fmt.Sprintf("  CPU     %s  %.1f%%\n", cpuBar, cpuPct))
+				// Check if CPU is pinned to specific cores
+				cpuPins := parseCPUPins(config["limits.cpu"])
+
+				if len(cpuPins) > 0 && len(a.perCPUUsage) > 0 {
+					// Show per-CPU bars for pinned cores
+					usageMap := make(map[int]float64)
+					for _, u := range a.perCPUUsage {
+						usageMap[u.ID] = u.Percent
+					}
+					for _, cpuID := range cpuPins {
+						pct := usageMap[cpuID]
+						bar := renderProgressBar(pct, 100.0, barWidth)
+						b.WriteString(fmt.Sprintf("  CPU%-2d   %s  %.1f%%\n", cpuID, bar, pct))
+					}
+				} else {
+					// Aggregate CPU bar
+					cpuPct := m.CPUPercent
+					cpuBar := renderProgressBar(cpuPct, 100.0, barWidth)
+					b.WriteString(fmt.Sprintf("  CPU     %s  %.1f%%\n", cpuBar, cpuPct))
+				}
 
 				// Memory bar (container usage vs limit or host total)
 				memLimit := c.MemoryMax
@@ -1708,7 +1739,6 @@ func (a App) renderResourcesPanel() string {
 
 				// Disk bar (if available)
 				if c.DiskUsage > 0 {
-					// No total from state API, just show raw
 					b.WriteString(fmt.Sprintf("  DISK    %s\n", formatBytes(c.DiskUsage)))
 				}
 
@@ -2013,6 +2043,44 @@ func renderSparkline(data []float64, color lipgloss.Color) string {
 		sb.WriteRune(sparkChars[idx])
 	}
 	return lipgloss.NewStyle().Foreground(color).Render(sb.String())
+}
+
+// parseCPUPins parses limits.cpu value and returns pinned CPU IDs if it's a range/list
+// Returns nil if it's a plain count (e.g. "2") or empty
+func parseCPUPins(cpuLimit string) []int {
+	cpuLimit = strings.TrimSpace(cpuLimit)
+	if cpuLimit == "" {
+		return nil
+	}
+	// Check if it's a range like "2-3" or "0-3" or list "0,2,4"
+	if strings.Contains(cpuLimit, "-") && !strings.Contains(cpuLimit, "ms") {
+		// Range: "2-3"
+		parts := strings.SplitN(cpuLimit, "-", 2)
+		start, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		end, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil {
+			return nil
+		}
+		var pins []int
+		for i := start; i <= end; i++ {
+			pins = append(pins, i)
+		}
+		return pins
+	}
+	if strings.Contains(cpuLimit, ",") {
+		// List: "0,2,4"
+		var pins []int
+		for _, s := range strings.Split(cpuLimit, ",") {
+			id, err := strconv.Atoi(strings.TrimSpace(s))
+			if err == nil {
+				pins = append(pins, id)
+			}
+		}
+		if len(pins) > 0 {
+			return pins
+		}
+	}
+	return nil
 }
 
 // renderProgressBar draws a colored bar like: [████████░░░░░░]
