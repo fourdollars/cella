@@ -10,3 +10,5 @@ cella-linux-*
 
 # OS
 .DS_Store
+# Container config exports
+juju-*.json
