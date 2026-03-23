@@ -81,10 +81,11 @@ type prevState struct {
 
 // App is the main TUI model
 type App struct {
-	client     *lxd.Client           // LXD client (for events, host resources)
-	runtimes   []runtime.Runtime     // all active runtimes
-	containers []runtime.ContainerInfo
-	metrics    map[string]*ContainerMetrics
+	client        *lxd.Client           // LXD client (for events, host resources)
+	runtimes      []runtime.Runtime     // all active runtimes
+	allContainers []runtime.ContainerInfo // unfiltered
+	containers    []runtime.ContainerInfo // filtered view (used by all panels)
+	metrics       map[string]*ContainerMetrics
 	prev       map[string]*prevState
 	selected   int
 	focus      panel
@@ -149,6 +150,10 @@ type App struct {
 
 	// Data fetch in-flight guard
 	fetching bool
+
+	// Runtime filter: "" = all, "lxd", "docker"
+	runtimeFilter string
+
 	// Quit confirmation
 	confirmQuit bool
 }
@@ -289,12 +294,33 @@ func (a App) containerRuntime(name string) string {
 func resolveCgroupPath(c runtime.ContainerInfo) string {
 	switch c.Runtime {
 	case "docker":
-		// Docker cgroup v2: /sys/fs/cgroup/system.slice/docker-<full-id>.scope
 		return fmt.Sprintf("/sys/fs/cgroup/system.slice/docker-%s.scope", c.ID)
 	default:
-		// LXD: /sys/fs/cgroup/lxc.payload.<name>
 		return fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", c.Name)
 	}
+}
+
+// filteredContainers returns containers matching current runtime filter
+func (a App) filteredContainers() []runtime.ContainerInfo {
+	if a.runtimeFilter == "" {
+		return a.containers
+	}
+	var result []runtime.ContainerInfo
+	for _, c := range a.containers {
+		if c.Runtime == a.runtimeFilter {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
+// selectedContainer returns the currently selected container (filter-aware)
+func (a App) selectedContainer() *runtime.ContainerInfo {
+	filtered := a.filteredContainers()
+	if a.selected >= 0 && a.selected < len(filtered) {
+		return &filtered[a.selected]
+	}
+	return nil
 }
 
 func tickCmd() tea.Cmd {
@@ -460,6 +486,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			a.sortBy = "mem"
 			a.sortContainers()
+		case "f":
+			// Cycle runtime filter: all → lxd → docker → all
+			switch a.runtimeFilter {
+			case "":
+				a.runtimeFilter = "lxd"
+			case "lxd":
+				a.runtimeFilter = "docker"
+			default:
+				a.runtimeFilter = ""
+			}
+			a.applyFilter()
+			a.selected = 0
+			a.sideScroll = 0
 		case "T":
 			// Stop tracing for selected container (from any normal panel)
 			if a.selected < len(a.containers) {
@@ -767,8 +806,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		a.containers = newContainers
+		a.allContainers = newContainers
 		a.sortContainers()
+		a.applyFilter()
 		a.lastUpdate = now
 		a.err = nil
 		if a.selected >= len(a.containers) {
@@ -1251,25 +1291,39 @@ func appendHist(hist []float64, val float64, maxLen int) []float64 {
 func (a *App) sortContainers() {
 	switch a.sortBy {
 	case "cpu":
-		sort.Slice(a.containers, func(i, j int) bool {
-			mi := a.getMetric(a.containers[i].Name)
-			mj := a.getMetric(a.containers[j].Name)
+		sort.Slice(a.allContainers, func(i, j int) bool {
+			mi := a.getMetric(a.allContainers[i].Name)
+			mj := a.getMetric(a.allContainers[j].Name)
 			return mi.CPUPercent > mj.CPUPercent
 		})
 	case "mem":
-		sort.Slice(a.containers, func(i, j int) bool {
-			return a.containers[i].MemoryCur > a.containers[j].MemoryCur
+		sort.Slice(a.allContainers, func(i, j int) bool {
+			return a.allContainers[i].MemoryCur > a.allContainers[j].MemoryCur
 		})
 	default:
-		sort.Slice(a.containers, func(i, j int) bool {
-			si := statusOrder(a.containers[i].Status)
-			sj := statusOrder(a.containers[j].Status)
+		sort.Slice(a.allContainers, func(i, j int) bool {
+			si := statusOrder(a.allContainers[i].Status)
+			sj := statusOrder(a.allContainers[j].Status)
 			if si != sj {
 				return si < sj
 			}
-			return a.containers[i].Name < a.containers[j].Name
+			return a.allContainers[i].Name < a.allContainers[j].Name
 		})
 	}
+}
+
+func (a *App) applyFilter() {
+	if a.runtimeFilter == "" {
+		a.containers = a.allContainers
+		return
+	}
+	filtered := make([]runtime.ContainerInfo, 0, len(a.allContainers))
+	for _, c := range a.allContainers {
+		if c.Runtime == a.runtimeFilter {
+			filtered = append(filtered, c)
+		}
+	}
+	a.containers = filtered
 }
 
 func statusOrder(s string) int {
@@ -1317,7 +1371,7 @@ func (a App) View() string {
 	running := 0
 	var totalMem int64
 	var totalCPU float64
-	for _, c := range a.containers {
+	for _, c := range a.allContainers {
 		if c.Status == "Running" {
 			running++
 			totalMem += c.MemoryCur
@@ -1334,13 +1388,23 @@ func (a App) View() string {
 
 	header := lipgloss.NewStyle().Foreground(ColorBlue).Bold(true).Render(" 📡 cella") +
 		lipgloss.NewStyle().Foreground(ColorSubtle).
-			Render(fmt.Sprintf("  %d/%d running", running, len(a.containers))) +
+			Render(fmt.Sprintf("  %d/%d running", running, len(a.allContainers))) +
 		lipgloss.NewStyle().Foreground(ColorDim).
 			Render(fmt.Sprintf("  CPU Σ%.1f%%  MEM Σ%s", totalCPU, formatBytes(totalMem))) +
 		lipgloss.NewStyle().Foreground(ColorDim).
 			Render(fmt.Sprintf("  🕐 %s", now.Format("15:04:05"))) +
 		lipgloss.NewStyle().Foreground(ColorDim).
 			Render(fmt.Sprintf("  sort:[%s]", a.sortBy))
+
+	// Filter indicator
+	if a.runtimeFilter != "" {
+		icon := "🔷"
+		if a.runtimeFilter == "docker" {
+			icon = "🐳"
+		}
+		header += lipgloss.NewStyle().Foreground(ColorYellow).Bold(true).
+			Render(fmt.Sprintf("  %s filter:[%s]", icon, a.runtimeFilter))
+	}
 
 	if tracingCount > 0 {
 		header += lipgloss.NewStyle().Foreground(ColorOrange).Bold(true).
