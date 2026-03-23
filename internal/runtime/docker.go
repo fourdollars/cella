@@ -182,6 +182,12 @@ type dockerStats struct {
 		RxBytes int64 `json:"rx_bytes"`
 		TxBytes int64 `json:"tx_bytes"`
 	} `json:"networks"`
+	BlkioStats struct {
+		IoServiceBytesRecursive []struct {
+			Op    string `json:"op"`
+			Value int64  `json:"value"`
+		} `json:"io_service_bytes_recursive"`
+	} `json:"blkio_stats"`
 	PIDs struct {
 		Current int `json:"current"`
 	} `json:"pids_stats"`
@@ -252,6 +258,16 @@ func (d *DockerClient) ListContainers(ctx context.Context) ([]ContainerInfo, err
 					for _, net := range stats.Networks {
 						ci.NetRxBytes += net.RxBytes
 						ci.NetTxBytes += net.TxBytes
+					}
+
+					// Disk I/O from blkio stats
+					for _, entry := range stats.BlkioStats.IoServiceBytesRecursive {
+						switch entry.Op {
+						case "read", "Read":
+							ci.DiskRead += entry.Value
+						case "write", "Write":
+							ci.DiskWrite += entry.Value
+						}
 					}
 				}
 			}

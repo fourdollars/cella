@@ -79,19 +79,25 @@ type asyncResultMsg struct {
 
 // ContainerMetrics holds computed metrics for a container
 type ContainerMetrics struct {
-	CPUPercent float64
-	NetRxRate  int64
-	NetTxRate  int64
-	MemPercent float64
-	CPUHist    []float64
-	MemHist    []float64
+	CPUPercent    float64
+	NetRxRate     int64
+	NetTxRate     int64
+	DiskReadRate  int64 // bytes/s
+	DiskWriteRate int64 // bytes/s
+	MemPercent    float64
+	CPUHist       []float64
+	MemHist       []float64
+	DiskRHist     []float64 // read rate history
+	DiskWHist     []float64 // write rate history
 }
 
 type prevState struct {
-	cpuNs    int64
-	netRx    int64
-	netTx    int64
-	polledAt time.Time
+	cpuNs     int64
+	netRx     int64
+	netTx     int64
+	diskRead  int64
+	diskWrite int64
+	polledAt  time.Time
 }
 
 // App is the main TUI model
@@ -1074,8 +1080,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if _, ok := a.metrics[name]; !ok {
 				a.metrics[name] = &ContainerMetrics{
-					CPUHist: make([]float64, 0, sparklineLen),
-					MemHist: make([]float64, 0, sparklineLen),
+					CPUHist:   make([]float64, 0, sparklineLen),
+					MemHist:   make([]float64, 0, sparklineLen),
+					DiskRHist: make([]float64, 0, sparklineLen),
+					DiskWHist: make([]float64, 0, sparklineLen),
 				}
 			}
 			m := a.metrics[name]
@@ -1104,10 +1112,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if dTx < 0 {
 							dTx = 0
 						}
+
+						dDiskR := c.DiskRead - prev.diskRead
+						dDiskW := c.DiskWrite - prev.diskWrite
+						if dDiskR < 0 {
+							dDiskR = 0
+						}
+						if dDiskW < 0 {
+							dDiskW = 0
+						}
+
 						dtSec := dt.Seconds()
 						if dtSec > 0 {
 							m.NetRxRate = int64(float64(dRx) / dtSec)
 							m.NetTxRate = int64(float64(dTx) / dtSec)
+							m.DiskReadRate = int64(float64(dDiskR) / dtSec)
+							m.DiskWriteRate = int64(float64(dDiskW) / dtSec)
 						}
 					}
 				}
@@ -1118,12 +1138,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.CPUHist = appendHist(m.CPUHist, m.CPUPercent, sparklineLen)
 				m.MemHist = appendHist(m.MemHist, m.MemPercent, sparklineLen)
+				m.DiskRHist = appendHist(m.DiskRHist, float64(m.DiskReadRate), sparklineLen)
+				m.DiskWHist = appendHist(m.DiskWHist, float64(m.DiskWriteRate), sparklineLen)
 
 				a.prev[name] = &prevState{
-					cpuNs:    c.CPUUsage,
-					netRx:    c.NetRxBytes,
-					netTx:    c.NetTxBytes,
-					polledAt: now,
+					cpuNs:     c.CPUUsage,
+					netRx:     c.NetRxBytes,
+					netTx:     c.NetTxBytes,
+					diskRead:  c.DiskRead,
+					diskWrite: c.DiskWrite,
+					polledAt:  now,
 				}
 			} else {
 				m.CPUPercent = 0
@@ -2633,9 +2657,11 @@ func (a App) renderResourcesPanel() string {
 				b.WriteString(fmt.Sprintf("  MEM     %s  %s / %s (%.0f%%)\n",
 					memBar, formatBytes(c.MemoryCur), formatBytes(memLimit), memPct))
 
-				// Disk bar (if available)
+				// Disk I/O rate
+				b.WriteString(fmt.Sprintf("  DISK    R %s/s  W %s/s\n",
+					formatBytes(m.DiskReadRate), formatBytes(m.DiskWriteRate)))
 				if c.DiskUsage > 0 {
-					b.WriteString(fmt.Sprintf("  DISK    %s\n", formatBytes(c.DiskUsage)))
+					b.WriteString(fmt.Sprintf("          %s used\n", formatBytes(c.DiskUsage)))
 				}
 
 				b.WriteString(fmt.Sprintf("  PIDs    %d\n", c.PIDs))
@@ -3062,10 +3088,16 @@ func (a App) renderDashboard() string {
 	b.WriteString(fmt.Sprintf("  Total: ↑ %s  ↓ %s\n",
 		formatBytes(c.NetTxBytes), formatBytes(c.NetRxBytes)))
 
-	// Disk
+	// Disk I/O
+	b.WriteString(SectionHeaderStyle.Render("Disk I/O") + "\n")
+	b.WriteString(fmt.Sprintf("  R %s/s  W %s/s\n",
+		formatBytes(m.DiskReadRate), formatBytes(m.DiskWriteRate)))
 	if c.DiskUsage > 0 {
-		b.WriteString(SectionHeaderStyle.Render("Disk") + "\n")
-		b.WriteString(fmt.Sprintf("  %s used\n", formatBytes(c.DiskUsage)))
+		b.WriteString(fmt.Sprintf("  Usage: %s\n", formatBytes(c.DiskUsage)))
+	}
+	if len(m.DiskRHist) > 1 || len(m.DiskWHist) > 1 {
+		b.WriteString("  R " + renderSparkline(m.DiskRHist, ColorGreen) + "\n")
+		b.WriteString("  W " + renderSparkline(m.DiskWHist, ColorRed) + "\n")
 	}
 
 	// Info

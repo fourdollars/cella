@@ -16,7 +16,9 @@ type ContainerInfo struct {
 	MemoryCur  int64 // bytes
 	MemoryMax  int64 // bytes (limit)
 	CPUUsage   int64 // cumulative nanoseconds
-	DiskUsage  int64 // bytes
+	DiskUsage  int64 // bytes (filesystem usage)
+	DiskRead   int64 // cumulative bytes read (from cgroup io.stat)
+	DiskWrite  int64 // cumulative bytes written (from cgroup io.stat)
 	NetRxBytes int64 // cumulative
 	NetTxBytes int64 // cumulative
 	PIDs       int

@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/fourdoors/cella/internal/lxd"
+	"github.com/fourdoors/cella/internal/metrics"
 )
 
 // LXDRuntime wraps an LXD client to implement the Runtime interface
@@ -40,6 +42,15 @@ func (r *LXDRuntime) ListContainers(ctx context.Context) ([]ContainerInfo, error
 			NetRxBytes: c.NetRxBytes,
 			NetTxBytes: c.NetTxBytes,
 			PIDs:       c.PIDs,
+		}
+
+		// Read disk I/O from cgroup io.stat (LXD cgroup path)
+		if c.Status == "Running" {
+			cgroupPath := fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", c.Name)
+			if ioStat, err := metrics.ReadIOStat(cgroupPath); err == nil {
+				result[i].DiskRead = ioStat.ReadBytes
+				result[i].DiskWrite = ioStat.WriteBytes
+			}
 		}
 	}
 	return result, nil
