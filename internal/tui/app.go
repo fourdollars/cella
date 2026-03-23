@@ -1318,7 +1318,7 @@ func (a *App) ensureTracing() {
 	}
 	name := c.Name
 	if _, exists := a.tracers[name]; !exists {
-		cgroupPath := fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", name)
+		cgroupPath := resolveCgroupPath(c)
 		tracer := trace.NewTracer(name, cgroupPath)
 		_ = tracer.Start(context.Background())
 		a.tracers[name] = tracer
