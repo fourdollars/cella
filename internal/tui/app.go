@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1082,12 +1083,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c.Status == "Running" {
 				if prev, ok := a.prev[name]; ok && !prev.polledAt.IsZero() {
 					dt := now.Sub(prev.polledAt)
-					if dt > 0 {
+					if dt > 500*time.Millisecond { // ignore tiny deltas (timer jitter)
 						dCPU := c.CPUUsage - prev.cpuNs
 						if dCPU < 0 {
 							dCPU = 0
 						}
-						m.CPUPercent = float64(dCPU) / float64(dt.Nanoseconds()) * 100.0
+						cpuPct := float64(dCPU) / float64(dt.Nanoseconds()) * 100.0
+						// Sanity clamp: cannot exceed numCPU * 100%
+						maxCPU := float64(goruntime.NumCPU()) * 100.0
+						if cpuPct > maxCPU {
+							cpuPct = 0 // counter reset or overflow — discard
+						}
+						m.CPUPercent = cpuPct
 
 						dRx := c.NetRxBytes - prev.netRx
 						dTx := c.NetTxBytes - prev.netTx
