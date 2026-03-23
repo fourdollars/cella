@@ -1682,17 +1682,54 @@ func (a App) renderResourcesPanel() string {
 	// Show other useful config values (read-only)
 	b.WriteString(SectionHeaderStyle.Render("Current Usage") + "\n\n")
 
+	barWidth := 30
+
 	// Find container in our list for live metrics
 	for _, c := range a.containers {
 		if c.Name == a.resTarget {
 			if m, ok := a.metrics[c.Name]; ok {
-				b.WriteString(fmt.Sprintf("  CPU:     %.1f%%\n", m.CPUPercent))
-				b.WriteString(fmt.Sprintf("  Memory:  %s / %s\n", formatBytes(c.MemoryCur), formatBytes(c.MemoryMax)))
-				b.WriteString(fmt.Sprintf("  PIDs:    %d\n", c.PIDs))
-				b.WriteString(fmt.Sprintf("  Disk:    %s\n", formatBytes(c.DiskUsage)))
+				// CPU bar
+				cpuPct := m.CPUPercent
+				cpuBar := renderProgressBar(cpuPct, 100.0, barWidth)
+				b.WriteString(fmt.Sprintf("  CPU     %s  %.1f%%\n", cpuBar, cpuPct))
+
+				// Memory bar (container usage vs limit or host total)
+				memLimit := c.MemoryMax
+				if memLimit == 0 && a.hostRes != nil {
+					memLimit = a.hostRes.MemoryTotal
+				}
+				memPct := 0.0
+				if memLimit > 0 {
+					memPct = float64(c.MemoryCur) / float64(memLimit) * 100
+				}
+				memBar := renderProgressBar(memPct, 100.0, barWidth)
+				b.WriteString(fmt.Sprintf("  MEM     %s  %s / %s (%.0f%%)\n",
+					memBar, formatBytes(c.MemoryCur), formatBytes(memLimit), memPct))
+
+				// Disk bar (if available)
+				if c.DiskUsage > 0 {
+					// No total from state API, just show raw
+					b.WriteString(fmt.Sprintf("  DISK    %s\n", formatBytes(c.DiskUsage)))
+				}
+
+				b.WriteString(fmt.Sprintf("  PIDs    %d\n", c.PIDs))
+
+				// Network rates
+				b.WriteString(fmt.Sprintf("  NET     ↓ %s/s  ↑ %s/s\n",
+					formatBytes(m.NetRxRate), formatBytes(m.NetTxRate)))
 			}
 			break
 		}
+	}
+
+	// Host-level bar if available
+	if a.hostRes != nil {
+		b.WriteString("\n" + SectionHeaderStyle.Render("Host Overview") + "\n\n")
+		hostMemPct := float64(a.hostRes.MemoryUsed) / float64(a.hostRes.MemoryTotal) * 100
+		hostMemBar := renderProgressBar(hostMemPct, 100.0, barWidth)
+		b.WriteString(fmt.Sprintf("  RAM     %s  %s / %s (%.0f%%)\n",
+			hostMemBar,
+			formatBytes(a.hostRes.MemoryUsed), formatBytes(a.hostRes.MemoryTotal), hostMemPct))
 	}
 
 	b.WriteString("\n" + SectionHeaderStyle.Render("Other Limits") + "\n\n")
@@ -1976,6 +2013,39 @@ func renderSparkline(data []float64, color lipgloss.Color) string {
 		sb.WriteRune(sparkChars[idx])
 	}
 	return lipgloss.NewStyle().Foreground(color).Render(sb.String())
+}
+
+// renderProgressBar draws a colored bar like: [████████░░░░░░]
+func renderProgressBar(value, max float64, width int) string {
+	if max <= 0 {
+		max = 100
+	}
+	pct := value / max
+	if pct > 1 {
+		pct = 1
+	}
+	if pct < 0 {
+		pct = 0
+	}
+
+	filled := int(pct * float64(width))
+	empty := width - filled
+
+	// Color based on percentage
+	var barColor lipgloss.Color
+	switch {
+	case pct >= 0.9:
+		barColor = ColorRed
+	case pct >= 0.7:
+		barColor = ColorYellow
+	default:
+		barColor = ColorGreen
+	}
+
+	filledStr := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled))
+	emptyStr := lipgloss.NewStyle().Foreground(ColorDim).Render(strings.Repeat("░", empty))
+
+	return fmt.Sprintf("[%s%s]", filledStr, emptyStr)
 }
 
 func formatBytes(b int64) string {
