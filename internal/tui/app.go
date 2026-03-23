@@ -1945,7 +1945,7 @@ func (a App) View() string {
 	statusBar := StatusBarStyle.Width(a.width).Render(statusStr)
 
 	// Layout
-	sideW := 38
+	sideW := a.calcSidebarWidth()
 	mainW := a.width - sideW - 4
 	if mainW < 40 {
 		mainW = 40
@@ -2753,6 +2753,50 @@ func (a *App) ensureSidebarVisible() {
 }
 
 // sidebarVisibleRows returns how many container rows fit in the sidebar
+// calcSidebarWidth dynamically sizes sidebar based on longest container name.
+// Layout per line: "▸"(1) + "%2d"(2-3) + indicator(2) + rtIcon(2) + name + " "(1) + rightInfo(~8)
+// Overhead = ~16 terminal cells (including ▸ prefix and right info)
+func (a App) calcSidebarWidth() int {
+	const overhead = 16 // fixed cells around the name
+	const minW = 30
+	const maxW = 50
+
+	maxName := 0
+	for _, c := range a.containers {
+		if len(c.Name) > maxName {
+			maxName = len(c.Name)
+		}
+	}
+
+	w := overhead + maxName
+	if w < minW {
+		w = minW
+	}
+	if w > maxW {
+		w = maxW
+	}
+	// Don't let sidebar eat more than 40% of terminal width
+	limit := a.width * 40 / 100
+	if limit < minW {
+		limit = minW
+	}
+	if w > limit {
+		w = limit
+	}
+	return w
+}
+
+// sidebarNameMax returns how many chars of container name can fit in sidebar
+func (a App) sidebarNameMax() int {
+	const overhead = 16
+	w := a.calcSidebarWidth()
+	nameMax := w - overhead
+	if nameMax < 8 {
+		nameMax = 8
+	}
+	return nameMax
+}
+
 func (a App) sidebarVisibleRows() int {
 	// contentH - title(2 lines) - footer hint(2 lines) - border padding
 	h := a.height - 4 - 4
@@ -2830,8 +2874,9 @@ func (a App) renderSidebar() string {
 		}
 
 		name := c.Name
-		if len(name) > 14 {
-			name = name[:12] + ".."
+		nameMax := a.sidebarNameMax()
+		if len(name) > nameMax {
+			name = name[:nameMax-2] + ".."
 		}
 
 		rightInfo := ""
@@ -2841,7 +2886,7 @@ func (a App) renderSidebar() string {
 			rightInfo = strings.ToLower(c.Status)
 		}
 
-		line := fmt.Sprintf("%2d%s%s%s%-14s %s", i, indicator, rtIcon, traceIcon, name, rightInfo)
+		line := fmt.Sprintf("%2d%s%s%s%-*s %s", i, indicator, rtIcon, traceIcon, nameMax, name, rightInfo)
 
 		if i == a.selected {
 			line = SelectedContainerStyle.Render("▸" + line)
