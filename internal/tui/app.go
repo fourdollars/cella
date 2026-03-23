@@ -684,8 +684,19 @@ func (a App) View() string {
 		contentH = 10
 	}
 
-	sidebarStyled := SidebarStyle.Width(sideW).Height(contentH).Render(sidebar)
-	dashboardStyled := MainPanelStyle.Width(mainW).Height(contentH).Render(dashboard)
+	// Dynamic border colors based on focus
+	sidebarBorder := ColorBorder
+	mainBorder := ColorBorder
+	if a.focus == panelSidebar {
+		sidebarBorder = ColorBorderFocus
+	} else {
+		mainBorder = ColorBorderFocus
+	}
+
+	sidebarStyled := SidebarStyle.Width(sideW).Height(contentH).
+		BorderForeground(sidebarBorder).Render(sidebar)
+	dashboardStyled := MainPanelStyle.Width(mainW).Height(contentH).
+		BorderForeground(mainBorder).Render(dashboard)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, dashboardStyled)
 
