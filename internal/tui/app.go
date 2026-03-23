@@ -1945,7 +1945,7 @@ func (a App) View() string {
 	statusBar := StatusBarStyle.Width(a.width).Render(statusStr)
 
 	// Layout
-	sideW := 34
+	sideW := 38
 	mainW := a.width - sideW - 4
 	if mainW < 40 {
 		mainW = 40
@@ -2824,24 +2824,24 @@ func (a App) renderSidebar() string {
 		}
 
 		// Show trace indicator
-		traceIcon := " "
+		traceIcon := ""
 		if _, ok := a.tracers[c.Name]; ok {
 			traceIcon = "🔬"
 		}
 
 		name := c.Name
-		if len(name) > 13 {
-			name = name[:11] + ".."
+		if len(name) > 14 {
+			name = name[:12] + ".."
 		}
 
 		rightInfo := ""
 		if c.Status == "Running" {
-			rightInfo = fmt.Sprintf("%4.1f%% %s", m.CPUPercent, formatBytesShort(c.MemoryCur))
+			rightInfo = fmt.Sprintf("%.0f%% %s", m.CPUPercent, formatBytesShort(c.MemoryCur))
 		} else {
 			rightInfo = strings.ToLower(c.Status)
 		}
 
-		line := fmt.Sprintf("%2d %s%s%s %-13s %s", i, indicator, rtIcon, traceIcon, name, rightInfo)
+		line := fmt.Sprintf("%2d%s%s%s%-14s %s", i, indicator, rtIcon, traceIcon, name, rightInfo)
 
 		if i == a.selected {
 			line = SelectedContainerStyle.Render("▸" + line)
