@@ -229,9 +229,10 @@ func (t *Tracer) collectSnapshot(ctx context.Context, pids []int) *Snapshot {
 
 	script := fmt.Sprintf(`tracepoint:raw_syscalls:sys_enter /%s/ { @[args.id] = count(); }`, filter)
 
-	// Use `sudo timeout --signal=INT 3 bpftrace -e <script>`
+	// Use `sudo -n timeout --signal=INT 3 bpftrace -e <script>`
+	// sudo -n = non-interactive (no password prompt, fails fast if no NOPASSWD)
 	// timeout sends SIGINT after 3s → bpftrace prints aggregation → exits
-	cmd := exec.CommandContext(ctx, "sudo", "timeout", "--signal=INT", "3", "bpftrace", "-e", script)
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "timeout", "--signal=INT", "3", "bpftrace", "-e", script)
 	out, err := cmd.CombinedOutput()
 
 	outStr := string(out)

@@ -416,7 +416,7 @@ func startLogStream(rt runtime.Runtime, name string, rtName string, ch chan stri
 			cmd = exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "200", name)
 		} else {
 			// LXD: exec journalctl inside container
-			cmd = exec.CommandContext(ctx, "sudo", "lxc", "exec", name, "--", "sh", "-c",
+			cmd = exec.CommandContext(ctx, "lxc", "exec", name, "--", "sh", "-c",
 				"journalctl -f -n 200 2>/dev/null || tail -f /var/log/syslog 2>/dev/null || tail -f /var/log/messages 2>/dev/null")
 		}
 
@@ -501,7 +501,7 @@ func fetchNetInfo(rt runtime.Runtime, name string, rtName string) tea.Cmd {
 }
 
 func enterShell(containerName string) tea.Cmd {
-	c := exec.Command("sudo", "lxc", "exec", containerName, "--", "/bin/bash")
+	c := exec.Command("lxc", "exec", containerName, "--", "/bin/bash")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		if err != nil {
 			return execResultMsg{err: fmt.Errorf("shell exited: %w", err)}

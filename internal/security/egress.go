@@ -13,6 +13,14 @@ type EgressRule struct {
 	DenyAll   bool     // if true, deny all except Allow list
 }
 
+// nftCmd returns an *exec.Cmd that runs nft via "sudo -n" (non-interactive).
+// This avoids blocking on a password prompt inside the TUI.
+// If the current user already has CAP_NET_ADMIN, sudo -n still works fine.
+func nftCmd(args ...string) *exec.Cmd {
+	full := append([]string{"-n", "nft"}, args...)
+	return exec.Command("sudo", full...)
+}
+
 // ApplyEgressRules generates and applies nftables rules for a container
 func ApplyEgressRules(rule EgressRule) error {
 	if len(rule.Allow) == 0 && !rule.DenyAll {
@@ -48,8 +56,8 @@ func ApplyEgressRules(rule EgressRule) error {
 
 	ruleset := strings.Join(rules, "\n")
 
-	// Apply via nft
-	cmd := exec.Command("nft", "-f", "-")
+	// Apply via nft (through sudo -n)
+	cmd := nftCmd("-f", "-")
 	cmd.Stdin = strings.NewReader(ruleset)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -62,7 +70,7 @@ func ApplyEgressRules(rule EgressRule) error {
 // RemoveEgressRules removes nftables rules for a container
 func RemoveEgressRules(container string) error {
 	tableName := fmt.Sprintf("cella_%s", sanitizeName(container))
-	cmd := exec.Command("nft", "delete", "table", "inet", tableName)
+	cmd := nftCmd("delete", "table", "inet", tableName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Table might not exist, that's OK
@@ -77,7 +85,7 @@ func RemoveEgressRules(container string) error {
 // ListEgressRules reads current nftables rules for a container
 func ListEgressRules(container string) (string, error) {
 	tableName := fmt.Sprintf("cella_%s", sanitizeName(container))
-	cmd := exec.Command("nft", "list", "table", "inet", tableName)
+	cmd := nftCmd("list", "table", "inet", tableName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("nft list failed: %s: %w", string(output), err)
