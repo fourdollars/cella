@@ -376,19 +376,28 @@ func (d *DockerClient) GetConfig(ctx context.Context, name string) (*InstanceCon
 }
 
 func (d *DockerClient) UpdateConfig(ctx context.Context, name string, config map[string]string) error {
-	// Docker doesn't support live config update like LXD
-	// We can update resource limits via /containers/{id}/update
+	// Docker resource update via POST /containers/{id}/update
 	update := map[string]interface{}{}
 
 	if v, ok := config["limits.memory"]; ok {
-		update["Memory"] = parseDockerMemory(v)
+		mem := parseDockerMemory(v)
+		if mem < 6*1024*1024 {
+			return fmt.Errorf("Docker minimum memory limit is 6MB")
+		}
+		update["Memory"] = mem
+		update["MemorySwap"] = mem * 2 // swap = 2x memory (Docker requires swap >= memory)
 	}
 	if v, ok := config["limits.cpu"]; ok {
-		// Try to parse as NanoCPUs (float)
-		if f, err := fmt.Sscanf(v, "%f"); err == nil && f > 0 {
-			_ = f // parsed but we use Sscanf differently
+		// Check if it's a cpuset (ranges/lists like "0-3" or "0,2,4")
+		if strings.ContainsAny(v, "-,") {
+			update["CpusetCpus"] = v
+		} else {
+			// Plain number — convert to NanoCPUs
+			var cpus float64
+			if _, err := fmt.Sscanf(v, "%f", &cpus); err == nil && cpus > 0 {
+				update["NanoCPUs"] = int64(cpus * 1e9)
+			}
 		}
-		update["CpusetCpus"] = v
 	}
 
 	if len(update) == 0 {
@@ -460,19 +469,35 @@ func formatDockerBytes(b int64) string {
 }
 
 func parseDockerMemory(s string) int64 {
-	s = strings.TrimSpace(strings.ToUpper(s))
+	s = strings.TrimSpace(s)
+	upper := strings.ToUpper(s)
 	var multiplier int64 = 1
-	if strings.HasSuffix(s, "GB") || strings.HasSuffix(s, "GIB") {
+	var numStr string
+
+	switch {
+	case strings.HasSuffix(upper, "GB"):
 		multiplier = 1 << 30
-		s = strings.TrimRight(s, "GIBgib")
-	} else if strings.HasSuffix(s, "MB") || strings.HasSuffix(s, "MIB") {
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(upper, "GIB"):
+		multiplier = 1 << 30
+		numStr = s[:len(s)-3]
+	case strings.HasSuffix(upper, "MB"):
 		multiplier = 1 << 20
-		s = strings.TrimRight(s, "MIBmib")
-	} else if strings.HasSuffix(s, "KB") || strings.HasSuffix(s, "KIB") {
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(upper, "MIB"):
+		multiplier = 1 << 20
+		numStr = s[:len(s)-3]
+	case strings.HasSuffix(upper, "KB"):
 		multiplier = 1 << 10
-		s = strings.TrimRight(s, "KIBkib")
+		numStr = s[:len(s)-2]
+	case strings.HasSuffix(upper, "KIB"):
+		multiplier = 1 << 10
+		numStr = s[:len(s)-3]
+	default:
+		numStr = s
 	}
+
 	var val float64
-	fmt.Sscanf(s, "%f", &val)
+	fmt.Sscanf(strings.TrimSpace(numStr), "%f", &val)
 	return int64(val) * multiplier
 }
