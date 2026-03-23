@@ -30,6 +30,7 @@ const (
 	panelLogs
 	panelResources
 	panelSnapshots
+	panelHelp
 )
 
 const tickInterval = 2 * time.Second
@@ -139,6 +140,12 @@ type App struct {
 	snapInput    string
 	snapNaming   bool // entering snapshot name
 	snapCloning  bool // entering clone target name
+
+	// Help overlay
+	showHelp bool
+
+	// Sidebar scroll
+	sideScroll int
 
 	// Quit confirmation
 	confirmQuit bool
@@ -400,17 +407,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Help overlay — any key dismisses
+		if a.showHelp {
+			a.showHelp = false
+			return a, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			a.confirmQuit = true
 			return a, nil
+		case "?":
+			a.showHelp = true
+			return a, nil
 		case "up", "k":
 			if a.focus == panelSidebar && a.selected > 0 {
 				a.selected--
+				a.ensureSidebarVisible()
 			}
 		case "down", "j":
 			if a.focus == panelSidebar && a.selected < len(a.containers)-1 {
 				a.selected++
+				a.ensureSidebarVisible()
 			}
 		case "tab":
 			if a.focus == panelSidebar {
@@ -1263,6 +1281,10 @@ func (a App) View() string {
 		return "\n  Loading cella...\n"
 	}
 
+	// Help overlay
+	if a.showHelp {
+		return a.renderHelpOverlay()
+	}
 	if a.err != nil && len(a.containers) == 0 {
 		return fmt.Sprintf("\n  ❌ Error: %v\n\n  Make sure LXD is running and accessible.\n  Press q to quit.\n", a.err)
 	}
@@ -1961,6 +1983,30 @@ func (a App) renderSnapshotsPanel() string {
 	return b.String()
 }
 
+// ensureSidebarVisible adjusts sideScroll so selected item is visible
+func (a *App) ensureSidebarVisible() {
+	visibleH := a.sidebarVisibleRows()
+	if visibleH <= 0 {
+		return
+	}
+	if a.selected < a.sideScroll {
+		a.sideScroll = a.selected
+	}
+	if a.selected >= a.sideScroll+visibleH {
+		a.sideScroll = a.selected - visibleH + 1
+	}
+}
+
+// sidebarVisibleRows returns how many container rows fit in the sidebar
+func (a App) sidebarVisibleRows() int {
+	// contentH - title(2 lines) - footer hint(2 lines) - border padding
+	h := a.height - 4 - 4
+	if h < 3 {
+		h = 3
+	}
+	return h
+}
+
 // ── Sidebar & Dashboard ──
 
 func (a App) renderSidebar() string {
@@ -1972,7 +2018,39 @@ func (a App) renderSidebar() string {
 	}
 	b.WriteString(TitleStyle.Render("Containers"+focusIndicator) + "\n\n")
 
-	for i, c := range a.containers {
+	visibleH := a.sidebarVisibleRows()
+	total := len(a.containers)
+
+	// Clamp scroll
+	maxScroll := total - visibleH
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	scroll := a.sideScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+
+	// Scroll up indicator
+	if scroll > 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  ▲ more") + "\n")
+		visibleH-- // one line used for indicator
+	}
+
+	end := scroll + visibleH
+	if end > total {
+		end = total
+	}
+
+	// Need bottom indicator?
+	needBottomIndicator := end < total
+
+	if needBottomIndicator && end > scroll+1 {
+		end-- // reserve one line for ▼ indicator
+	}
+
+	for i := scroll; i < end; i++ {
+		c := a.containers[i]
 		m := a.getMetric(c.Name)
 		indicator := "○"
 		style := StoppedContainerStyle
@@ -2019,23 +2097,96 @@ func (a App) renderSidebar() string {
 		b.WriteString(line + "\n")
 	}
 
-	b.WriteString("\n")
-	b.WriteString(SectionHeaderStyle.Render("Keys") + "\n")
-	helps := [][]string{
-		{"↑↓", "select"}, {"e", "exec"}, {"l", "logs"},
-		{"r", "resources"}, {"n", "snapshots"}, {"t", "trace"},
-		{"G", "seccomp"}, {"T", "stop trace"},
-		{"s", "start"}, {"x", "stop"}, {"p", "pause"},
-		{"1-3", "sort"}, {"tab", "panel"}, {"q", "quit"},
-	}
-	for _, h := range helps {
-		b.WriteString(fmt.Sprintf(" %s %s\n",
-			HelpKeyStyle.Render(h[0]),
-			HelpDescStyle.Render(h[1]),
-		))
+	// Scroll down indicator
+	if needBottomIndicator {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  ▼ more") + "\n")
 	}
 
+	// Compact footer hint
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render(" [?] help") + "\n")
+
 	return b.String()
+}
+
+func (a App) renderHelpOverlay() string {
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorBlue).
+		MarginBottom(1)
+
+	sectionStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorYellow).
+		MarginTop(1)
+
+	keyStyle := HelpKeyStyle.Copy().Width(10)
+	descStyle := HelpDescStyle
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("  📖 cella — Keyboard Shortcuts") + "\n\n")
+
+	b.WriteString(sectionStyle.Render("  Navigation") + "\n")
+	navKeys := [][]string{
+		{"↑/k", "Move up"},
+		{"↓/j", "Move down"},
+		{"tab", "Switch panel (sidebar ↔ main)"},
+		{"1", "Sort by name"},
+		{"2", "Sort by CPU"},
+		{"3", "Sort by memory"},
+	}
+	for _, h := range navKeys {
+		b.WriteString(fmt.Sprintf("  %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
+	}
+
+	b.WriteString(sectionStyle.Render("  Container Actions") + "\n")
+	actionKeys := [][]string{
+		{"s", "Start container"},
+		{"x", "Stop container"},
+		{"p", "Pause / Unpause"},
+		{"e", "Execute command"},
+		{"l", "View logs"},
+	}
+	for _, h := range actionKeys {
+		b.WriteString(fmt.Sprintf("  %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
+	}
+
+	b.WriteString(sectionStyle.Render("  Panels") + "\n")
+	panelKeys := [][]string{
+		{"r", "Resource limits & usage"},
+		{"n", "Snapshots & clone"},
+		{"t", "Start syscall trace"},
+		{"T", "Stop syscall trace"},
+		{"G", "Generate seccomp profile"},
+		{"S", "Save seccomp profile"},
+	}
+	for _, h := range panelKeys {
+		b.WriteString(fmt.Sprintf("  %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
+	}
+
+	b.WriteString(sectionStyle.Render("  General") + "\n")
+	generalKeys := [][]string{
+		{"?", "Show this help"},
+		{"q", "Quit (with confirmation)"},
+		{"esc", "Back / close panel"},
+	}
+	for _, h := range generalKeys {
+		b.WriteString(fmt.Sprintf("  %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
+	}
+
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Italic(true).
+		Render("  Press any key to close") + "\n")
+
+	overlay := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBlue).
+		Padding(1, 2).
+		Width(50).
+		Render(b.String())
+
+	// Center the overlay
+	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay)
 }
 
 func (a App) renderDashboard() string {
