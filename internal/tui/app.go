@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -47,6 +48,10 @@ type execResultMsg struct {
 }
 type logLinesMsg []string
 type logErrMsg error
+type logStreamMsg struct {
+	line string
+}
+type logStreamDoneMsg struct{}
 type configMsg struct {
 	config  *runtime.InstanceConfig
 	hostRes *lxd.HostResources
@@ -114,9 +119,12 @@ type App struct {
 	seccompScroll int
 
 	// Container logs
-	logLines  []string
-	logScroll int
-	logTarget string
+	logLines    []string
+	logScroll   int
+	logTarget   string
+	logFollow   bool // true = streaming mode
+	logCancel   context.CancelFunc // cancel log stream
+	logCh       chan string // log stream channel
 
 	// Flash message (temporary notification)
 	flashText   string
@@ -349,6 +357,55 @@ func runExecInContainer(rt runtime.Runtime, containerName string, command string
 	}
 }
 
+// startLogStream starts a background log tail process
+func startLogStream(rt runtime.Runtime, name string, rtName string, ch chan string, ctx context.Context) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		if rtName == "docker" {
+			cmd = exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "200", name)
+		} else {
+			// LXD: exec journalctl inside container
+			cmd = exec.CommandContext(ctx, "sudo", "lxc", "exec", name, "--", "sh", "-c",
+				"journalctl -f -n 200 2>/dev/null || tail -f /var/log/syslog 2>/dev/null || tail -f /var/log/messages 2>/dev/null")
+		}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			ch <- fmt.Sprintf("❌ pipe error: %v", err)
+			return logStreamDoneMsg{}
+		}
+		cmd.Stderr = cmd.Stdout // merge stderr
+
+		if err := cmd.Start(); err != nil {
+			ch <- fmt.Sprintf("❌ start error: %v", err)
+			return logStreamDoneMsg{}
+		}
+
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				cmd.Process.Kill()
+				return logStreamDoneMsg{}
+			case ch <- scanner.Text():
+			}
+		}
+		cmd.Wait()
+		return logStreamDoneMsg{}
+	}
+}
+
+// listenLogStream reads one line from log channel
+func listenLogStream(ch chan string) tea.Cmd {
+	return func() tea.Msg {
+		line, ok := <-ch
+		if !ok {
+			return logStreamDoneMsg{}
+		}
+		return logStreamMsg{line: line}
+	}
+}
+
 func enterShell(containerName string) tea.Cmd {
 	c := exec.Command("sudo", "lxc", "exec", containerName, "--", "/bin/bash")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
@@ -532,16 +589,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "l":
-			// Container logs
+			// Container logs (streaming)
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
 				if c.Status == "Running" {
+					// Stop any existing log stream
+					if a.logCancel != nil {
+						a.logCancel()
+					}
 					a.logTarget = c.Name
 					a.logLines = nil
 					a.logScroll = 0
+					a.logFollow = true
 					a.prevFocus = a.focus
 					a.focus = panelLogs
-					return a, fetchLogs(a.runtimeFor(c.Name), c.Name)
+					ctx, cancel := context.WithCancel(context.Background())
+					a.logCancel = cancel
+					a.logCh = make(chan string, 100)
+					rtName := a.containerRuntime(c.Name)
+					return a, tea.Batch(
+						startLogStream(a.runtimeFor(c.Name), c.Name, rtName, a.logCh, ctx),
+						listenLogStream(a.logCh),
+					)
 				}
 			}
 		case "r":
@@ -695,6 +764,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(a.logLines) > visibleH {
 			a.logScroll = len(a.logLines) - visibleH
 		}
+		return a, nil
+
+	case logStreamMsg:
+		a.logLines = append(a.logLines, msg.line)
+		// Cap at 2000 lines
+		if len(a.logLines) > 2000 {
+			a.logLines = a.logLines[len(a.logLines)-2000:]
+		}
+		// Auto-scroll to bottom if following
+		if a.logFollow {
+			visibleH := a.height - 10
+			if visibleH < 5 {
+				visibleH = 5
+			}
+			if len(a.logLines) > visibleH {
+				a.logScroll = len(a.logLines) - visibleH
+			}
+		}
+		// Keep listening
+		if a.logCh != nil {
+			return a, listenLogStream(a.logCh)
+		}
+		return a, nil
+
+	case logStreamDoneMsg:
+		a.logFollow = false
 		return a, nil
 
 	case logErrMsg:
@@ -1033,9 +1128,16 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
+		// Stop log stream on exit
+		if a.logCancel != nil {
+			a.logCancel()
+			a.logCancel = nil
+		}
+		a.logFollow = false
 		a.focus = a.prevFocus
 		return a, nil
 	case "up", "k":
+		a.logFollow = false // manual scroll disables follow
 		if a.logScroll > 0 {
 			a.logScroll--
 		}
@@ -1048,6 +1150,7 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.logScroll++
 		}
 	case "g":
+		a.logFollow = false
 		a.logScroll = 0
 	case "G":
 		maxScroll := len(a.logLines) - (a.height - 10)
@@ -1055,9 +1158,25 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			maxScroll = 0
 		}
 		a.logScroll = maxScroll
+		a.logFollow = true // G = go to bottom + follow
+	case "F":
+		// Toggle follow mode
+		a.logFollow = !a.logFollow
+		if a.logFollow {
+			maxScroll := len(a.logLines) - (a.height - 10)
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			a.logScroll = maxScroll
+		}
 	case "r":
-		// Refresh logs
+		// Refresh logs (non-streaming)
 		if a.logTarget != "" {
+			if a.logCancel != nil {
+				a.logCancel()
+				a.logCancel = nil
+			}
+			a.logFollow = false
 			return a, fetchLogs(a.runtimeFor(a.logTarget), a.logTarget)
 		}
 	}
@@ -1791,7 +1910,11 @@ func (a App) renderSeccompPanel() string {
 func (a App) renderLogsPanel() string {
 	var b strings.Builder
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("📋 Logs — %s ◆", a.logTarget)) + "\n")
+	followTag := ""
+	if a.logFollow {
+		followTag = lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).Render(" 🔴 LIVE")
+	}
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("📋 Logs — %s ◆", a.logTarget)) + followTag + "\n")
 
 	if len(a.logLines) == 0 {
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
