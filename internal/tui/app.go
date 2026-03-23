@@ -32,6 +32,7 @@ const (
 	panelResources
 	panelSnapshots
 	panelHelp
+	panelNetwork
 )
 
 const tickInterval = 2 * time.Second
@@ -52,6 +53,11 @@ type logStreamMsg struct {
 	line string
 }
 type logStreamDoneMsg struct{}
+type netInfoMsg struct {
+	conns   []string
+	listens []string
+	err     error
+}
 type configMsg struct {
 	config  *runtime.InstanceConfig
 	hostRes *lxd.HostResources
@@ -152,6 +158,13 @@ type App struct {
 
 	// Help overlay
 	showHelp bool
+
+	// Network panel
+	netTarget   string
+	netConns    []string   // connection lines
+	netListens  []string   // listening ports
+	netRxHist   []int64    // RX rate history (bytes/s)
+	netTxHist   []int64    // TX rate history (bytes/s)
 
 	// Sidebar scroll
 	sideScroll int
@@ -406,6 +419,49 @@ func listenLogStream(ch chan string) tea.Cmd {
 	}
 }
 
+func fetchNetInfo(rt runtime.Runtime, name string, rtName string) tea.Cmd {
+	return func() tea.Msg {
+		if rt == nil {
+			return netInfoMsg{err: fmt.Errorf("no runtime")}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		// Get connections
+		var connCmd, listenCmd []string
+		if rtName == "docker" {
+			connCmd = []string{"sh", "-c", "ss -tnp 2>/dev/null || netstat -tnp 2>/dev/null || echo 'no tool'"}
+			listenCmd = []string{"sh", "-c", "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'no tool'"}
+		} else {
+			connCmd = []string{"/bin/sh", "-c", "ss -tnp 2>/dev/null || netstat -tnp 2>/dev/null || echo 'no tool'"}
+			listenCmd = []string{"/bin/sh", "-c", "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'no tool'"}
+		}
+
+		connResult, _ := rt.ExecCommand(ctx, name, connCmd)
+		listenResult, _ := rt.ExecCommand(ctx, name, listenCmd)
+
+		var conns, listens []string
+		if connResult != nil {
+			for _, line := range strings.Split(connResult.Stdout, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "State") && !strings.HasPrefix(line, "Proto") {
+					conns = append(conns, line)
+				}
+			}
+		}
+		if listenResult != nil {
+			for _, line := range strings.Split(listenResult.Stdout, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "State") && !strings.HasPrefix(line, "Proto") {
+					listens = append(listens, line)
+				}
+			}
+		}
+
+		return netInfoMsg{conns: conns, listens: listens}
+	}
+}
+
 func enterShell(containerName string) tea.Cmd {
 	c := exec.Command("sudo", "lxc", "exec", containerName, "--", "/bin/bash")
 	return tea.ExecProcess(c, func(err error) tea.Msg {
@@ -484,6 +540,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelLogs {
 			return a.handleLogsPanel(msg)
 		}
+		if a.focus == panelNetwork {
+			return a.handleNetworkPanel(msg)
+		}
 		if a.focus == panelResources {
 			return a.handleResourcesPanel(msg)
 		}
@@ -556,6 +615,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.applyFilter()
 			a.selected = 0
 			a.sideScroll = 0
+		case "w":
+			// Network panel
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if c.Status == "Running" {
+					a.netTarget = c.Name
+					a.netConns = nil
+					a.netListens = nil
+					a.prevFocus = a.focus
+					a.focus = panelNetwork
+					rtName := a.containerRuntime(c.Name)
+					return a, fetchNetInfo(a.runtimeFor(c.Name), c.Name, rtName)
+				}
+			}
 		case "T":
 			// Stop tracing for selected container (from any normal panel)
 			if a.selected < len(a.containers) {
@@ -796,6 +869,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.logLines = []string{fmt.Sprintf("❌ Error fetching logs: %v", msg)}
 		return a, nil
 
+	case netInfoMsg:
+		if msg.err != nil {
+			a.addEvent(fmt.Sprintf("⚠ network: %v", msg.err))
+		} else {
+			a.netConns = msg.conns
+			a.netListens = msg.listens
+			// Track rate history
+			if a.selected < len(a.containers) {
+				m := a.getMetric(a.containers[a.selected].Name)
+				a.netRxHist = append(a.netRxHist, m.NetRxRate)
+				a.netTxHist = append(a.netTxHist, m.NetTxRate)
+				if len(a.netRxHist) > sparklineLen {
+					a.netRxHist = a.netRxHist[len(a.netRxHist)-sparklineLen:]
+				}
+				if len(a.netTxHist) > sparklineLen {
+					a.netTxHist = a.netTxHist[len(a.netTxHist)-sparklineLen:]
+				}
+			}
+		}
+		return a, nil
+
 	case flashExpireMsg:
 		if time.Now().After(a.flashExpiry) {
 			a.flashText = ""
@@ -928,6 +1022,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchAllContainers(a.runtimes))
 			if a.focus == panelResources && a.resTarget != "" {
 				cmds = append(cmds, fetchConfig(a.runtimeFor(a.resTarget), a.resTarget))
+			}
+			if a.focus == panelNetwork && a.netTarget != "" {
+				cmds = append(cmds, fetchNetInfo(a.runtimeFor(a.netTarget), a.netTarget, a.containerRuntime(a.netTarget)))
 			}
 		}
 		return a, tea.Batch(cmds...)
@@ -1120,6 +1217,19 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			a.addEvent(fmt.Sprintf("💾 saved to %s", filename))
 			return a, a.setFlash(fmt.Sprintf("✅ Saved to %s", filename))
+		}
+	}
+	return a, nil
+}
+
+func (a App) handleNetworkPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "r":
+		if a.netTarget != "" {
+			return a, fetchNetInfo(a.runtimeFor(a.netTarget), a.netTarget, a.containerRuntime(a.netTarget))
 		}
 	}
 	return a, nil
@@ -1546,6 +1656,8 @@ func (a App) View() string {
 		dashboard = a.renderSeccompPanel()
 	case panelLogs:
 		dashboard = a.renderLogsPanel()
+	case panelNetwork:
+		dashboard = a.renderNetworkPanel()
 	case panelResources:
 		dashboard = a.renderResourcesPanel()
 	case panelSnapshots:
@@ -1900,6 +2012,77 @@ func (a App) renderSeccompPanel() string {
 			Bold(true).
 			Padding(0, 1).
 			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}
+
+// ── Network panel ──
+
+func (a App) renderNetworkPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("🌐 Network — %s ◆", a.netTarget)) + "\n\n")
+
+	m := a.getMetric(a.netTarget)
+	
+	// RX / TX graphs
+	rxMax := int64(1)
+	txMax := int64(1)
+	for _, v := range a.netRxHist {
+		if v > rxMax {
+			rxMax = v
+		}
+	}
+	for _, v := range a.netTxHist {
+		if v > txMax {
+			txMax = v
+		}
+	}
+
+	b.WriteString(SectionHeaderStyle.Render("Traffic") + "\n")
+	b.WriteString(fmt.Sprintf("  ↓ RX: %-10s  ↑ TX: %s\n", formatBytes(m.NetRxRate)+"/s", formatBytes(m.NetTxRate)+"/s"))
+	
+	barWidth := a.width - 45
+	if barWidth < 20 {
+		barWidth = 20
+	}
+	if barWidth > 60 {
+		barWidth = 60
+	}
+
+	rxPct := float64(m.NetRxRate) / float64(rxMax) * 100
+	if m.NetRxRate == 0 { rxPct = 0 }
+	txPct := float64(m.NetTxRate) / float64(txMax) * 100
+	if m.NetTxRate == 0 { txPct = 0 }
+
+	b.WriteString(fmt.Sprintf("  RX %s\n", renderProgressBar(rxPct, 100, barWidth)))
+	b.WriteString(fmt.Sprintf("  TX %s\n\n", renderProgressBar(txPct, 100, barWidth)))
+
+	// Listening ports
+	b.WriteString(SectionHeaderStyle.Render(fmt.Sprintf("Listening Ports (%d)", len(a.netListens))) + "\n")
+	if len(a.netListens) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  No listening ports found") + "\n")
+	} else {
+		for _, l := range a.netListens {
+			b.WriteString(fmt.Sprintf("  %s\n", l))
+		}
+	}
+	b.WriteString("\n")
+
+	// Active Connections
+	b.WriteString(SectionHeaderStyle.Render(fmt.Sprintf("Active Connections (%d)", len(a.netConns))) + "\n")
+	if len(a.netConns) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  No active connections found") + "\n")
+	} else {
+		limit := 15
+		for i, c := range a.netConns {
+			if i >= limit {
+				b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render(fmt.Sprintf("  ... and %d more", len(a.netConns)-limit)) + "\n")
+				break
+			}
+			b.WriteString(fmt.Sprintf("  %s\n", c))
+		}
 	}
 
 	return b.String()
