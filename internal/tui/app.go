@@ -709,8 +709,22 @@ func (a App) renderSyscallPanel() string {
 
 	snap := tracer.GetSnapshot()
 	if snap == nil {
+		lastErr := tracer.LastError()
+		msg := "⏳ Collecting first snapshot... (wait ~5 seconds)\n"
+		if lastErr != "" {
+			msg += fmt.Sprintf("\n  ⚠ %s\n", lastErr)
+		}
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
-			Render("\n  ⏳ Collecting first snapshot... (wait ~3 seconds)\n"))
+			Render("\n  " + msg))
+		return b.String()
+	}
+
+	// Show error if present
+	if snap.Error != "" && snap.Total == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorRed).
+			Render(fmt.Sprintf("\n  ⚠ %s\n", snap.Error)))
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render("\n  Retrying every 5 seconds...\n"))
 		return b.String()
 	}
 

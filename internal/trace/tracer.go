@@ -26,9 +26,9 @@ const (
 
 // SyscallStats holds aggregated syscall statistics
 type SyscallStats struct {
-	ID    int
-	Name  string
-	Count int64
+	ID     int
+	Name   string
+	Count  int64
 	Family SyscallFamily
 }
 
@@ -38,11 +38,12 @@ type Snapshot struct {
 	Total     int64
 	ByFamily  map[SyscallFamily]int64
 	TopCalls  []SyscallStats
+	Error     string // non-empty if collection failed
 }
 
 // Tracer tracks syscall activity for a container using bpftrace
 type Tracer struct {
-	mu          sync.RWMutex
+	mu            sync.RWMutex
 	containerName string
 	cgroupPath    string
 	pids          []int
@@ -51,6 +52,7 @@ type Tracer struct {
 	maxHistory    int
 	cancel        context.CancelFunc
 	running       bool
+	lastError     string
 }
 
 // NewTracer creates a syscall tracer for a container
@@ -58,7 +60,7 @@ func NewTracer(containerName, cgroupPath string) *Tracer {
 	return &Tracer{
 		containerName: containerName,
 		cgroupPath:    cgroupPath,
-		maxHistory:    60, // 60 snapshots = 2 min at 2s interval
+		maxHistory:    60,
 	}
 }
 
@@ -74,16 +76,26 @@ func (t *Tracer) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Find all PIDs in the container's cgroup
+	// Quick check: can we find PIDs?
 	pids, err := t.findPIDs()
 	if err != nil {
+		t.mu.Lock()
+		t.running = false
+		t.mu.Unlock()
 		return fmt.Errorf("find container PIDs: %w", err)
+	}
+	if len(pids) == 0 {
+		t.mu.Lock()
+		t.running = false
+		t.mu.Unlock()
+		return fmt.Errorf("no PIDs found in %s", t.cgroupPath)
 	}
 	t.mu.Lock()
 	t.pids = pids
 	t.mu.Unlock()
 
-	go t.runBpftrace(ctx)
+	// Collect first snapshot immediately (don't wait for ticker)
+	go t.runLoop(ctx)
 	return nil
 }
 
@@ -120,9 +132,15 @@ func (t *Tracer) GetHistory() []Snapshot {
 	return result
 }
 
+// LastError returns the last error string (for debugging)
+func (t *Tracer) LastError() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.lastError
+}
+
 // findPIDs reads all PIDs from the container's cgroup
 func (t *Tracer) findPIDs() ([]int, error) {
-	// Recursively find all cgroup.procs files under the cgroup path
 	cmd := exec.Command("find", t.cgroupPath, "-name", "cgroup.procs", "-exec", "cat", "{}", ";")
 	out, err := cmd.Output()
 	if err != nil {
@@ -146,9 +164,12 @@ func (t *Tracer) findPIDs() ([]int, error) {
 	return pids, nil
 }
 
-// runBpftrace runs bpftrace in a loop, collecting 2-second snapshots
-func (t *Tracer) runBpftrace(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+// runLoop collects snapshots: first one immediately, then every 5 seconds
+func (t *Tracer) runLoop(ctx context.Context) {
+	// Collect first snapshot immediately
+	t.doCollect(ctx)
+
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -159,33 +180,42 @@ func (t *Tracer) runBpftrace(ctx context.Context) {
 			t.mu.Unlock()
 			return
 		case <-ticker.C:
-			// Refresh PIDs (processes come and go)
-			pids, err := t.findPIDs()
-			if err != nil || len(pids) == 0 {
-				continue
-			}
-			t.mu.Lock()
-			t.pids = pids
-			t.mu.Unlock()
-
-			snap := t.collectSnapshot(ctx, pids)
-			if snap != nil {
-				t.mu.Lock()
-				t.current = snap
-				t.history = append(t.history, *snap)
-				if len(t.history) > t.maxHistory {
-					t.history = t.history[len(t.history)-t.maxHistory:]
-				}
-				t.mu.Unlock()
-			}
+			t.doCollect(ctx)
 		}
 	}
 }
 
-// collectSnapshot uses bpftrace to get a 2-second syscall sample
+func (t *Tracer) doCollect(ctx context.Context) {
+	// Refresh PIDs
+	pids, err := t.findPIDs()
+	if err != nil || len(pids) == 0 {
+		t.mu.Lock()
+		t.lastError = fmt.Sprintf("findPIDs: %v (count=%d)", err, len(pids))
+		t.mu.Unlock()
+		return
+	}
+	t.mu.Lock()
+	t.pids = pids
+	t.mu.Unlock()
+
+	snap := t.collectSnapshot(ctx, pids)
+	t.mu.Lock()
+	if snap != nil {
+		t.current = snap
+		t.history = append(t.history, *snap)
+		if len(t.history) > t.maxHistory {
+			t.history = t.history[len(t.history)-t.maxHistory:]
+		}
+		t.lastError = ""
+	}
+	t.mu.Unlock()
+}
+
+// collectSnapshot uses `sudo timeout` + bpftrace to get a syscall sample.
+// Key insight: we use `timeout --signal=INT 3 bpftrace ...` so bpftrace
+// receives SIGINT and prints its aggregation maps before exiting.
+// Using context.WithTimeout would SIGKILL bpftrace, losing all output.
 func (t *Tracer) collectSnapshot(ctx context.Context, pids []int) *Snapshot {
-	// Build PID filter for bpftrace
-	// For large PID sets, we sample the first 20 to keep bpftrace overhead low
 	samplePIDs := pids
 	if len(samplePIDs) > 20 {
 		samplePIDs = samplePIDs[:20]
@@ -199,19 +229,34 @@ func (t *Tracer) collectSnapshot(ctx context.Context, pids []int) *Snapshot {
 
 	script := fmt.Sprintf(`tracepoint:raw_syscalls:sys_enter /%s/ { @[args.id] = count(); }`, filter)
 
-	bctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+	// Use `sudo timeout --signal=INT 3 bpftrace -e <script>`
+	// timeout sends SIGINT after 3s → bpftrace prints aggregation → exits
+	cmd := exec.CommandContext(ctx, "sudo", "timeout", "--signal=INT", "3", "bpftrace", "-e", script)
+	out, err := cmd.CombinedOutput()
 
-	cmd := exec.CommandContext(bctx, "sudo", "bpftrace", "-e", script)
-	out, _ := cmd.CombinedOutput()
+	outStr := string(out)
 
-	// Parse bpftrace output: @[NR]: count
+	// Parse output
 	snap := &Snapshot{
 		Timestamp: time.Now(),
 		ByFamily:  make(map[SyscallFamily]int64),
 	}
 
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	// If bpftrace had an actual error (not just timeout exit code 124)
+	if err != nil {
+		exitErr, ok := err.(*exec.ExitError)
+		if !ok || exitErr.ExitCode() != 124 {
+			// Real error, not timeout
+			snap.Error = fmt.Sprintf("bpftrace: %v | output: %s", err, truncate(outStr, 200))
+			t.mu.Lock()
+			t.lastError = snap.Error
+			t.mu.Unlock()
+			return snap
+		}
+		// exit code 124 = timeout sent signal, which is expected
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(outStr))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "@[") {
@@ -260,11 +305,21 @@ func (t *Tracer) collectSnapshot(ctx context.Context, pids []int) *Snapshot {
 		snap.TopCalls = snap.TopCalls[:15]
 	}
 
-	if snap.Total == 0 {
-		return nil
+	if snap.Total == 0 && snap.Error == "" {
+		snap.Error = fmt.Sprintf("no syscalls captured (pids=%d) | raw_len=%d", len(pids), len(outStr))
+		t.mu.Lock()
+		t.lastError = snap.Error
+		t.mu.Unlock()
 	}
 
 	return snap
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func sortSyscallStats(stats []SyscallStats) {
