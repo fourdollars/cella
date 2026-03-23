@@ -220,16 +220,28 @@ func fetchAllContainers(runtimes []runtime.Runtime) tea.Cmd {
 		if len(runtimes) == 0 {
 			return errMsg(fmt.Errorf("no container runtimes available"))
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
+
+		type result struct {
+			containers []runtime.ContainerInfo
+			err        error
+		}
+
+		ch := make(chan result, len(runtimes))
+		for _, rt := range runtimes {
+			go func(r runtime.Runtime) {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				containers, err := r.ListContainers(ctx)
+				ch <- result{containers, err}
+			}(rt)
+		}
 
 		var all []runtime.ContainerInfo
-		for _, rt := range runtimes {
-			containers, err := rt.ListContainers(ctx)
-			if err != nil {
-				continue // skip failed runtimes
+		for range runtimes {
+			res := <-ch
+			if res.err == nil {
+				all = append(all, res.containers...)
 			}
-			all = append(all, containers...)
 		}
 		return containersMsg(all)
 	}

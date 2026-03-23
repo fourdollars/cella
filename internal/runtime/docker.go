@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -23,10 +24,15 @@ func NewDockerClient(socketPath string) (*DockerClient, error) {
 		socketPath = "/var/run/docker.sock"
 	}
 
+	// Quick check: does the socket file exist?
+	if _, err := os.Stat(socketPath); err != nil {
+		return nil, fmt.Errorf("docker socket not found: %w", err)
+	}
+
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", socketPath)
+				return net.DialTimeout("unix", socketPath, 2*time.Second)
 			},
 		},
 		Timeout: 30 * time.Second,
