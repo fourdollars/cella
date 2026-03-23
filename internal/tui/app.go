@@ -2106,10 +2106,9 @@ func (a App) renderSyscallPanel() string {
 
 	// Top syscalls table
 	b.WriteString("\n" + SectionHeaderStyle.Render("Top Syscalls") + "\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).
-		Render("  NR   NAME                COUNT   FAMILY\n"))
-	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
-		Render("  " + strings.Repeat("─", 50) + "\n"))
+	header := fmt.Sprintf("  %-4s %-18s %6s %6s %-10s", "NR", "NAME", "COUNT", "%", "FAMILY")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render(header) + "\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  " + strings.Repeat("─", 48)) + "\n")
 
 	for i, sc := range snap.TopCalls {
 		if i >= 12 {
@@ -2136,12 +2135,17 @@ func (a App) renderSyscallPanel() string {
 			pct = float64(sc.Count) / float64(snap.Total) * 100
 		}
 
-		b.WriteString(fmt.Sprintf("  %-4d %-18s %6d %5.1f%% %s\n",
+		// Pad name to fixed width BEFORE applying ANSI style (otherwise escape codes break alignment)
+		paddedName := fmt.Sprintf("%-18s", sc.Name)
+		styledName := lipgloss.NewStyle().Foreground(ColorText).Render(paddedName)
+		styledFamily := lipgloss.NewStyle().Foreground(familyColor).Render(string(sc.Family))
+
+		b.WriteString(fmt.Sprintf("  %-4d %s %6d %5.1f%% %s\n",
 			sc.ID,
-			lipgloss.NewStyle().Foreground(ColorText).Render(sc.Name),
+			styledName,
 			sc.Count,
 			pct,
-			lipgloss.NewStyle().Foreground(familyColor).Render(string(sc.Family)),
+			styledFamily,
 		))
 	}
 
@@ -2866,6 +2870,13 @@ func (a App) renderSidebar() string {
 
 		name := c.Name
 		nameMax := a.sidebarNameMax()
+		// 🔬 trace icon takes 2 terminal cells — shrink name to compensate
+		if traceIcon != "" {
+			nameMax -= 2
+			if nameMax < 6 {
+				nameMax = 6
+			}
+		}
 		if len(name) > nameMax {
 			name = name[:nameMax-2] + ".."
 		}
