@@ -695,14 +695,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.ensureSidebarVisible()
 			}
 		case "1":
-			a.sortBy = "name"
-			a.sortContainers()
+			if a.focus == panelSidebar || a.focus == panelDashboard {
+				a.sortBy = "name"
+				a.sortContainers()
+			}
 		case "2":
-			a.sortBy = "cpu"
-			a.sortContainers()
+			if a.focus == panelSidebar || a.focus == panelDashboard {
+				a.sortBy = "cpu"
+				a.sortContainers()
+			}
 		case "3":
-			a.sortBy = "mem"
-			a.sortContainers()
+			if a.focus == panelSidebar || a.focus == panelDashboard {
+				a.sortBy = "mem"
+				a.sortContainers()
+			}
 		case "f":
 			// Cycle runtime filter: all → lxd → docker → all
 			switch a.runtimeFilter {
@@ -2075,6 +2081,9 @@ func (a App) renderStatusBar() string {
 		if a.policyMode == "egress-add" {
 			return " POLICY │ type domain → Enter │ Esc: cancel"
 		}
+		if a.policyMode == "egress-del-confirm" {
+			return " POLICY │ y: confirm delete all egress rules │ any key: cancel"
+		}
 		return " POLICY │ 1/2/3: seccomp profile │ a: add egress │ d: del egress │ r: refresh │ Esc/q: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
@@ -2555,7 +2564,18 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			if err == nil {
 				raw := strings.TrimSpace(string(out))
 				if strings.Contains(raw, "seccomp") {
-					seccompName = raw
+					// Try to extract the profile path and read its name
+					parts := strings.SplitN(raw, "=", 2)
+					if len(parts) == 2 {
+						profPath := strings.TrimSpace(parts[1])
+						if p, err := security.LoadProfile(profPath); err == nil && p.Name != "" {
+							seccompName = p.Name
+						} else {
+							seccompName = profPath
+						}
+					} else {
+						seccompName = raw
+					}
 				} else {
 					seccompName = "(default)"
 				}
@@ -2613,6 +2633,26 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 }
 
 func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.policyMode == "egress-del-confirm" {
+		switch msg.String() {
+		case "y", "Y":
+			if a.selected < len(a.containers) {
+				name := a.containers[a.selected].Name
+				if err := security.RemoveEgressRules(name); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ egress remove failed: %v", err))
+				} else {
+					a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", name))
+				}
+				a.policyMode = "view"
+				c := a.containers[a.selected]
+				return a, a.fetchPolicyInfo(c)
+			}
+		default:
+			a.policyMode = "view"
+		}
+		return a, nil
+	}
+
 	if a.policyMode == "egress-add" {
 		key := msg.String()
 		switch {
@@ -2696,16 +2736,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.policyInput = ""
 		return a, nil
 	case "d":
-		// Remove all egress rules for container
+		// Remove all egress rules for container (with confirmation)
 		if a.selected < len(a.containers) {
 			name := a.containers[a.selected].Name
-			if err := security.RemoveEgressRules(name); err != nil {
-				a.addEvent(fmt.Sprintf("⚠ egress remove failed: %v", err))
-			} else {
-				a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", name))
-			}
-			c := a.containers[a.selected]
-			return a, a.fetchPolicyInfo(c)
+			a.policyMode = "egress-del-confirm"
+			a.addEvent(fmt.Sprintf("🛡 Press 'y' to remove all egress rules for %s", name))
+			return a, nil
 		}
 	case "r":
 		// Refresh
@@ -2741,6 +2777,7 @@ func (a *App) applySeccompProfile(name, rtName, profileName string) {
 			a.addEvent(fmt.Sprintf("⚠ seccomp apply: %s", strings.TrimSpace(string(out))))
 		} else {
 			a.addEvent(fmt.Sprintf("🛡 seccomp → %s for %s", profileName, name))
+			a.policySeccomp = profileName
 		}
 	} else {
 		a.addEvent(fmt.Sprintf("⚠ seccomp profiles for Docker require container restart (not yet supported)"))
@@ -2769,7 +2806,16 @@ func (a App) renderPolicyPanel() string {
 	} else {
 		b.WriteString("  Current: (loading...)\n")
 	}
-	b.WriteString("  [1] strict  [2] moderate  [3] permissive\n\n")
+	// Show options with indicator for current
+	profiles := []struct{ key, name string }{{"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}}
+	for _, p := range profiles {
+		indicator := "  "
+		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) {
+			indicator = "▸ "
+		}
+		b.WriteString(fmt.Sprintf("  %s[%s] %s\n", indicator, p.key, p.name))
+	}
+	b.WriteString("\n")
 
 	// AppArmor section
 	b.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
