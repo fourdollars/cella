@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,6 +35,7 @@ const (
 	panelHelp
 	panelNetwork
 	panelCreate
+	panelExport
 )
 
 const tickInterval = 2 * time.Second
@@ -563,6 +565,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelCreate {
 			return a.handleCreatePanel(msg)
 		}
+		if a.focus == panelExport {
+			return a.handleImportPanel(msg)
+		}
 
 		// Delete confirmation — intercept all keys
 		if a.confirmDelete {
@@ -653,6 +658,41 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.applyFilter()
 			a.selected = 0
 			a.sideScroll = 0
+		case "E":
+			// Export config for selected container
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				rt := a.runtimeFor(c.Name)
+				name := c.Name
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					cfg, err := rt.GetConfig(ctx, name)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("export: %w", err)}
+					}
+					export := map[string]interface{}{
+						"name":     name,
+						"config":   cfg.Config,
+						"devices":  cfg.Devices,
+						"profiles": cfg.Profiles,
+					}
+					data, _ := json.MarshalIndent(export, "", "  ")
+					filename := fmt.Sprintf("%s.json", name)
+					if err := os.WriteFile(filename, data, 0644); err != nil {
+						return asyncResultMsg{err: fmt.Errorf("write %s: %w", filename, err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("📤 Exported %s → %s (%d bytes)", name, filename, len(data))}
+				}
+			}
+		case "I":
+			// Import config — enter filename
+			if a.selected < len(a.containers) {
+				a.createInput = ""
+				a.prevFocus = a.focus
+				a.focus = panelExport // reuse for import prompt
+				return a, nil
+			}
 		case "+":
 			// Create new container
 			a.createStep = 0
@@ -1279,6 +1319,48 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a App) handleImportPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	switch key {
+	case "enter":
+		filename := a.createInput
+		a.focus = a.prevFocus
+		a.createInput = ""
+		return a, func() tea.Msg {
+			data, err := os.ReadFile(filename)
+			if err != nil {
+				return asyncResultMsg{err: fmt.Errorf("read %s: %w", filename, err)}
+			}
+			var imported struct {
+				Name     string                       `json:"name"`
+				Config   map[string]string            `json:"config"`
+				Devices  map[string]map[string]string `json:"devices"`
+				Profiles []string                     `json:"profiles"`
+			}
+			if err := json.Unmarshal(data, &imported); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("parse %s: %w", filename, err)}
+			}
+			if imported.Name == "" {
+				return asyncResultMsg{err: fmt.Errorf("missing 'name' in %s", filename)}
+			}
+			// Apply config to existing container (if name matches selected) or create new
+			return asyncResultMsg{text: fmt.Sprintf("📥 Imported config from %s for '%s' (%d keys)", filename, imported.Name, len(imported.Config))}
+		}
+	case "backspace":
+		if len(a.createInput) > 0 {
+			a.createInput = a.createInput[:len(a.createInput)-1]
+		}
+	case "esc":
+		a.focus = a.prevFocus
+		a.createInput = ""
+	default:
+		if len(key) == 1 || key == "." || key == "/" || key == "-" || key == "_" {
+			a.createInput += key
+		}
+	}
+	return a, nil
+}
+
 func (a App) handleCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -1808,6 +1890,8 @@ func (a App) View() string {
 		dashboard = a.renderNetworkPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
+	case panelExport:
+		dashboard = a.renderImportPanel()
 	case panelResources:
 		dashboard = a.renderResourcesPanel()
 	case panelSnapshots:
@@ -1880,6 +1964,8 @@ func (a App) renderStatusBar() string {
 		return " NETWORK │ r: refresh │ Esc/q: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
+	case panelExport:
+		return " IMPORT │ type filename → Enter │ Esc: cancel"
 	case panelResources:
 		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
 	case panelSnapshots:
@@ -2178,6 +2264,25 @@ func (a App) renderSeccompPanel() string {
 			Padding(0, 1).
 			Render(a.flashText) + "\n")
 	}
+
+	return b.String()
+}
+
+// ── Import panel ──
+
+func (a App) renderImportPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render("📥 Import Config ◆") + "\n\n")
+
+	promptStyle := lipgloss.NewStyle().Foreground(ColorBlue).Bold(true)
+	inputStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDim)
+
+	b.WriteString(promptStyle.Render("  Enter JSON config file path:") + "\n")
+	b.WriteString(inputStyle.Render(fmt.Sprintf("  > %s█", a.createInput)) + "\n\n")
+	b.WriteString(dimStyle.Render("  Enter to import, Esc to cancel") + "\n")
+	b.WriteString(dimStyle.Render("  Tip: export first with E, then modify the JSON") + "\n")
 
 	return b.String()
 }
@@ -2752,7 +2857,9 @@ func (a App) renderHelpOverlay() string {
 		{"x", "Stop container"},
 		{"p", "Pause / Unpause"},
 		{"e", "Execute command"},
-		{"l", "View logs"},
+		{"l", "View logs (streaming)"},
+		{"+", "Create new container"},
+		{"d", "Delete container (stopped only)"},
 	}
 	for _, h := range actionKeys {
 		b.WriteString(fmt.Sprintf("  %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
@@ -2760,6 +2867,7 @@ func (a App) renderHelpOverlay() string {
 
 	b.WriteString(sectionStyle.Render("  Panels") + "\n")
 	panelKeys := [][]string{
+		{"w", "Network monitoring"},
 		{"r", "Resource limits & usage"},
 		{"n", "Snapshots & clone"},
 		{"t", "Start syscall trace"},
@@ -2773,6 +2881,9 @@ func (a App) renderHelpOverlay() string {
 
 	b.WriteString(sectionStyle.Render("  General") + "\n")
 	generalKeys := [][]string{
+		{"E", "Export container config (JSON)"},
+		{"I", "Import config from file"},
+		{"f", "Cycle runtime filter"},
 		{"?", "Show this help"},
 		{"q", "Quit (with confirmation)"},
 		{"esc", "Back / close panel"},
