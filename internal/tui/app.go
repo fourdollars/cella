@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/lxd"
 	"github.com/fourdoors/cella/internal/runtime"
+	"github.com/fourdoors/cella/internal/security"
 	"github.com/fourdoors/cella/internal/trace"
 )
 
@@ -37,6 +38,7 @@ const (
 	panelNetwork
 	panelCreate
 	panelExport
+	panelPolicy
 )
 
 const tickInterval = 2 * time.Second
@@ -200,6 +202,16 @@ type App struct {
 	// Goto container by number
 	gotoMode  bool
 	gotoInput string
+
+	// Policy panel
+	policyScroll     int
+	policyMode       string // "view", "egress-add"
+	policyInput      string // for egress domain input
+	policyEgress     string // current nftables rules text
+	policySeccomp    string // current seccomp profile name
+	policyAppArmor   string // current AppArmor profile
+	policyPrivileged bool
+	policyNesting    bool
 
 	// Quit confirmation
 	confirmQuit bool
@@ -569,6 +581,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelNetwork {
 			return a.handleNetworkPanel(msg)
 		}
+		if a.focus == panelPolicy {
+			return a.handlePolicyPanel(msg)
+		}
 		if a.focus == panelResources {
 			return a.handleResourcesPanel(msg)
 		}
@@ -768,6 +783,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					rtName := a.containerRuntime(c.Name)
 					return a, fetchNetInfo(a.runtimeFor(c.Name), c.Name, rtName)
 				}
+			}
+		case "P":
+			// Policy panel
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				a.policyScroll = 0
+				a.policyMode = "view"
+				a.policyInput = ""
+				a.prevFocus = a.focus
+				a.focus = panelPolicy
+				return a, a.fetchPolicyInfo(c)
 			}
 		case "T":
 			// Stop tracing for selected container (from any normal panel)
@@ -1007,6 +1033,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logErrMsg:
 		a.logLines = []string{fmt.Sprintf("❌ Error fetching logs: %v", msg)}
+		return a, nil
+
+	case policyInfoMsg:
+		if msg.err != nil {
+			a.addEvent(fmt.Sprintf("⚠ policy: %v", msg.err))
+		} else {
+			a.policyEgress = msg.egress
+			a.policySeccomp = msg.seccomp
+			a.policyAppArmor = msg.apparmor
+			a.policyPrivileged = msg.privileged
+			a.policyNesting = msg.nesting
+		}
 		return a, nil
 
 	case netInfoMsg:
@@ -1959,6 +1997,8 @@ func (a App) View() string {
 		dashboard = a.renderLogsPanel()
 	case panelNetwork:
 		dashboard = a.renderNetworkPanel()
+	case panelPolicy:
+		dashboard = a.renderPolicyPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -2031,6 +2071,11 @@ func (a App) renderStatusBar() string {
 		return " LOGS │ ↑↓ scroll │ g/G: top/bottom │ F: follow │ r: refresh │ Esc/q: back" + follow
 	case panelNetwork:
 		return " NETWORK │ r: refresh │ Esc/q: back"
+	case panelPolicy:
+		if a.policyMode == "egress-add" {
+			return " POLICY │ type domain → Enter │ Esc: cancel"
+		}
+		return " POLICY │ 1/2/3: seccomp profile │ a: add egress │ d: del egress │ r: refresh │ Esc/q: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
 	case panelExport:
@@ -2476,6 +2521,306 @@ func (a App) renderNetworkPanel() string {
 			b.WriteString(fmt.Sprintf("  %s\n", c))
 		}
 	}
+
+	return b.String()
+}
+
+// ── Policy panel ──
+
+type policyInfoMsg struct {
+	egress     string
+	seccomp    string
+	apparmor   string
+	privileged bool
+	nesting    bool
+	err        error
+}
+
+func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
+	name := c.Name
+	rtName := c.Runtime
+	return func() tea.Msg {
+		var egress, seccompName, apparmorName string
+
+		// Read egress rules (nftables)
+		if rules, err := security.ListEgressRules(name); err == nil {
+			egress = rules
+		} else {
+			egress = "(no egress rules)"
+		}
+
+		// Read seccomp profile from container config
+		if rtName == "lxd" {
+			out, err := exec.Command("lxc", "config", "get", name, "raw.lxc").CombinedOutput()
+			if err == nil {
+				raw := strings.TrimSpace(string(out))
+				if strings.Contains(raw, "seccomp") {
+					seccompName = raw
+				} else {
+					seccompName = "(default)"
+				}
+			} else {
+				seccompName = "(unknown)"
+			}
+		} else {
+			seccompName = "(docker default)"
+		}
+
+		// Read AppArmor profile
+		if rtName == "lxd" {
+			out, err := exec.Command("lxc", "config", "get", name, "raw.apparmor").CombinedOutput()
+			if err == nil {
+				raw := strings.TrimSpace(string(out))
+				if raw != "" {
+					apparmorName = raw
+				} else {
+					apparmorName = "(default)"
+				}
+			} else {
+				apparmorName = "(unknown)"
+			}
+
+			// Check security flags
+			var privileged, nesting bool
+			out2, err2 := exec.Command("lxc", "config", "get", name, "security.nesting").CombinedOutput()
+			if err2 == nil && strings.TrimSpace(string(out2)) == "true" {
+				nesting = true
+			}
+			out3, err3 := exec.Command("lxc", "config", "get", name, "security.privileged").CombinedOutput()
+			if err3 == nil && strings.TrimSpace(string(out3)) == "true" {
+				privileged = true
+			}
+
+			return policyInfoMsg{
+				egress:     egress,
+				seccomp:    seccompName,
+				apparmor:   apparmorName,
+				privileged: privileged,
+				nesting:    nesting,
+			}
+		} else {
+			apparmorName = "(docker default)"
+		}
+
+		return policyInfoMsg{
+			egress:     egress,
+			seccomp:    seccompName,
+			apparmor:   apparmorName,
+			privileged: false,
+			nesting:    false,
+		}
+	}
+}
+
+func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.policyMode == "egress-add" {
+		key := msg.String()
+		switch {
+		case key == "enter":
+			domain := strings.TrimSpace(a.policyInput)
+			if domain != "" && a.selected < len(a.containers) {
+				name := a.containers[a.selected].Name
+				// Apply egress rule
+				rule := security.EgressRule{
+					Container: name,
+					Allow:     []string{domain},
+					DenyAll:   true,
+				}
+				if err := security.ApplyEgressRules(rule); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ egress add failed: %v", err))
+				} else {
+					a.addEvent(fmt.Sprintf("🛡 egress allow %s for %s", domain, name))
+				}
+				// Refresh
+				c := a.containers[a.selected]
+				a.policyMode = "view"
+				a.policyInput = ""
+				return a, a.fetchPolicyInfo(c)
+			}
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
+		case key == "esc":
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
+		case key == "backspace":
+			if len(a.policyInput) > 0 {
+				a.policyInput = a.policyInput[:len(a.policyInput)-1]
+			}
+			return a, nil
+		default:
+			if len(key) == 1 {
+				a.policyInput += key
+			}
+			return a, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.policyScroll > 0 {
+			a.policyScroll--
+		}
+		return a, nil
+	case "down", "j":
+		a.policyScroll++
+		return a, nil
+	case "1":
+		// Apply strict seccomp
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			a.applySeccompProfile(c.Name, c.Runtime, "strict")
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "2":
+		// Apply moderate seccomp
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			a.applySeccompProfile(c.Name, c.Runtime, "moderate")
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "3":
+		// Apply permissive seccomp
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			a.applySeccompProfile(c.Name, c.Runtime, "permissive")
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "a":
+		// Add egress rule
+		a.policyMode = "egress-add"
+		a.policyInput = ""
+		return a, nil
+	case "d":
+		// Remove all egress rules for container
+		if a.selected < len(a.containers) {
+			name := a.containers[a.selected].Name
+			if err := security.RemoveEgressRules(name); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ egress remove failed: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", name))
+			}
+			c := a.containers[a.selected]
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "r":
+		// Refresh
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			return a, a.fetchPolicyInfo(c)
+		}
+	}
+	return a, nil
+}
+
+func (a *App) applySeccompProfile(name, rtName, profileName string) {
+	if rtName == "lxd" {
+		var profile security.SeccompProfile
+		switch profileName {
+		case "strict":
+			profile = security.StrictProfile
+		case "moderate":
+			profile = security.ModerateProfile
+		case "permissive":
+			profile = security.PermissiveProfile
+		}
+		// Save profile to temp file and apply via lxc config
+		tmpPath := fmt.Sprintf("/tmp/cella-seccomp-%s.json", name)
+		if err := security.SaveProfile(tmpPath, &profile); err != nil {
+			a.addEvent(fmt.Sprintf("⚠ seccomp save: %v", err))
+			return
+		}
+		// Set raw.lxc seccomp path
+		cmd := exec.Command("lxc", "config", "set", name,
+			"raw.lxc", fmt.Sprintf("lxc.seccomp.profile = %s", tmpPath))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			a.addEvent(fmt.Sprintf("⚠ seccomp apply: %s", strings.TrimSpace(string(out))))
+		} else {
+			a.addEvent(fmt.Sprintf("🛡 seccomp → %s for %s", profileName, name))
+		}
+	} else {
+		a.addEvent(fmt.Sprintf("⚠ seccomp profiles for Docker require container restart (not yet supported)"))
+	}
+}
+
+func (a App) renderPolicyPanel() string {
+	var b strings.Builder
+
+	if a.selected >= len(a.containers) {
+		return "No container selected"
+	}
+	c := a.containers[a.selected]
+
+	rtIcon := "🔷"
+	if c.Runtime == "docker" {
+		rtIcon = "🐳"
+	}
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("🛡 Policy — %s %s %s ◆", rtIcon, c.Name, strings.ToUpper(c.Runtime))) + "\n\n")
+
+	// Seccomp section
+	b.WriteString(SectionHeaderStyle.Render("Seccomp Profile") + "\n")
+	if a.policySeccomp != "" {
+		b.WriteString(fmt.Sprintf("  Current: %s\n", a.policySeccomp))
+	} else {
+		b.WriteString("  Current: (loading...)\n")
+	}
+	b.WriteString("  [1] strict  [2] moderate  [3] permissive\n\n")
+
+	// AppArmor section
+	b.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
+	if a.policyAppArmor != "" {
+		b.WriteString(fmt.Sprintf("  %s\n\n", a.policyAppArmor))
+	} else {
+		b.WriteString("  (loading...)\n\n")
+	}
+
+	// Egress section
+	b.WriteString(SectionHeaderStyle.Render("Egress Rules (nftables)") + "\n")
+	if a.policyMode == "egress-add" {
+		b.WriteString(fmt.Sprintf("  Add domain: %s█\n\n", a.policyInput))
+	}
+	if a.policyEgress != "" {
+		lines := strings.Split(a.policyEgress, "\n")
+		start := a.policyScroll
+		if start >= len(lines) {
+			start = len(lines) - 1
+		}
+		if start < 0 {
+			start = 0
+		}
+		maxLines := a.height - 20
+		if maxLines < 5 {
+			maxLines = 5
+		}
+		end := start + maxLines
+		if end > len(lines) {
+			end = len(lines)
+		}
+		for _, line := range lines[start:end] {
+			b.WriteString("  " + line + "\n")
+		}
+	} else {
+		b.WriteString("  (loading...)\n")
+	}
+
+	// Security flags
+	b.WriteString("\n")
+	b.WriteString(SectionHeaderStyle.Render("Container Security Flags") + "\n")
+	privIcon := "🟢 off"
+	if a.policyPrivileged {
+		privIcon = "🔴 ON (dangerous!)"
+	}
+	nestIcon := "🟢 off"
+	if a.policyNesting {
+		nestIcon = "🟡 on"
+	}
+	b.WriteString(fmt.Sprintf("  Privileged:  %s\n", privIcon))
+	b.WriteString(fmt.Sprintf("  Nesting:     %s\n", nestIcon))
 
 	return b.String()
 }
@@ -3000,6 +3345,7 @@ func (a App) renderHelpOverlay() string {
 		{"w", "Network monitoring"},
 		{"r", "Resource limits & usage"},
 		{"n", "Snapshots & clone"},
+		{"P", "Security policy (seccomp/egress)"},
 		{"t", "Start syscall trace"},
 		{"T", "Stop syscall trace"},
 		{"G", "Generate seccomp profile"},
