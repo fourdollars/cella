@@ -236,7 +236,9 @@ func printList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 			ip = "-"
 		}
 		mem := "-"
-		if c.MemoryCur > 0 {
+		if c.Status == "Running" {
+			mem = formatBytes(c.MemoryCur) // always show for running, even if 0
+		} else if c.MemoryCur > 0 {
 			mem = formatBytes(c.MemoryCur)
 		}
 		rtIcon := "🔷"
@@ -351,7 +353,9 @@ func watchList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 				ip = "-"
 			}
 			mem := "-"
-			if c.MemoryCur > 0 {
+			if c.Status == "Running" {
+				mem = formatBytes(c.MemoryCur)
+			} else if c.MemoryCur > 0 {
 				mem = formatBytes(c.MemoryCur)
 			}
 			key := c.Runtime + ":" + c.Name
