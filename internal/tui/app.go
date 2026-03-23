@@ -2747,7 +2747,8 @@ func (a *App) ensureSidebarVisible() {
 //   "▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + " "(1) + "100% 99.9G"(10)
 //   = 19 cells + name length
 func (a App) calcSidebarWidth() int {
-	const overhead = 19 // worst-case: ▸ + 2-3 digits + ● + 🔷 + space + "100% 99.9G"
+	// Layout: "▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + rightInfo(10: "%4s %5s")
+	const overhead = 18 // prefix(~8 cells) + right column(10 cells)
 	const minW = 32
 	const maxW = 55
 
@@ -2778,7 +2779,7 @@ func (a App) calcSidebarWidth() int {
 
 // sidebarNameMax returns how many chars of container name can fit in sidebar
 func (a App) sidebarNameMax() int {
-	const overhead = 19
+	const overhead = 18
 	w := a.calcSidebarWidth()
 	nameMax := w - overhead
 	if nameMax < 8 {
@@ -2871,12 +2872,14 @@ func (a App) renderSidebar() string {
 
 		rightInfo := ""
 		if c.Status == "Running" {
-			rightInfo = fmt.Sprintf("%.0f%% %s", m.CPUPercent, formatBytesShort(c.MemoryCur))
+			cpu := fmt.Sprintf("%.0f%%", m.CPUPercent)
+			mem := formatBytesShort(c.MemoryCur)
+			rightInfo = fmt.Sprintf("%4s %5s", cpu, mem)
 		} else {
-			rightInfo = strings.ToLower(c.Status)
+			rightInfo = fmt.Sprintf("%10s", strings.ToLower(c.Status))
 		}
 
-		line := fmt.Sprintf("%2d%s%s%s%-*s %s", i, indicator, rtIcon, traceIcon, nameMax, name, rightInfo)
+		line := fmt.Sprintf("%2d%s%s%s%-*s%s", i, indicator, rtIcon, traceIcon, nameMax, name, rightInfo)
 
 		if i == a.selected {
 			line = SelectedContainerStyle.Render("▸" + line)
