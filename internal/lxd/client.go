@@ -25,12 +25,12 @@ type ContainerInfo struct {
 	IP         string
 	Profiles   []string
 	CreatedAt  string
-	MemoryCur  int64   // bytes
-	MemoryMax  int64   // bytes
-	CPUUsage   float64 // percent
-	DiskUsage  int64   // bytes
-	NetRxBytes int64
-	NetTxBytes int64
+	MemoryCur  int64 // bytes
+	MemoryMax  int64 // bytes
+	CPUUsage   int64 // cumulative nanoseconds
+	DiskUsage  int64 // bytes
+	NetRxBytes int64 // cumulative
+	NetTxBytes int64 // cumulative
 	PIDs       int
 }
 
@@ -44,21 +44,21 @@ type lxdResponse struct {
 
 // lxdInstance represents an instance from LXD API
 type lxdInstance struct {
-	Name       string            `json:"name"`
-	Status     string            `json:"status"`
-	Type       string            `json:"type"`
-	Profiles   []string          `json:"profiles"`
-	CreatedAt  time.Time         `json:"created_at"`
-	State      *lxdInstanceState `json:"state"`
+	Name      string            `json:"name"`
+	Status    string            `json:"status"`
+	Type      string            `json:"type"`
+	Profiles  []string          `json:"profiles"`
+	CreatedAt time.Time         `json:"created_at"`
+	State     *lxdInstanceState `json:"state"`
 }
 
 type lxdInstanceState struct {
-	Status    string                       `json:"status"`
-	Memory    lxdMemory                    `json:"memory"`
-	CPU       lxdCPU                       `json:"cpu"`
-	Disk      map[string]lxdDisk           `json:"disk"`
-	Network   map[string]lxdNetwork        `json:"network"`
-	Processes int64                        `json:"processes"`
+	Status    string                `json:"status"`
+	Memory    lxdMemory             `json:"memory"`
+	CPU       lxdCPU                `json:"cpu"`
+	Disk      map[string]lxdDisk    `json:"disk"`
+	Network   map[string]lxdNetwork `json:"network"`
+	Processes int64                 `json:"processes"`
 }
 
 type lxdMemory struct {
@@ -77,9 +77,9 @@ type lxdDisk struct {
 }
 
 type lxdNetwork struct {
-	Addresses []lxdAddress    `json:"addresses"`
-	Counters  lxdNetCounters  `json:"counters"`
-	State     string          `json:"state"`
+	Addresses []lxdAddress   `json:"addresses"`
+	Counters  lxdNetCounters `json:"counters"`
+	State     string         `json:"state"`
 }
 
 type lxdAddress struct {
@@ -173,7 +173,6 @@ func (c *Client) doPut(ctx context.Context, path string, body io.Reader) (*lxdRe
 
 // ListContainers returns all containers with state info
 func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
-	// Get instances with recursion=2 to include state
 	resp, err := c.doGet(ctx, "/1.0/instances?recursion=2")
 	if err != nil {
 		return nil, err
@@ -197,9 +196,9 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 		if inst.State != nil {
 			ci.MemoryCur = inst.State.Memory.Usage
 			ci.MemoryMax = inst.State.Memory.Total
+			ci.CPUUsage = inst.State.CPU.Usage
 			ci.PIDs = int(inst.State.Processes)
 
-			// Find first IPv4 address on eth0
 			if eth0, ok := inst.State.Network["eth0"]; ok {
 				for _, addr := range eth0.Addresses {
 					if addr.Family == "inet" && addr.Scope == "global" {
@@ -211,7 +210,6 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 				ci.NetTxBytes = eth0.Counters.BytesSent
 			}
 
-			// Disk usage from root
 			if root, ok := inst.State.Disk["root"]; ok {
 				ci.DiskUsage = root.Usage
 			}
@@ -227,6 +225,45 @@ func (c *Client) ListContainers(ctx context.Context) ([]ContainerInfo, error) {
 	return result, nil
 }
 
+// GetInstanceState gets detailed state for a single instance
+func (c *Client) GetInstanceState(ctx context.Context, name string) (*ContainerInfo, error) {
+	resp, err := c.doGet(ctx, fmt.Sprintf("/1.0/instances/%s/state", name))
+	if err != nil {
+		return nil, err
+	}
+
+	var state lxdInstanceState
+	if err := json.Unmarshal(resp.Metadata, &state); err != nil {
+		return nil, fmt.Errorf("parse state: %w", err)
+	}
+
+	ci := &ContainerInfo{
+		Name:      name,
+		Status:    state.Status,
+		MemoryCur: state.Memory.Usage,
+		MemoryMax: state.Memory.Total,
+		CPUUsage:  state.CPU.Usage,
+		PIDs:      int(state.Processes),
+	}
+
+	if eth0, ok := state.Network["eth0"]; ok {
+		for _, addr := range eth0.Addresses {
+			if addr.Family == "inet" && addr.Scope == "global" {
+				ci.IP = addr.Address
+				break
+			}
+		}
+		ci.NetRxBytes = eth0.Counters.BytesReceived
+		ci.NetTxBytes = eth0.Counters.BytesSent
+	}
+
+	if root, ok := state.Disk["root"]; ok {
+		ci.DiskUsage = root.Usage
+	}
+
+	return ci, nil
+}
+
 // changeState sends a state change request to a container
 func (c *Client) changeState(ctx context.Context, name, action string) error {
 	body := strings.NewReader(fmt.Sprintf(`{"action":"%s","timeout":30,"force":false}`, action))
@@ -240,22 +277,18 @@ func (c *Client) changeState(ctx context.Context, name, action string) error {
 	return nil
 }
 
-// StartContainer starts a stopped container
 func (c *Client) StartContainer(ctx context.Context, name string) error {
 	return c.changeState(ctx, name, "start")
 }
 
-// StopContainer stops a running container
 func (c *Client) StopContainer(ctx context.Context, name string) error {
 	return c.changeState(ctx, name, "stop")
 }
 
-// FreezeContainer pauses a running container
 func (c *Client) FreezeContainer(ctx context.Context, name string) error {
 	return c.changeState(ctx, name, "freeze")
 }
 
-// UnfreezeContainer resumes a frozen container
 func (c *Client) UnfreezeContainer(ctx context.Context, name string) error {
 	return c.changeState(ctx, name, "unfreeze")
 }
