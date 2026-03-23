@@ -96,7 +96,13 @@ type App struct {
 	logLines  []string
 	logScroll int
 	logTarget string
+
+	// Flash message (temporary notification)
+	flashText   string
+	flashExpiry time.Time
 }
+
+type flashExpireMsg struct{}
 
 func NewApp() App {
 	client, err := lxd.NewClient("")
@@ -425,6 +431,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.logLines = []string{fmt.Sprintf("❌ Error fetching logs: %v", msg)}
 		return a, nil
 
+	case flashExpireMsg:
+		if time.Now().After(a.flashExpiry) {
+			a.flashText = ""
+		}
+		return a, nil
+
 	case containersMsg:
 		now := time.Now()
 		newContainers := []lxd.ContainerInfo(msg)
@@ -691,9 +703,10 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			filename := fmt.Sprintf("/tmp/cella-seccomp-%s.json", name)
 			if err := saveToFile(filename, a.seccompJSON); err != nil {
 				a.addEvent(fmt.Sprintf("⚠ save failed: %v", err))
-			} else {
-				a.addEvent(fmt.Sprintf("💾 saved to %s", filename))
+				return a, a.setFlash(fmt.Sprintf("❌ Save failed: %v", err))
 			}
+			a.addEvent(fmt.Sprintf("💾 saved to %s", filename))
+			return a, a.setFlash(fmt.Sprintf("✅ Saved to %s", filename))
 		}
 	}
 	return a, nil
@@ -737,6 +750,14 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func saveToFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+func (a *App) setFlash(text string) tea.Cmd {
+	a.flashText = text
+	a.flashExpiry = time.Now().Add(3 * time.Second)
+	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+		return flashExpireMsg{}
+	})
 }
 
 func appendHist(hist []float64, val float64, maxLen int) []float64 {
@@ -1192,6 +1213,16 @@ func (a App) renderSeccompPanel() string {
 
 	b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorYellow).Bold(true).
 		Render("  Press S to save │ Esc to go back") + "\n")
+
+	// Flash message
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		b.WriteString("\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0d1117")).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(a.flashText) + "\n")
+	}
 
 	return b.String()
 }
