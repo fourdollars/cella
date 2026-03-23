@@ -396,7 +396,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Quit confirmation mode — intercept all keys
 		if a.confirmQuit {
 			switch msg.String() {
-			case "y", "Y":
+			case "y", "Y", "ctrl+c":
 				for _, t := range a.tracers {
 					t.Stop()
 				}
