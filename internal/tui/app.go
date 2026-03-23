@@ -26,6 +26,7 @@ const sparklineLen = 30
 type tickMsg time.Time
 type containersMsg []lxd.ContainerInfo
 type errMsg error
+type lxdEventMsg string // formatted event string
 
 // ContainerMetrics holds computed metrics for a container
 type ContainerMetrics struct {
@@ -60,6 +61,7 @@ type App struct {
 	events     []string
 	lastUpdate time.Time
 	sortBy     string // "name", "cpu", "mem"
+	eventCh    chan string
 }
 
 // NewApp creates the initial app model
@@ -72,11 +74,47 @@ func NewApp() App {
 		prev:    make(map[string]*prevState),
 		events:  []string{},
 		sortBy:  "name",
+		eventCh: make(chan string, 100),
 	}
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(fetchContainers(a.client), tea.ClearScreen)
+	return tea.Batch(
+		fetchContainers(a.client),
+		tea.ClearScreen,
+		a.startEventMonitor(),
+		a.listenEvents(),
+	)
+}
+
+// startEventMonitor launches the LXD event listener in background
+func (a App) startEventMonitor() tea.Cmd {
+	return func() tea.Msg {
+		if a.client == nil {
+			return nil
+		}
+		monitor := lxd.NewMonitor(a.client.SocketPath())
+		go func() {
+			_ = monitor.Start(context.Background(), func(ev lxd.Event) {
+				formatted := lxd.FormatEvent(ev)
+				if formatted != "" {
+					select {
+					case a.eventCh <- formatted:
+					default: // drop if buffer full
+					}
+				}
+			})
+		}()
+		return nil
+	}
+}
+
+// listenEvents waits for the next event from the channel
+func (a App) listenEvents() tea.Cmd {
+	return func() tea.Msg {
+		ev := <-a.eventCh
+		return lxdEventMsg(ev)
+	}
 }
 
 func fetchContainers(client *lxd.Client) tea.Cmd {
@@ -175,11 +213,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 
+	case lxdEventMsg:
+		a.addEvent(string(msg))
+		return a, a.listenEvents() // keep listening
+
 	case containersMsg:
 		now := time.Now()
 		newContainers := []lxd.ContainerInfo(msg)
 
-		// Compute deltas
 		for i := range newContainers {
 			c := &newContainers[i]
 			name := c.Name
@@ -313,10 +354,9 @@ func (a *App) getMetric(name string) *ContainerMetrics {
 }
 
 func (a *App) addEvent(msg string) {
-	ts := time.Now().UTC().Add(8 * time.Hour).Format("15:04:05")
-	a.events = append(a.events, fmt.Sprintf("%s %s", ts, msg))
-	if len(a.events) > 50 {
-		a.events = a.events[len(a.events)-50:]
+	a.events = append(a.events, msg)
+	if len(a.events) > 100 {
+		a.events = a.events[len(a.events)-100:]
 	}
 }
 
@@ -512,17 +552,21 @@ func (a App) renderDashboard() string {
 	b.WriteString(fmt.Sprintf("  Profiles: %s  Created: %s\n",
 		strings.Join(c.Profiles, ", "), c.CreatedAt))
 
-	// Events
+	// Events (live from LXD)
 	if len(a.events) > 0 {
-		b.WriteString(SectionHeaderStyle.Render("Events") + "\n")
-		start := len(a.events) - 8
+		b.WriteString(SectionHeaderStyle.Render("Events (live)") + "\n")
+		start := len(a.events) - 10
 		if start < 0 {
 			start = 0
 		}
 		for _, ev := range a.events[start:] {
 			style := EventNormalStyle
-			if strings.Contains(ev, "⚠") || strings.Contains(ev, "■") {
+			if strings.Contains(ev, "■") || strings.Contains(ev, "✖") {
+				style = EventErrorStyle
+			} else if strings.Contains(ev, "⚠") || strings.Contains(ev, "⏸") {
 				style = EventWarnStyle
+			} else if strings.Contains(ev, "▶") || strings.Contains(ev, "✚") {
+				style = lipgloss.NewStyle().Foreground(ColorGreen)
 			}
 			b.WriteString("  " + style.Render(ev) + "\n")
 		}

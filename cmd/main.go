@@ -31,6 +31,7 @@ and security policy management.`,
 
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(topCmd())
+	rootCmd.AddCommand(execCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -74,6 +75,52 @@ func listCmd() *cobra.Command {
 	return cmd
 }
 
+func execCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "exec <container> -- <command...>",
+		Short: "Execute a command in a container",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			containerName := args[0]
+
+			// Find command after --
+			command := []string{"/bin/sh"}
+			dashIdx := cmd.ArgsLenAtDash()
+			if dashIdx >= 0 && dashIdx < len(args) {
+				command = args[dashIdx:]
+			} else if len(args) > 1 {
+				command = args[1:]
+			}
+
+			client, err := lxd.NewClient("")
+			if err != nil {
+				return err
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			result, err := client.ExecCommand(ctx, containerName, command)
+			if err != nil {
+				return fmt.Errorf("exec in %s failed: %w", containerName, err)
+			}
+
+			if result.Stdout != "" {
+				fmt.Print(result.Stdout)
+			}
+			if result.Stderr != "" {
+				fmt.Fprint(os.Stderr, result.Stderr)
+			}
+
+			if result.ExitCode != 0 {
+				os.Exit(result.ExitCode)
+			}
+
+			return nil
+		},
+	}
+}
+
 func printList(client *lxd.Client, sortBy string) error {
 	containers, err := client.ListContainers(context.Background())
 	if err != nil {
@@ -109,7 +156,6 @@ func watchList(client *lxd.Client, sortBy string) error {
 	prev := make(map[string]prevData)
 
 	for {
-		// Clear screen
 		fmt.Print("\033[H\033[2J")
 
 		containers, err := client.ListContainers(context.Background())
@@ -184,7 +230,7 @@ func sortContainers(containers []lxd.ContainerInfo, sortBy string) {
 		sort.Slice(containers, func(i, j int) bool {
 			return containers[i].Status < containers[j].Status
 		})
-	default: // name
+	default:
 		sort.Slice(containers, func(i, j int) bool {
 			si := statusOrder(containers[i].Status)
 			sj := statusOrder(containers[j].Status)
