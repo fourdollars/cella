@@ -670,12 +670,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selected++
 				a.ensureSidebarVisible()
 			}
-		case "tab":
-			if a.focus == panelSidebar {
-				a.focus = panelDashboard
-			} else {
-				a.focus = panelSidebar
-			}
 		case "1":
 			a.sortBy = "name"
 			a.sortContainers()
@@ -1955,14 +1949,9 @@ func (a App) View() string {
 		contentH = 10
 	}
 
-	// Dynamic border colors based on focus
-	sidebarBorder := ColorBorder
+	// Sidebar always has focus highlight (dashboard is display-only)
+	sidebarBorder := ColorBorderFocus
 	mainBorder := ColorBorder
-	if a.focus == panelSidebar {
-		sidebarBorder = ColorBorderFocus
-	} else {
-		mainBorder = ColorBorderFocus
-	}
 
 	sidebarStyled := SidebarStyle.Width(sideW).Height(contentH).
 		BorderForeground(sidebarBorder).Render(sidebar)
@@ -2931,7 +2920,6 @@ func (a App) renderHelpOverlay() string {
 	navKeys := [][]string{
 		{"↑/k", "Move up"},
 		{"↓/j", "Move down"},
-		{"tab", "Switch panel (sidebar ↔ main)"},
 		{"1", "Sort by name"},
 		{"2", "Sort by CPU"},
 		{"3", "Sort by memory"},
@@ -3014,9 +3002,6 @@ func (a App) renderDashboard() string {
 	}
 
 	focusIndicator := ""
-	if a.focus == panelDashboard {
-		focusIndicator = " ◆"
-	}
 	title := fmt.Sprintf("─ %s %s %s%s ", rtIcon, c.Name, rtLabel, focusIndicator)
 	if c.Image != "" {
 		title = fmt.Sprintf("─ %s %s (%s)%s ", rtIcon, c.Name, c.Image, focusIndicator)
