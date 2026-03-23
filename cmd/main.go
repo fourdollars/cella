@@ -165,17 +165,70 @@ func fetchAllContainers(runtimes []runtime.Runtime) ([]runtime.ContainerInfo, er
 }
 
 func printList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
-	containers, err := fetchAllContainers(runtimes)
+	// Two-pass sampling for CPU%
+	containers1, err := fetchAllContainers(runtimes)
 	if err != nil {
 		return err
 	}
+	t1 := time.Now()
 
-	containers = filterByRuntime(containers, filterRuntime)
+	// Build map of first sample CPU usage
+	cpuSnap := make(map[string]int64)
+	for _, c := range containers1 {
+		key := c.Runtime + ":" + c.Name
+		cpuSnap[key] = c.CPUUsage
+	}
+
+	// Brief pause for delta
+	time.Sleep(1 * time.Second)
+
+	containers2, err := fetchAllContainers(runtimes)
+	if err != nil {
+		return err
+	}
+	t2 := time.Now()
+	dt := t2.Sub(t1)
+
+	// Compute CPU%
+	cpuPcts := make(map[string]float64)
+	cpuHas := make(map[string]bool)
+	for _, c := range containers2 {
+		key := c.Runtime + ":" + c.Name
+		if _, ok := cpuSnap[key]; ok && c.Status == "Running" && dt > 0 {
+			dCPU := c.CPUUsage - cpuSnap[key]
+			if dCPU < 0 {
+				dCPU = 0
+			}
+			cpuPcts[key] = float64(dCPU) / float64(dt.Nanoseconds()) * 100.0
+			cpuHas[key] = true
+		}
+	}
+
+	containers := filterByRuntime(containers2, filterRuntime)
 	sortRuntimeContainers(containers, sortBy)
 
-	fmt.Printf("%-2s %-20s %-7s %-10s %-7s %-18s %-10s %-6s\n",
-		"", "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
-	fmt.Println(strings.Repeat("─", 85))
+	// Dynamic name width
+	nameW := 4 // minimum "NAME"
+	ipW := 2   // minimum "IP"
+	for _, c := range containers {
+		if len(c.Name) > nameW {
+			nameW = len(c.Name)
+		}
+		if len(c.IP) > ipW {
+			ipW = len(c.IP)
+		}
+	}
+	if nameW > 40 {
+		nameW = 40
+	}
+
+	// Header
+	hdrFmt := fmt.Sprintf("   %%-%ds  %%-5s  %%-10s  %%-6s  %%-%ds  %%-10s  %%-6s\n", nameW, ipW)
+	rowFmt := fmt.Sprintf("%%s %%-%ds  %%-5s  %%-10s  %%-6s  %%-%ds  %%-10s  %%-6d\n", nameW, ipW)
+	totalW := 3 + nameW + 2 + 5 + 2 + 10 + 2 + 6 + 2 + ipW + 2 + 10 + 2 + 6
+
+	fmt.Printf(hdrFmt, "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
+	fmt.Println(strings.Repeat("─", totalW))
 
 	for _, c := range containers {
 		ip := c.IP
@@ -187,11 +240,18 @@ func printList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 			mem = formatBytes(c.MemoryCur)
 		}
 		rtIcon := "🔷"
+		rt := "lxd"
 		if c.Runtime == "docker" {
 			rtIcon = "🐳"
+			rt = "dock"
 		}
-		fmt.Printf("%s %-20s %-7s %-10s %-7s %-18s %-10s %-6d\n",
-			rtIcon, truncate(c.Name, 20), c.Runtime, c.Status, "-", ip, mem, c.PIDs)
+		key := c.Runtime + ":" + c.Name
+		cpuStr := "-"
+		if cpuHas[key] {
+			cpuStr = fmt.Sprintf("%.1f%%", cpuPcts[key])
+		}
+		fmt.Printf(rowFmt,
+			rtIcon, c.Name, rt, c.Status, cpuStr, ip, mem, c.PIDs)
 	}
 
 	// Summary
@@ -253,6 +313,25 @@ func watchList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 
 		sortRuntimeContainers(containers, sortBy)
 
+		// Dynamic column widths
+		nameW := 4
+		ipW := 2
+		for _, c := range containers {
+			if len(c.Name) > nameW {
+				nameW = len(c.Name)
+			}
+			if len(c.IP) > ipW {
+				ipW = len(c.IP)
+			}
+		}
+		if nameW > 40 {
+			nameW = 40
+		}
+
+		hdrFmt := fmt.Sprintf("   %%-%ds  %%-5s  %%-10s  %%-6s  %%-%ds  %%-10s  %%-6s\n", nameW, ipW)
+		rowFmt := fmt.Sprintf("%%s %%-%ds  %%-5s  %%-10s  %%-6s  %%-%ds  %%-10s  %%-6d\n", nameW, ipW)
+		totalW := 3 + nameW + 2 + 5 + 2 + 10 + 2 + 6 + 2 + ipW + 2 + 10 + 2 + 6
+
 		ts := now.UTC().Add(8 * time.Hour).Format("15:04:05")
 		running := 0
 		for _, c := range containers {
@@ -263,9 +342,8 @@ func watchList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 		fmt.Printf("📡 cella watch  %d/%d running  %s  (Ctrl+C to quit)\n\n",
 			running, len(containers), ts)
 
-		fmt.Printf("%-2s %-20s %-7s %-10s %-7s %-18s %-10s %-6s\n",
-			"", "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
-		fmt.Println(strings.Repeat("─", 85))
+		fmt.Printf(hdrFmt, "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
+		fmt.Println(strings.Repeat("─", totalW))
 
 		for _, c := range containers {
 			ip := c.IP
@@ -282,11 +360,13 @@ func watchList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 				cpuStr = fmt.Sprintf("%.1f%%", pct)
 			}
 			rtIcon := "🔷"
+			rt := "lxd"
 			if c.Runtime == "docker" {
 				rtIcon = "🐳"
+				rt = "dock"
 			}
-			fmt.Printf("%s %-20s %-7s %-10s %-7s %-18s %-10s %-6d\n",
-				rtIcon, truncate(c.Name, 20), c.Runtime, c.Status, cpuStr, ip, mem, c.PIDs)
+			fmt.Printf(rowFmt,
+				rtIcon, c.Name, rt, c.Status, cpuStr, ip, mem, c.PIDs)
 		}
 
 		time.Sleep(2 * time.Second)
