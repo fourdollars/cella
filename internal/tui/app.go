@@ -285,6 +285,18 @@ func (a App) containerRuntime(name string) string {
 	return ""
 }
 
+// resolveCgroupPath returns the cgroup path for a container based on its runtime
+func resolveCgroupPath(c runtime.ContainerInfo) string {
+	switch c.Runtime {
+	case "docker":
+		// Docker cgroup v2: /sys/fs/cgroup/system.slice/docker-<full-id>.scope
+		return fmt.Sprintf("/sys/fs/cgroup/system.slice/docker-%s.scope", c.ID)
+	default:
+		// LXD: /sys/fs/cgroup/lxc.payload.<name>
+		return fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", c.Name)
+	}
+}
+
 func tickCmd() tea.Cmd {
 	return tea.Tick(tickInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
@@ -535,7 +547,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if c.Status == "Running" {
 					name := c.Name
 					if _, exists := a.tracers[name]; !exists {
-						cgroupPath := fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", name)
+						cgroupPath := resolveCgroupPath(c)
 						tracer := trace.NewTracer(name, cgroupPath)
 						_ = tracer.Start(context.Background())
 						a.tracers[name] = tracer

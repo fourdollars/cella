@@ -226,6 +226,7 @@ func (d *DockerClient) ListContainers(ctx context.Context) ([]ContainerInfo, err
 			Runtime:   "docker",
 			Type:      "container",
 			Image:     c.Image,
+			ID:        c.ID,
 			CreatedAt: time.Unix(c.Created, 0).Format("2006-01-02 15:04"),
 		}
 

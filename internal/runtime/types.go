@@ -9,6 +9,7 @@ type ContainerInfo struct {
 	Runtime    string // "lxd", "docker"
 	Type       string // container, virtual-machine
 	Image      string // Docker image name (empty for LXD)
+	ID         string // Full container ID (Docker only, for cgroup path)
 	IP         string
 	Profiles   []string
 	CreatedAt  string
