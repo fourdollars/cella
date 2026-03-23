@@ -15,7 +15,7 @@ var (
 	ColorSubtle = lipgloss.Color("#8b949e")
 	ColorBg     = lipgloss.Color("#0d1117")
 	ColorPanel  = lipgloss.Color("#161b22")
-	ColorBorder = lipgloss.Color("#30363d")
+	ColorBorder = lipgloss.Color("#f0f0f0") // white border
 )
 
 // Styles

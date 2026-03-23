@@ -498,6 +498,18 @@ func (a App) handleSyscallPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		a.focus = a.prevFocus
 		return a, nil
+	case "up", "k":
+		if a.selected > 0 {
+			a.selected--
+			a.ensureTracing()
+		}
+		return a, nil
+	case "down", "j":
+		if a.selected < len(a.containers)-1 {
+			a.selected++
+			a.ensureTracing()
+		}
+		return a, nil
 	case "T":
 		// Stop tracing for current container
 		if a.selected < len(a.containers) {
@@ -515,6 +527,25 @@ func (a App) handleSyscallPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	return a, nil
+}
+
+// ensureTracing starts tracing for the currently selected container if not already running
+func (a *App) ensureTracing() {
+	if a.selected >= len(a.containers) {
+		return
+	}
+	c := a.containers[a.selected]
+	if c.Status != "Running" {
+		return
+	}
+	name := c.Name
+	if _, exists := a.tracers[name]; !exists {
+		cgroupPath := fmt.Sprintf("/sys/fs/cgroup/lxc.payload.%s", name)
+		tracer := trace.NewTracer(name, cgroupPath)
+		_ = tracer.Start(context.Background())
+		a.tracers[name] = tracer
+		a.addEvent(fmt.Sprintf("🔬 syscall tracing started for %s", name))
+	}
 }
 
 // ── Helpers ──
@@ -668,7 +699,7 @@ func (a App) renderStatusBar() string {
 	case panelExecOutput:
 		return " OUTPUT │ ↑↓ scroll │ e: new command │ Esc/q: back to dashboard"
 	case panelSyscall:
-		return " SYSCALL TRACE │ Esc/q: back │ T: stop tracing │ auto-refreshes every 2s"
+		return " SYSCALL TRACE │ ↑↓ switch container │ T: stop tracing │ Esc/q: back │ refreshes every 5s"
 	default:
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
@@ -699,7 +730,7 @@ func (a App) renderSyscallPanel() string {
 
 	var b strings.Builder
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("🔬 Syscall Trace — %s", containerName)) + "\n")
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("🔬 Syscall Trace — %s ◆", containerName)) + "\n")
 
 	if !ok || !tracer.IsRunning() {
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
@@ -837,7 +868,7 @@ func (a App) renderExecInput() string {
 		containerName = a.containers[a.selected].Name
 	}
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Exec in %s", containerName)) + "\n\n")
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Exec in %s ◆", containerName)) + "\n\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render("  Type a command to execute inside the container.") + "\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render("  Type 'bash' or 'sh' for interactive shell.") + "\n\n")
 
@@ -875,7 +906,7 @@ func (a App) renderExecOutput() string {
 		containerName = a.containers[a.selected].Name
 	}
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Output — %s", containerName)) + "\n")
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Output — %s ◆", containerName)) + "\n")
 
 	lines := strings.Split(a.execOutput, "\n")
 	totalLines := len(lines)
