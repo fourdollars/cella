@@ -173,7 +173,7 @@ func enterShell(containerName string) tea.Cmd {
 		if err != nil {
 			return execResultMsg{err: fmt.Errorf("shell exited: %w", err)}
 		}
-		return execResultMsg{stdout: "(shell session ended)"}
+		return execResultMsg{stdout: "(shell session ended)\n\nPress Esc or q to return to dashboard."}
 	})
 }
 
@@ -388,7 +388,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleExecInput handles keystrokes when in exec input mode
 func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "escape":
+	case "esc":
 		a.focus = panelDashboard
 		a.execInput = ""
 		return a, nil
@@ -440,7 +440,7 @@ func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleExecOutput handles keystrokes when viewing exec output
 func (a App) handleExecOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "escape", "q":
+	case "esc", "q":
 		a.focus = panelDashboard
 		a.execOutput = ""
 		a.execScroll = 0
