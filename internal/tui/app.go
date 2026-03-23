@@ -129,6 +129,9 @@ type App struct {
 	snapInput    string
 	snapNaming   bool // entering snapshot name
 	snapCloning  bool // entering clone target name
+
+	// Quit confirmation
+	confirmQuit bool
 }
 
 type flashExpireMsg struct{}
@@ -289,13 +292,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.handleSnapshotsPanel(msg)
 		}
 
+		// Quit confirmation mode — intercept all keys
+		if a.confirmQuit {
+			switch msg.String() {
+			case "y", "Y", "q", "ctrl+c":
+				for _, t := range a.tracers {
+					t.Stop()
+				}
+				return a, tea.Quit
+			default:
+				a.confirmQuit = false
+				return a, nil
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
-			// Stop all tracers on exit
-			for _, t := range a.tracers {
-				t.Stop()
-			}
-			return a, tea.Quit
+			a.confirmQuit = true
+			return a, nil
 		case "up", "k":
 			if a.focus == panelSidebar && a.selected > 0 {
 				a.selected--
@@ -1204,6 +1218,9 @@ func (a App) View() string {
 }
 
 func (a App) renderStatusBar() string {
+	if a.confirmQuit {
+		return " ⚠ Quit cella? (y/n)"
+	}
 	switch a.focus {
 	case panelExecInput:
 		return " EXEC MODE │ type command → Enter │ 'bash' for shell │ Esc to cancel"
