@@ -188,6 +188,10 @@ type App struct {
 	// Delete confirmation
 	confirmDelete bool
 
+	// Goto container by number
+	gotoMode  bool
+	gotoInput string
+
 	// Quit confirmation
 	confirmQuit bool
 }
@@ -593,6 +597,37 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
+		// Goto mode — intercept keys for number input
+		if a.gotoMode {
+			switch key := msg.String(); {
+			case key >= "0" && key <= "9":
+				a.gotoInput += key
+			case key == "enter":
+				if a.gotoInput != "" {
+					n := 0
+					fmt.Sscanf(a.gotoInput, "%d", &n)
+					if n >= 0 && n < len(a.containers) {
+						a.selected = n
+						a.ensureSidebarVisible()
+					}
+				}
+				a.gotoMode = false
+				a.gotoInput = ""
+			case key == "esc" || key == "backspace" && a.gotoInput == "":
+				a.gotoMode = false
+				a.gotoInput = ""
+			case key == "backspace":
+				if len(a.gotoInput) > 0 {
+					a.gotoInput = a.gotoInput[:len(a.gotoInput)-1]
+				}
+			default:
+				// Invalid key, cancel goto
+				a.gotoMode = false
+				a.gotoInput = ""
+			}
+			return a, nil
+		}
+
 		// Quit confirmation mode — intercept all keys
 		if a.confirmQuit {
 			switch msg.String() {
@@ -619,6 +654,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "?":
 			a.showHelp = true
+			return a, nil
+		case "g":
+			// Enter goto mode
+			a.gotoMode = true
+			a.gotoInput = ""
 			return a, nil
 		case "up", "k":
 			if a.focus == panelSidebar && a.selected > 0 {
@@ -1935,6 +1975,9 @@ func (a App) View() string {
 }
 
 func (a App) renderStatusBar() string {
+	if a.gotoMode {
+		return fmt.Sprintf(" GOTO │ type number → Enter │ Esc: cancel │ > %s█", a.gotoInput)
+	}
 	if a.confirmQuit {
 		return " ⚠ Quit cella? (y/n)"
 	}
@@ -2798,12 +2841,12 @@ func (a App) renderSidebar() string {
 			rightInfo = strings.ToLower(c.Status)
 		}
 
-		line := fmt.Sprintf(" %s%s%s %-13s %s", indicator, rtIcon, traceIcon, name, rightInfo)
+		line := fmt.Sprintf("%2d %s%s%s %-13s %s", i, indicator, rtIcon, traceIcon, name, rightInfo)
 
 		if i == a.selected {
-			line = SelectedContainerStyle.Render(fmt.Sprintf("▸%s", line[1:]))
+			line = SelectedContainerStyle.Render("▸" + line)
 		} else {
-			line = style.Render(line)
+			line = style.Render(" " + line)
 		}
 
 		b.WriteString(line + "\n")
@@ -2884,6 +2927,7 @@ func (a App) renderHelpOverlay() string {
 		{"E", "Export container config (JSON)"},
 		{"I", "Import config from file"},
 		{"f", "Cycle runtime filter"},
+		{"g", "Goto container # (type number, Enter)"},
 		{"?", "Show this help"},
 		{"q", "Quit (with confirmation)"},
 		{"esc", "Back / close panel"},
