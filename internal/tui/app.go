@@ -1250,7 +1250,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		a.focus = panelDashboard
+		a.focus = panelSidebar
 		a.execInput = ""
 		return a, nil
 	case "enter":
@@ -1261,7 +1261,7 @@ func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := strings.TrimSpace(a.execInput)
 
 		if cmd == "bash" || cmd == "sh" || cmd == "/bin/bash" || cmd == "/bin/sh" {
-			a.focus = panelDashboard
+			a.focus = panelSidebar
 			a.execInput = ""
 			return a, enterShell(containerName)
 		}
@@ -1297,7 +1297,7 @@ func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (a App) handleExecOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		a.focus = panelDashboard
+		a.focus = panelSidebar
 		a.execOutput = ""
 		a.execScroll = 0
 		return a, nil
@@ -2064,7 +2064,7 @@ func (a App) renderStatusBar() string {
 	case panelExecInput:
 		return " EXEC MODE │ type command → Enter │ 'bash' for shell │ Esc to cancel"
 	case panelExecOutput:
-		return " OUTPUT │ ↑↓ scroll │ e: new command │ Esc/q: back to dashboard"
+		return " OUTPUT │ ↑↓ scroll │ e: new command │ Esc/q: back"
 	case panelSyscall:
 		return " SYSCALL TRACE │ ↑↓ switch container │ G: generate seccomp │ T: stop │ Esc/q: back"
 	case panelSeccompGen:
