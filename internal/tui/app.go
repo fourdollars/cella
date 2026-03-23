@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -18,6 +19,8 @@ type panel int
 const (
 	panelSidebar panel = iota
 	panelDashboard
+	panelExecInput
+	panelExecOutput
 )
 
 const tickInterval = 2 * time.Second
@@ -26,19 +29,23 @@ const sparklineLen = 30
 type tickMsg time.Time
 type containersMsg []lxd.ContainerInfo
 type errMsg error
-type lxdEventMsg string // formatted event string
+type lxdEventMsg string
+type execResultMsg struct {
+	stdout string
+	stderr string
+	err    error
+}
 
 // ContainerMetrics holds computed metrics for a container
 type ContainerMetrics struct {
 	CPUPercent float64
-	NetRxRate  int64 // bytes/s
-	NetTxRate  int64 // bytes/s
+	NetRxRate  int64
+	NetTxRate  int64
 	MemPercent float64
-	CPUHist    []float64 // sparkline history
+	CPUHist    []float64
 	MemHist    []float64
 }
 
-// prevState tracks previous poll values for delta computation
 type prevState struct {
 	cpuNs    int64
 	netRx    int64
@@ -60,11 +67,16 @@ type App struct {
 	err        error
 	events     []string
 	lastUpdate time.Time
-	sortBy     string // "name", "cpu", "mem"
+	sortBy     string
 	eventCh    chan string
+
+	// Exec mode
+	execInput    string
+	execOutput   string
+	execRunning  bool
+	execScroll   int
 }
 
-// NewApp creates the initial app model
 func NewApp() App {
 	client, err := lxd.NewClient("")
 	return App{
@@ -87,7 +99,6 @@ func (a App) Init() tea.Cmd {
 	)
 }
 
-// startEventMonitor launches the LXD event listener in background
 func (a App) startEventMonitor() tea.Cmd {
 	return func() tea.Msg {
 		if a.client == nil {
@@ -100,7 +111,7 @@ func (a App) startEventMonitor() tea.Cmd {
 				if formatted != "" {
 					select {
 					case a.eventCh <- formatted:
-					default: // drop if buffer full
+					default:
 					}
 				}
 			})
@@ -109,7 +120,6 @@ func (a App) startEventMonitor() tea.Cmd {
 	}
 }
 
-// listenEvents waits for the next event from the channel
 func (a App) listenEvents() tea.Cmd {
 	return func() tea.Msg {
 		ev := <-a.eventCh
@@ -138,9 +148,49 @@ func tickCmd() tea.Cmd {
 	})
 }
 
+// runExecInContainer runs a command in the selected container via LXD exec
+func runExecInContainer(client *lxd.Client, containerName string, command string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		result, err := client.ExecCommand(ctx, containerName, []string{"/bin/sh", "-c", command})
+		if err != nil {
+			return execResultMsg{err: err}
+		}
+
+		return execResultMsg{
+			stdout: result.Stdout,
+			stderr: result.Stderr,
+		}
+	}
+}
+
+// enterShell drops into an interactive shell inside the container
+func enterShell(containerName string) tea.Cmd {
+	c := exec.Command("sudo", "lxc", "exec", containerName, "--", "/bin/bash")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			return execResultMsg{err: fmt.Errorf("shell exited: %w", err)}
+		}
+		return execResultMsg{stdout: "(shell session ended)"}
+	})
+}
+
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Exec input mode — capture keystrokes
+		if a.focus == panelExecInput {
+			return a.handleExecInput(msg)
+		}
+
+		// Exec output mode — scroll or exit
+		if a.focus == panelExecOutput {
+			return a.handleExecOutput(msg)
+		}
+
+		// Normal mode
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return a, tea.Quit
@@ -167,6 +217,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			a.sortBy = "mem"
 			a.sortContainers()
+		case "e":
+			// Enter exec mode
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if c.Status == "Running" {
+					a.focus = panelExecInput
+					a.execInput = ""
+					a.execOutput = ""
+					a.execScroll = 0
+				}
+			}
 		case "s":
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
@@ -215,7 +276,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case lxdEventMsg:
 		a.addEvent(string(msg))
-		return a, a.listenEvents() // keep listening
+		return a, a.listenEvents()
+
+	case execResultMsg:
+		a.execRunning = false
+		if msg.err != nil {
+			a.execOutput = fmt.Sprintf("❌ Error: %v", msg.err)
+		} else {
+			output := msg.stdout
+			if msg.stderr != "" {
+				if output != "" {
+					output += "\n"
+				}
+				output += msg.stderr
+			}
+			if output == "" {
+				output = "(no output)"
+			}
+			a.execOutput = output
+		}
+		a.focus = panelExecOutput
+		a.execScroll = 0
+		return a, nil
 
 	case containersMsg:
 		now := time.Now()
@@ -303,6 +385,90 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// handleExecInput handles keystrokes when in exec input mode
+func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "escape":
+		a.focus = panelDashboard
+		a.execInput = ""
+		return a, nil
+	case "enter":
+		if a.execInput == "" {
+			return a, nil
+		}
+		containerName := a.containers[a.selected].Name
+		cmd := strings.TrimSpace(a.execInput)
+
+		// Interactive shell: drop out of TUI
+		if cmd == "bash" || cmd == "sh" || cmd == "/bin/bash" || cmd == "/bin/sh" {
+			a.focus = panelDashboard
+			a.execInput = ""
+			return a, enterShell(containerName)
+		}
+
+		// Non-interactive: run command and show output
+		a.execRunning = true
+		a.execOutput = ""
+		return a, runExecInContainer(a.client, containerName, cmd)
+	case "backspace":
+		if len(a.execInput) > 0 {
+			a.execInput = a.execInput[:len(a.execInput)-1]
+		}
+	case "ctrl+u":
+		a.execInput = ""
+	case "ctrl+w":
+		// Delete last word
+		input := strings.TrimRight(a.execInput, " ")
+		idx := strings.LastIndex(input, " ")
+		if idx >= 0 {
+			a.execInput = input[:idx+1]
+		} else {
+			a.execInput = ""
+		}
+	default:
+		// Only accept printable chars
+		r := msg.String()
+		if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
+			a.execInput += r
+		} else if r == " " {
+			a.execInput += " "
+		}
+	}
+	return a, nil
+}
+
+// handleExecOutput handles keystrokes when viewing exec output
+func (a App) handleExecOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "escape", "q":
+		a.focus = panelDashboard
+		a.execOutput = ""
+		a.execScroll = 0
+		return a, nil
+	case "e":
+		// Quick re-enter exec input from output view
+		a.focus = panelExecInput
+		a.execInput = ""
+		a.execOutput = ""
+		a.execScroll = 0
+		return a, nil
+	case "up", "k":
+		if a.execScroll > 0 {
+			a.execScroll--
+		}
+	case "down", "j":
+		lines := strings.Split(a.execOutput, "\n")
+		maxScroll := len(lines) - (a.height - 10)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if a.execScroll < maxScroll {
+			a.execScroll++
+		}
+	}
+	return a, nil
+}
+
 func appendHist(hist []float64, val float64, maxLen int) []float64 {
 	hist = append(hist, val)
 	if len(hist) > maxLen {
@@ -360,6 +526,8 @@ func (a *App) addEvent(msg string) {
 	}
 }
 
+// ── View ──
+
 func (a App) View() string {
 	if !a.ready {
 		return "\n  Loading cella...\n"
@@ -369,6 +537,7 @@ func (a App) View() string {
 		return fmt.Sprintf("\n  ❌ Error: %v\n\n  Make sure LXD is running and accessible.\n  Press q to quit.\n", a.err)
 	}
 
+	// Header
 	now := time.Now().UTC().Add(8 * time.Hour)
 	running := 0
 	var totalMem int64
@@ -380,9 +549,7 @@ func (a App) View() string {
 			totalCPU += a.getMetric(c.Name).CPUPercent
 		}
 	}
-	header := lipgloss.NewStyle().
-		Foreground(ColorBlue).Bold(true).
-		Render(fmt.Sprintf(" 📡 cella")) +
+	header := lipgloss.NewStyle().Foreground(ColorBlue).Bold(true).Render(" 📡 cella") +
 		lipgloss.NewStyle().Foreground(ColorSubtle).
 			Render(fmt.Sprintf("  %d/%d running", running, len(a.containers))) +
 		lipgloss.NewStyle().Foreground(ColorDim).
@@ -392,27 +559,25 @@ func (a App) View() string {
 		lipgloss.NewStyle().Foreground(ColorDim).
 			Render(fmt.Sprintf("  sort:[%s]", a.sortBy))
 
+	// Sidebar
 	sidebar := a.renderSidebar()
-	dashboard := a.renderDashboard()
 
-	statusStr := ""
-	if a.selected < len(a.containers) {
-		c := a.containers[a.selected]
-		m := a.getMetric(c.Name)
-		if c.Status == "Running" {
-			statusStr = fmt.Sprintf(" %s | %s | CPU %.1f%% | MEM %s | PIDs %d | ↑%s/s ↓%s/s",
-				c.Name, c.IP, m.CPUPercent,
-				formatBytes(c.MemoryCur), c.PIDs,
-				formatBytes(m.NetTxRate), formatBytes(m.NetRxRate))
-		} else {
-			statusStr = fmt.Sprintf(" %s [%s]", c.Name, strings.ToLower(c.Status))
-		}
+	// Main area — depends on mode
+	var dashboard string
+	switch a.focus {
+	case panelExecInput:
+		dashboard = a.renderExecInput()
+	case panelExecOutput:
+		dashboard = a.renderExecOutput()
+	default:
+		dashboard = a.renderDashboard()
 	}
-	if a.err != nil {
-		statusStr += fmt.Sprintf(" | ⚠ %v", a.err)
-	}
+
+	// Status bar
+	statusStr := a.renderStatusBar()
 	statusBar := StatusBarStyle.Width(a.width).Render(statusStr)
 
+	// Layout
 	sideW := 34
 	mainW := a.width - sideW - 4
 	if mainW < 40 {
@@ -429,6 +594,112 @@ func (a App) View() string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, dashboardStyled)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, statusBar)
+}
+
+func (a App) renderStatusBar() string {
+	switch a.focus {
+	case panelExecInput:
+		return fmt.Sprintf(" EXEC MODE │ type command → Enter │ 'bash' for shell │ Esc to cancel")
+	case panelExecOutput:
+		return fmt.Sprintf(" OUTPUT │ ↑↓ scroll │ e: new command │ Esc/q: back to dashboard")
+	default:
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			m := a.getMetric(c.Name)
+			if c.Status == "Running" {
+				return fmt.Sprintf(" %s │ %s │ CPU %.1f%% │ MEM %s │ PIDs %d │ ↑%s/s ↓%s/s │ [e]xec",
+					c.Name, c.IP, m.CPUPercent,
+					formatBytes(c.MemoryCur), c.PIDs,
+					formatBytes(m.NetTxRate), formatBytes(m.NetRxRate))
+			}
+			return fmt.Sprintf(" %s [%s] │ [s]tart", c.Name, strings.ToLower(c.Status))
+		}
+		return ""
+	}
+}
+
+func (a App) renderExecInput() string {
+	var b strings.Builder
+	containerName := ""
+	if a.selected < len(a.containers) {
+		containerName = a.containers[a.selected].Name
+	}
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Exec in %s", containerName)) + "\n\n")
+
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render("  Type a command to execute inside the container.") + "\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render("  Type 'bash' or 'sh' for interactive shell.") + "\n\n")
+
+	// Input prompt
+	prompt := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).Render(fmt.Sprintf("  %s $ ", containerName))
+	cursor := lipgloss.NewStyle().Foreground(ColorBlue).Bold(true).Render("█")
+	inputText := lipgloss.NewStyle().Foreground(ColorText).Render(a.execInput)
+	b.WriteString(prompt + inputText + cursor + "\n")
+
+	if a.execRunning {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorYellow).Render("  ⏳ Running...") + "\n")
+	}
+
+	// Quick command suggestions
+	b.WriteString("\n" + SectionHeaderStyle.Render("Quick Commands") + "\n")
+	suggestions := [][]string{
+		{"bash", "Interactive shell"},
+		{"ps aux", "Process list"},
+		{"df -h", "Disk usage"},
+		{"free -h", "Memory info"},
+		{"ip addr", "Network config"},
+		{"cat /etc/os-release", "OS info"},
+	}
+	for _, s := range suggestions {
+		b.WriteString(fmt.Sprintf("  %s  %s\n",
+			HelpKeyStyle.Render(s[0]),
+			HelpDescStyle.Render(s[1]),
+		))
+	}
+
+	return b.String()
+}
+
+func (a App) renderExecOutput() string {
+	var b strings.Builder
+	containerName := ""
+	if a.selected < len(a.containers) {
+		containerName = a.containers[a.selected].Name
+	}
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚡ Output — %s", containerName)) + "\n")
+
+	lines := strings.Split(a.execOutput, "\n")
+	totalLines := len(lines)
+
+	// Calculate visible area
+	visibleH := a.height - 12
+	if visibleH < 5 {
+		visibleH = 5
+	}
+
+	start := a.execScroll
+	end := start + visibleH
+	if end > totalLines {
+		end = totalLines
+	}
+	if start > totalLines {
+		start = totalLines
+	}
+
+	// Scroll indicator
+	if totalLines > visibleH {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render(fmt.Sprintf("  [%d-%d of %d lines]\n", start+1, end, totalLines)))
+	}
+
+	// Output content
+	outputStyle := lipgloss.NewStyle().Foreground(ColorText)
+	for i := start; i < end; i++ {
+		b.WriteString("  " + outputStyle.Render(lines[i]) + "\n")
+	}
+
+	return b.String()
 }
 
 func (a App) renderSidebar() string {
@@ -478,8 +749,8 @@ func (a App) renderSidebar() string {
 	b.WriteString("\n")
 	b.WriteString(SectionHeaderStyle.Render("Keys") + "\n")
 	helps := [][]string{
-		{"↑↓", "select"}, {"s", "start"}, {"x", "stop"}, {"p", "pause"},
-		{"1", "sort:name"}, {"2", "sort:cpu"}, {"3", "sort:mem"},
+		{"↑↓", "select"}, {"e", "exec cmd"}, {"s", "start"}, {"x", "stop"},
+		{"p", "pause"}, {"1", "sort:name"}, {"2", "sort:cpu"}, {"3", "sort:mem"},
 		{"tab", "panel"}, {"q", "quit"},
 	}
 	for _, h := range helps {
@@ -552,10 +823,10 @@ func (a App) renderDashboard() string {
 	b.WriteString(fmt.Sprintf("  Profiles: %s  Created: %s\n",
 		strings.Join(c.Profiles, ", "), c.CreatedAt))
 
-	// Events (live from LXD)
+	// Events
 	if len(a.events) > 0 {
 		b.WriteString(SectionHeaderStyle.Render("Events (live)") + "\n")
-		start := len(a.events) - 10
+		start := len(a.events) - 8
 		if start < 0 {
 			start = 0
 		}
@@ -574,6 +845,8 @@ func (a App) renderDashboard() string {
 
 	return b.String()
 }
+
+// ── Render helpers ──
 
 func renderBar(label string, value, max float64, color lipgloss.Color, width int) string {
 	pct := value / max
