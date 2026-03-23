@@ -45,8 +45,9 @@ type execResultMsg struct {
 type logLinesMsg []string
 type logErrMsg error
 type configMsg struct {
-	config *lxd.InstanceConfig
-	err    error
+	config  *lxd.InstanceConfig
+	hostRes *lxd.HostResources
+	err     error
 }
 type snapshotsMsg struct {
 	snapshots []lxd.SnapshotInfo
@@ -121,6 +122,7 @@ type App struct {
 	resCursor    int // 0=cpu, 1=memory
 	resInput     string
 	resEditing   bool
+	hostRes      *lxd.HostResources
 
 	// Snapshots panel
 	snapshots    []lxd.SnapshotInfo
@@ -254,7 +256,11 @@ func fetchConfig(client *lxd.Client, name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		config, err := client.GetContainerConfig(ctx, name)
-		return configMsg{config: config, err: err}
+		if err != nil {
+			return configMsg{err: err}
+		}
+		hostRes, _ := client.GetHostResources(ctx) // best effort
+		return configMsg{config: config, hostRes: hostRes}
 	}
 }
 
@@ -535,6 +541,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.focus = a.prevFocus
 		} else {
 			a.resConfig = msg.config
+			if msg.hostRes != nil {
+				a.hostRes = msg.hostRes
+			}
 		}
 		return a, nil
 
@@ -1599,6 +1608,17 @@ func (a App) renderResourcesPanel() string {
 		return b.String()
 	}
 
+	// Host system info
+	if a.hostRes != nil {
+		hostStyle := lipgloss.NewStyle().Foreground(ColorSubtle)
+		memFree := a.hostRes.MemoryTotal - a.hostRes.MemoryUsed
+		memPct := float64(a.hostRes.MemoryUsed) / float64(a.hostRes.MemoryTotal) * 100
+		b.WriteString(hostStyle.Render(fmt.Sprintf("  Host: %d CPUs │ RAM %s / %s (%.0f%% used, %s free)",
+			a.hostRes.CPUTotal,
+			formatBytes(a.hostRes.MemoryUsed), formatBytes(a.hostRes.MemoryTotal),
+			memPct, formatBytes(memFree))) + "\n\n")
+	}
+
 	config := a.resConfig.Config
 
 	type resRow struct {
@@ -1608,18 +1628,26 @@ func (a App) renderResourcesPanel() string {
 		hint    string
 	}
 
+	cpuHint := "e.g. 2, 0-3, 200ms/100ms"
+	memHint := "e.g. 256MB, 1GB, 2GiB"
+	if a.hostRes != nil {
+		cpuHint = fmt.Sprintf("max %d │ e.g. 2, 0-3, 200ms/100ms", a.hostRes.CPUTotal)
+		memFree := a.hostRes.MemoryTotal - a.hostRes.MemoryUsed
+		memHint = fmt.Sprintf("free %s │ e.g. 256MB, 1GB", formatBytes(memFree))
+	}
+
 	rows := []resRow{
 		{
 			label:   "CPU Limit",
 			key:     "limits.cpu",
 			current: config["limits.cpu"],
-			hint:    "e.g. 2, 0-3, 200ms/100ms",
+			hint:    cpuHint,
 		},
 		{
 			label:   "Memory Limit",
 			key:     "limits.memory",
 			current: config["limits.memory"],
-			hint:    "e.g. 256MB, 1GB, 2GiB",
+			hint:    memHint,
 		},
 	}
 

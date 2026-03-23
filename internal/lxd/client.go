@@ -631,3 +631,37 @@ func (c *Client) doGetRaw(ctx context.Context, path string) (string, error) {
 func (c *Client) SocketPath() string {
 	return c.socketPath
 }
+
+// HostResources holds host-level resource info from LXD
+type HostResources struct {
+	CPUTotal    int
+	MemoryTotal int64
+	MemoryUsed  int64
+}
+
+// GetHostResources fetches host CPU/memory info from /1.0/resources
+func (c *Client) GetHostResources(ctx context.Context) (*HostResources, error) {
+	resp, err := c.doGet(ctx, "/1.0/resources")
+	if err != nil {
+		return nil, err
+	}
+
+	var res struct {
+		CPU struct {
+			Total int `json:"total"`
+		} `json:"cpu"`
+		Memory struct {
+			Total int64 `json:"total"`
+			Used  int64 `json:"used"`
+		} `json:"memory"`
+	}
+	if err := json.Unmarshal(resp.Metadata, &res); err != nil {
+		return nil, fmt.Errorf("parse resources: %w", err)
+	}
+
+	return &HostResources{
+		CPUTotal:    res.CPU.Total,
+		MemoryTotal: res.Memory.Total,
+		MemoryUsed:  res.Memory.Used,
+	}, nil
+}
