@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/lxd"
+	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/trace"
 )
 
@@ -35,7 +36,7 @@ const tickInterval = 2 * time.Second
 const sparklineLen = 30
 
 type tickMsg time.Time
-type containersMsg []lxd.ContainerInfo
+type containersMsg []runtime.ContainerInfo
 type errMsg error
 type lxdEventMsg string
 type execResultMsg struct {
@@ -46,13 +47,13 @@ type execResultMsg struct {
 type logLinesMsg []string
 type logErrMsg error
 type configMsg struct {
-	config  *lxd.InstanceConfig
+	config  *runtime.InstanceConfig
 	hostRes *lxd.HostResources
 	cpuRaw  []lxd.HostCPURaw
 	err     error
 }
 type snapshotsMsg struct {
-	snapshots []lxd.SnapshotInfo
+	snapshots []runtime.SnapshotInfo
 	err       error
 }
 type asyncResultMsg struct {
@@ -79,8 +80,9 @@ type prevState struct {
 
 // App is the main TUI model
 type App struct {
-	client     *lxd.Client
-	containers []lxd.ContainerInfo
+	client     *lxd.Client           // LXD client (for events, host resources)
+	runtimes   []runtime.Runtime     // all active runtimes
+	containers []runtime.ContainerInfo
 	metrics    map[string]*ContainerMetrics
 	prev       map[string]*prevState
 	selected   int
@@ -119,8 +121,9 @@ type App struct {
 	flashExpiry time.Time
 
 	// Resource limits panel
-	resConfig    *lxd.InstanceConfig
+	resConfig    *runtime.InstanceConfig
 	resTarget    string
+	resRuntime   string // runtime of target container
 	resCursor    int // 0=cpu, 1=memory
 	resInput     string
 	resEditing   bool
@@ -129,8 +132,9 @@ type App struct {
 	perCPUUsage  []lxd.PerCPUUsage
 
 	// Snapshots panel
-	snapshots    []lxd.SnapshotInfo
+	snapshots    []runtime.SnapshotInfo
 	snapTarget   string
+	snapRuntime  string // runtime of target container
 	snapCursor   int
 	snapInput    string
 	snapNaming   bool // entering snapshot name
@@ -143,26 +147,44 @@ type App struct {
 type flashExpireMsg struct{}
 
 func NewApp() App {
+	var runtimes []runtime.Runtime
+	var lxdClient *lxd.Client
+
+	// Try LXD
 	client, err := lxd.NewClient("")
+	if err == nil {
+		lxdClient = client
+		runtimes = append(runtimes, runtime.NewLXDRuntime(client))
+	}
+
+	// Try Docker
+	dockerClient, err := runtime.NewDockerClient("")
+	if err == nil {
+		runtimes = append(runtimes, dockerClient)
+	}
+
 	return App{
-		client:  client,
-		err:     err,
-		metrics: make(map[string]*ContainerMetrics),
-		prev:    make(map[string]*prevState),
-		events:  []string{},
-		sortBy:  "name",
-		eventCh: make(chan string, 100),
-		tracers: make(map[string]*trace.Tracer),
+		client:   lxdClient,
+		runtimes: runtimes,
+		metrics:  make(map[string]*ContainerMetrics),
+		prev:     make(map[string]*prevState),
+		events:   []string{},
+		sortBy:   "name",
+		eventCh:  make(chan string, 100),
+		tracers:  make(map[string]*trace.Tracer),
 	}
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(
-		fetchContainers(a.client),
+	cmds := []tea.Cmd{
+		fetchAllContainers(a.runtimes),
 		tea.ClearScreen,
-		a.startEventMonitor(),
-		a.listenEvents(),
-	)
+	}
+	// LXD event monitor only if LXD is available
+	if a.client != nil {
+		cmds = append(cmds, a.startEventMonitor(), a.listenEvents())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (a App) startEventMonitor() tea.Cmd {
@@ -193,19 +215,52 @@ func (a App) listenEvents() tea.Cmd {
 	}
 }
 
-func fetchContainers(client *lxd.Client) tea.Cmd {
+func fetchAllContainers(runtimes []runtime.Runtime) tea.Cmd {
 	return func() tea.Msg {
-		if client == nil {
-			return errMsg(fmt.Errorf("no LXD client"))
+		if len(runtimes) == 0 {
+			return errMsg(fmt.Errorf("no container runtimes available"))
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		containers, err := client.ListContainers(ctx)
-		if err != nil {
-			return errMsg(err)
+
+		var all []runtime.ContainerInfo
+		for _, rt := range runtimes {
+			containers, err := rt.ListContainers(ctx)
+			if err != nil {
+				continue // skip failed runtimes
+			}
+			all = append(all, containers...)
 		}
-		return containersMsg(containers)
+		return containersMsg(all)
 	}
+}
+
+// runtimeFor returns the Runtime for a given container based on its Runtime field
+func (a App) runtimeFor(containerName string) runtime.Runtime {
+	for _, c := range a.containers {
+		if c.Name == containerName {
+			for _, rt := range a.runtimes {
+				if rt.Name() == c.Runtime {
+					return rt
+				}
+			}
+		}
+	}
+	// Default to first runtime
+	if len(a.runtimes) > 0 {
+		return a.runtimes[0]
+	}
+	return nil
+}
+
+// containerRuntime returns the runtime string for a container name
+func (a App) containerRuntime(name string) string {
+	for _, c := range a.containers {
+		if c.Name == name {
+			return c.Runtime
+		}
+	}
+	return ""
 }
 
 func tickCmd() tea.Cmd {
@@ -214,12 +269,15 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func runExecInContainer(client *lxd.Client, containerName string, command string) tea.Cmd {
+func runExecInContainer(rt runtime.Runtime, containerName string, command string) tea.Cmd {
 	return func() tea.Msg {
+		if rt == nil {
+			return execResultMsg{err: fmt.Errorf("no runtime for %s", containerName)}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		result, err := client.ExecCommand(ctx, containerName, []string{"/bin/sh", "-c", command})
+		result, err := rt.ExecCommand(ctx, containerName, []string{"/bin/sh", "-c", command})
 		if err != nil {
 			return execResultMsg{err: err}
 		}
@@ -241,11 +299,14 @@ func enterShell(containerName string) tea.Cmd {
 	})
 }
 
-func fetchLogs(client *lxd.Client, containerName string) tea.Cmd {
+func fetchLogs(rt runtime.Runtime, containerName string) tea.Cmd {
 	return func() tea.Msg {
+		if rt == nil {
+			return logErrMsg(fmt.Errorf("no runtime"))
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		result, err := client.ExecCommand(ctx, containerName,
+		result, err := rt.ExecCommand(ctx, containerName,
 			[]string{"/bin/sh", "-c", "journalctl --no-pager -n 200 2>/dev/null || tail -n 200 /var/log/syslog 2>/dev/null || echo 'No logs available'"})
 		if err != nil {
 			return logErrMsg(err)
@@ -255,25 +316,35 @@ func fetchLogs(client *lxd.Client, containerName string) tea.Cmd {
 	}
 }
 
-func fetchConfig(client *lxd.Client, name string) tea.Cmd {
+func fetchConfig(rt runtime.Runtime, name string) tea.Cmd {
 	return func() tea.Msg {
+		if rt == nil {
+			return configMsg{err: fmt.Errorf("no runtime")}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		config, err := client.GetContainerConfig(ctx, name)
+		config, err := rt.GetConfig(ctx, name)
 		if err != nil {
 			return configMsg{err: err}
 		}
-		hostRes, _ := client.GetHostResources(ctx) // best effort
-		cpuRaw, _ := lxd.ReadPerCPURaw()           // best effort
+		// Host resources and per-CPU stats (LXD-specific, best effort)
+		var hostRes *lxd.HostResources
+		if lxdRt, ok := rt.(*runtime.LXDRuntime); ok {
+			hostRes, _ = lxdRt.Client.GetHostResources(ctx)
+		}
+		cpuRaw, _ := lxd.ReadPerCPURaw() // works on any linux host
 		return configMsg{config: config, hostRes: hostRes, cpuRaw: cpuRaw}
 	}
 }
 
-func fetchSnapshots(client *lxd.Client, name string) tea.Cmd {
+func fetchSnapshots(rt runtime.Runtime, name string) tea.Cmd {
 	return func() tea.Msg {
+		if rt == nil {
+			return snapshotsMsg{err: fmt.Errorf("no runtime")}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		snaps, err := client.ListSnapshots(ctx, name)
+		snaps, err := rt.ListSnapshots(ctx, name)
 		return snapshotsMsg{snapshots: snaps, err: err}
 	}
 }
@@ -386,7 +457,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.logScroll = 0
 					a.prevFocus = a.focus
 					a.focus = panelLogs
-					return a, fetchLogs(a.client, c.Name)
+					return a, fetchLogs(a.runtimeFor(c.Name), c.Name)
 				}
 			}
 		case "r":
@@ -399,7 +470,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.resEditing = false
 				a.prevFocus = a.focus
 				a.focus = panelResources
-				return a, fetchConfig(a.client, c.Name)
+				return a, fetchConfig(a.runtimeFor(c.Name), c.Name)
 			}
 		case "n":
 			// Snapshots
@@ -412,7 +483,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.snapCloning = false
 				a.prevFocus = a.focus
 				a.focus = panelSnapshots
-				return a, fetchSnapshots(a.client, c.Name)
+				return a, fetchSnapshots(a.runtimeFor(c.Name), c.Name)
 			}
 		case "e":
 			if a.selected < len(a.containers) {
@@ -445,9 +516,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
 				if c.Status == "Stopped" {
+					rt := a.runtimeFor(c.Name)
 					go func() {
 						ctx := context.Background()
-						_ = a.client.StartContainer(ctx, c.Name)
+						if rt != nil {
+							_ = rt.StartContainer(ctx, c.Name)
+						}
 					}()
 					a.addEvent(fmt.Sprintf("▶ starting %s...", c.Name))
 				}
@@ -456,17 +530,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
 				if c.Status == "Running" {
+					rt := a.runtimeFor(c.Name)
 					go func() {
 						ctx := context.Background()
-						_ = a.client.FreezeContainer(ctx, c.Name)
+						if rt != nil {
+							_ = rt.PauseContainer(ctx, c.Name)
+						}
 					}()
-					a.addEvent(fmt.Sprintf("⏸ freezing %s...", c.Name))
+					a.addEvent(fmt.Sprintf("⏸ pausing %s...", c.Name))
 				} else if c.Status == "Frozen" {
+					rt := a.runtimeFor(c.Name)
 					go func() {
 						ctx := context.Background()
-						_ = a.client.UnfreezeContainer(ctx, c.Name)
+						if rt != nil {
+							_ = rt.UnpauseContainer(ctx, c.Name)
+						}
 					}()
-					a.addEvent(fmt.Sprintf("▶ unfreezing %s...", c.Name))
+					a.addEvent(fmt.Sprintf("▶ unpausing %s...", c.Name))
 				}
 			}
 		case "x":
@@ -478,9 +558,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						t.Stop()
 						delete(a.tracers, c.Name)
 					}
+					rt := a.runtimeFor(c.Name)
 					go func() {
 						ctx := context.Background()
-						_ = a.client.StopContainer(ctx, c.Name)
+						if rt != nil {
+							_ = rt.StopContainer(ctx, c.Name)
+						}
 					}()
 					a.addEvent(fmt.Sprintf("■ stopping %s...", c.Name))
 				}
@@ -577,7 +660,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case containersMsg:
 		now := time.Now()
-		newContainers := []lxd.ContainerInfo(msg)
+		newContainers := []runtime.ContainerInfo(msg)
 
 		for i := range newContainers {
 			c := &newContainers[i]
@@ -657,9 +740,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		// Also refresh per-CPU stats when in resources panel
 		if a.focus == panelResources && a.resTarget != "" {
-			return a, tea.Batch(fetchContainers(a.client), fetchConfig(a.client, a.resTarget))
+			return a, tea.Batch(fetchAllContainers(a.runtimes), fetchConfig(a.runtimeFor(a.resTarget), a.resTarget))
 		}
-		return a, fetchContainers(a.client)
+		return a, fetchAllContainers(a.runtimes)
 	}
 
 	return a, nil
@@ -688,7 +771,7 @@ func (a App) handleExecInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		a.execRunning = true
 		a.execOutput = ""
-		return a, runExecInContainer(a.client, containerName, cmd)
+		return a, runExecInContainer(a.runtimeFor(containerName), containerName, cmd)
 	case "backspace":
 		if len(a.execInput) > 0 {
 			a.execInput = a.execInput[:len(a.execInput)-1]
@@ -882,7 +965,7 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		// Refresh logs
 		if a.logTarget != "" {
-			return a, fetchLogs(a.client, a.logTarget)
+			return a, fetchLogs(a.runtimeFor(a.logTarget), a.logTarget)
 		}
 	}
 	return a, nil
@@ -911,10 +994,14 @@ func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if configKey != "" {
 				name := a.resTarget
+				rt := a.runtimeFor(name)
 				return a, func() tea.Msg {
 					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
-					err := a.client.UpdateContainerConfig(ctx, name, map[string]string{configKey: val})
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.UpdateConfig(ctx, name, map[string]string{configKey: val})
 					if err != nil {
 						return asyncResultMsg{err: fmt.Errorf("set %s=%s: %w", configKey, val, err)}
 					}
@@ -951,7 +1038,7 @@ func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.resEditing = true
 		a.resInput = ""
 	case "r":
-		return a, fetchConfig(a.client, a.resTarget)
+		return a, fetchConfig(a.runtimeFor(a.resTarget), a.resTarget)
 	}
 	return a, nil
 }
@@ -976,10 +1063,14 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			name := a.snapTarget
 			if a.snapNaming {
 				a.snapNaming = false
+				rt := a.runtimeFor(name)
 				return a, func() tea.Msg {
 					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 					defer cancel()
-					err := a.client.CreateSnapshot(ctx, name, val, false)
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.CreateSnapshot(ctx, name, val)
 					if err != nil {
 						return asyncResultMsg{err: fmt.Errorf("snapshot: %w", err)}
 					}
@@ -988,10 +1079,14 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if a.snapCloning {
 				a.snapCloning = false
+				rt := a.runtimeFor(name)
 				return a, func() tea.Msg {
 					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 					defer cancel()
-					err := a.client.CopyContainer(ctx, name, val)
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.CopyContainer(ctx, name, val)
 					if err != nil {
 						return asyncResultMsg{err: fmt.Errorf("clone: %w", err)}
 					}
@@ -1031,16 +1126,24 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.snapCloning = true
 		a.snapInput = a.snapTarget + "-clone"
 	case "R":
-		// Restore snapshot
+		// Restore snapshot (LXD only)
 		if a.snapCursor < len(a.snapshots) {
 			snapName := a.snapshots[a.snapCursor].Name
 			name := a.snapTarget
+			if a.containerRuntime(name) == "docker" {
+				a.addEvent("⚠ Docker doesn't support snapshot restore")
+				return a, nil
+			}
 			return a, func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 				defer cancel()
-				err := a.client.RestoreSnapshot(ctx, name, snapName)
-				if err != nil {
-					return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
+				// RestoreSnapshot is LXD-specific, use client directly
+				lxdClient, _ := lxd.NewClient("")
+				if lxdClient != nil {
+					err := lxdClient.RestoreSnapshot(ctx, name, snapName)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
+					}
 				}
 				return asyncResultMsg{text: fmt.Sprintf("⏪ restored %s to snapshot '%s'", name, snapName)}
 			}
@@ -1050,10 +1153,14 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.snapCursor < len(a.snapshots) {
 			snapName := a.snapshots[a.snapCursor].Name
 			name := a.snapTarget
+			rt := a.runtimeFor(name)
 			return a, func() tea.Msg {
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 				defer cancel()
-				err := a.client.DeleteSnapshot(ctx, name, snapName)
+				if rt == nil {
+					return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+				}
+				err := rt.DeleteSnapshot(ctx, name, snapName)
 				if err != nil {
 					return asyncResultMsg{err: fmt.Errorf("delete snapshot: %w", err)}
 				}
@@ -1061,7 +1168,7 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
-		return a, fetchSnapshots(a.client, a.snapTarget)
+		return a, fetchSnapshots(a.runtimeFor(a.snapTarget), a.snapTarget)
 	}
 	return a, nil
 }
@@ -1865,6 +1972,12 @@ func (a App) renderSidebar() string {
 			style = lipgloss.NewStyle().Foreground(ColorYellow)
 		}
 
+		// Runtime icon
+		rtIcon := "🔷"
+		if c.Runtime == "docker" {
+			rtIcon = "🐳"
+		}
+
 		// Show trace indicator
 		traceIcon := " "
 		if _, ok := a.tracers[c.Name]; ok {
@@ -1872,8 +1985,8 @@ func (a App) renderSidebar() string {
 		}
 
 		name := c.Name
-		if len(name) > 14 {
-			name = name[:12] + ".."
+		if len(name) > 13 {
+			name = name[:11] + ".."
 		}
 
 		rightInfo := ""
@@ -1883,7 +1996,7 @@ func (a App) renderSidebar() string {
 			rightInfo = strings.ToLower(c.Status)
 		}
 
-		line := fmt.Sprintf(" %s%s %-14s %s", indicator, traceIcon, name, rightInfo)
+		line := fmt.Sprintf(" %s%s%s %-13s %s", indicator, rtIcon, traceIcon, name, rightInfo)
 
 		if i == a.selected {
 			line = SelectedContainerStyle.Render(fmt.Sprintf("▸%s", line[1:]))
@@ -1922,11 +2035,22 @@ func (a App) renderDashboard() string {
 	m := a.getMetric(c.Name)
 	var b strings.Builder
 
+	rtIcon := "🔷"
+	rtLabel := "LXD"
+	if c.Runtime == "docker" {
+		rtIcon = "🐳"
+		rtLabel = "Docker"
+	}
+
 	focusIndicator := ""
 	if a.focus == panelDashboard {
 		focusIndicator = " ◆"
 	}
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("─ %s%s ", c.Name, focusIndicator)) + "\n")
+	title := fmt.Sprintf("─ %s %s %s%s ", rtIcon, c.Name, rtLabel, focusIndicator)
+	if c.Image != "" {
+		title = fmt.Sprintf("─ %s %s (%s)%s ", rtIcon, c.Name, c.Image, focusIndicator)
+	}
+	b.WriteString(TitleStyle.Render(title) + "\n")
 
 	if c.Status != "Running" {
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render(
