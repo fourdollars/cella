@@ -773,3 +773,45 @@ func CalcPerCPUUsage(prev, cur []HostCPURaw) []PerCPUUsage {
 	}
 	return result
 }
+
+// CreateContainer creates a new LXD instance from an image alias
+func (c *Client) CreateContainer(ctx context.Context, name, image string, config map[string]string) error {
+	payload := map[string]interface{}{
+		"name": name,
+		"source": map[string]interface{}{
+			"type":  "image",
+			"alias": image,
+		},
+		"config": config,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := c.doPost(ctx, "/1.0/instances", strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("create container: %w", err)
+	}
+
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=120")
+		if err != nil {
+			return fmt.Errorf("wait for create: %w", err)
+		}
+	}
+	return nil
+}
+
+// DeleteContainer removes an LXD instance (must be stopped)
+func (c *Client) DeleteContainer(ctx context.Context, name string) error {
+	resp, err := c.doDelete(ctx, fmt.Sprintf("/1.0/instances/%s", name))
+	if err != nil {
+		return fmt.Errorf("delete container: %w", err)
+	}
+
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=60")
+		if err != nil {
+			return fmt.Errorf("wait for delete: %w", err)
+		}
+	}
+	return nil
+}

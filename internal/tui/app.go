@@ -33,6 +33,7 @@ const (
 	panelSnapshots
 	panelHelp
 	panelNetwork
+	panelCreate
 )
 
 const tickInterval = 2 * time.Second
@@ -174,6 +175,16 @@ type App struct {
 
 	// Runtime filter: "" = all, "lxd", "docker"
 	runtimeFilter string
+
+	// Create container
+	createStep    int    // 0=runtime, 1=image, 2=name, 3=confirm
+	createRuntime string // "lxd" or "docker"
+	createImage   string
+	createName    string
+	createInput   string
+
+	// Delete confirmation
+	confirmDelete bool
 
 	// Quit confirmation
 	confirmQuit bool
@@ -549,6 +560,33 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelSnapshots {
 			return a.handleSnapshotsPanel(msg)
 		}
+		if a.focus == panelCreate {
+			return a.handleCreatePanel(msg)
+		}
+
+		// Delete confirmation — intercept all keys
+		if a.confirmDelete {
+			switch msg.String() {
+			case "y", "Y":
+				a.confirmDelete = false
+				if a.selected < len(a.containers) {
+					c := a.containers[a.selected]
+					rt := a.runtimeFor(c.Name)
+					name := c.Name
+					return a, func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						defer cancel()
+						if err := rt.DeleteContainer(ctx, name); err != nil {
+							return asyncResultMsg{err: err}
+						}
+						return asyncResultMsg{text: fmt.Sprintf("🗑 Deleted %s", name)}
+					}
+				}
+			default:
+				a.confirmDelete = false
+			}
+			return a, nil
+		}
 
 		// Quit confirmation mode — intercept all keys
 		if a.confirmQuit {
@@ -615,6 +653,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.applyFilter()
 			a.selected = 0
 			a.sideScroll = 0
+		case "+":
+			// Create new container
+			a.createStep = 0
+			a.createRuntime = ""
+			a.createImage = ""
+			a.createName = ""
+			a.createInput = ""
+			a.prevFocus = a.focus
+			a.focus = panelCreate
+			return a, nil
+		case "d":
+			// Delete selected container (must be stopped)
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if c.Status == "Stopped" || c.Status == "Exited" || c.Status == "Created" {
+					a.confirmDelete = true
+					return a, nil
+				}
+			}
 		case "w":
 			// Network panel
 			if a.selected < len(a.containers) {
@@ -1222,6 +1279,97 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a App) handleCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	switch a.createStep {
+	case 0: // Select runtime
+		switch key {
+		case "1":
+			a.createRuntime = "lxd"
+			a.createStep = 1
+			a.createInput = ""
+		case "2":
+			a.createRuntime = "docker"
+			a.createStep = 1
+			a.createInput = ""
+		case "esc", "q":
+			a.focus = a.prevFocus
+		}
+		return a, nil
+
+	case 1: // Enter image
+		switch key {
+		case "enter":
+			a.createImage = a.createInput
+			a.createInput = ""
+			a.createStep = 2
+		case "backspace":
+			if len(a.createInput) > 0 {
+				a.createInput = a.createInput[:len(a.createInput)-1]
+			}
+		case "esc":
+			a.createStep = 0
+		default:
+			if len(key) == 1 {
+				a.createInput += key
+			}
+		}
+		return a, nil
+
+	case 2: // Enter name
+		switch key {
+		case "enter":
+			a.createName = a.createInput
+			a.createInput = ""
+			a.createStep = 3
+		case "backspace":
+			if len(a.createInput) > 0 {
+				a.createInput = a.createInput[:len(a.createInput)-1]
+			}
+		case "esc":
+			a.createStep = 1
+		default:
+			if len(key) == 1 {
+				a.createInput += key
+			}
+		}
+		return a, nil
+
+	case 3: // Confirm
+		switch key {
+		case "y", "Y", "enter":
+			a.focus = a.prevFocus
+			rtName := a.createRuntime
+			image := a.createImage
+			name := a.createName
+			// Find the runtime
+			var rt runtime.Runtime
+			for _, r := range a.runtimes {
+				if r.Name() == rtName {
+					rt = r
+					break
+				}
+			}
+			if rt == nil {
+				return a, a.setFlash("❌ Runtime not available")
+			}
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				if err := rt.CreateContainer(ctx, name, image, nil); err != nil {
+					return asyncResultMsg{err: err}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("✨ Created %s (%s/%s)", name, rtName, image)}
+			}
+		case "n", "N", "esc":
+			a.createStep = 2
+		}
+		return a, nil
+	}
+	return a, nil
+}
+
 func (a App) handleNetworkPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
@@ -1658,6 +1806,8 @@ func (a App) View() string {
 		dashboard = a.renderLogsPanel()
 	case panelNetwork:
 		dashboard = a.renderNetworkPanel()
+	case panelCreate:
+		dashboard = a.renderCreatePanel()
 	case panelResources:
 		dashboard = a.renderResourcesPanel()
 	case panelSnapshots:
@@ -1704,6 +1854,13 @@ func (a App) renderStatusBar() string {
 	if a.confirmQuit {
 		return " ⚠ Quit cella? (y/n)"
 	}
+	if a.confirmDelete {
+		name := ""
+		if a.selected < len(a.containers) {
+			name = a.containers[a.selected].Name
+		}
+		return fmt.Sprintf(" ⚠ Delete '%s'? This is irreversible! (y/n)", name)
+	}
 	switch a.focus {
 	case panelExecInput:
 		return " EXEC MODE │ type command → Enter │ 'bash' for shell │ Esc to cancel"
@@ -1714,7 +1871,15 @@ func (a App) renderStatusBar() string {
 	case panelSeccompGen:
 		return " SECCOMP PROFILE │ ↑↓ scroll │ S: save to file │ Esc/q: back"
 	case panelLogs:
-		return " LOGS │ ↑↓ scroll │ g/G: top/bottom │ r: refresh │ Esc/q: back"
+		follow := ""
+		if a.logFollow {
+			follow = " │ 🔴 F: toggle follow"
+		}
+		return " LOGS │ ↑↓ scroll │ g/G: top/bottom │ F: follow │ r: refresh │ Esc/q: back" + follow
+	case panelNetwork:
+		return " NETWORK │ r: refresh │ Esc/q: back"
+	case panelCreate:
+		return " CREATE │ follow prompts │ Esc: back"
 	case panelResources:
 		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
 	case panelSnapshots:
@@ -2012,6 +2177,55 @@ func (a App) renderSeccompPanel() string {
 			Bold(true).
 			Padding(0, 1).
 			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}
+
+// ── Create panel ──
+
+func (a App) renderCreatePanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render("✨ Create Container ◆") + "\n\n")
+
+	promptStyle := lipgloss.NewStyle().Foreground(ColorBlue).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(ColorDim)
+	inputStyle := lipgloss.NewStyle().Foreground(ColorGreen).Bold(true)
+
+	switch a.createStep {
+	case 0:
+		b.WriteString(promptStyle.Render("  Select runtime:") + "\n\n")
+		b.WriteString("  [1] 🔷 LXD\n")
+		b.WriteString("  [2] 🐳 Docker\n\n")
+		b.WriteString(dimStyle.Render("  Press 1 or 2, Esc to cancel") + "\n")
+
+	case 1:
+		icon := "🔷"
+		if a.createRuntime == "docker" {
+			icon = "🐳"
+		}
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Runtime: %s %s", icon, a.createRuntime)) + "\n\n")
+		if a.createRuntime == "docker" {
+			b.WriteString(promptStyle.Render("  Image name (e.g. ubuntu, alpine, nginx):") + "\n")
+		} else {
+			b.WriteString(promptStyle.Render("  Image alias (e.g. ubuntu:22.04, alpine):") + "\n")
+		}
+		b.WriteString(inputStyle.Render(fmt.Sprintf("  > %s█", a.createInput)) + "\n\n")
+		b.WriteString(dimStyle.Render("  Enter to confirm, Esc to go back") + "\n")
+
+	case 2:
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Runtime: %s  Image: %s", a.createRuntime, a.createImage)) + "\n\n")
+		b.WriteString(promptStyle.Render("  Container name:") + "\n")
+		b.WriteString(inputStyle.Render(fmt.Sprintf("  > %s█", a.createInput)) + "\n\n")
+		b.WriteString(dimStyle.Render("  Enter to confirm, Esc to go back") + "\n")
+
+	case 3:
+		b.WriteString(SectionHeaderStyle.Render("  Confirm creation:") + "\n\n")
+		b.WriteString(fmt.Sprintf("  Runtime:  %s\n", a.createRuntime))
+		b.WriteString(fmt.Sprintf("  Image:    %s\n", a.createImage))
+		b.WriteString(fmt.Sprintf("  Name:     %s\n\n", a.createName))
+		b.WriteString(promptStyle.Render("  Create? (y/n)") + "\n")
 	}
 
 	return b.String()

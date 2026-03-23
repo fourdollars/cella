@@ -116,3 +116,11 @@ func (r *LXDRuntime) DeleteSnapshot(ctx context.Context, containerName, snapshot
 func (r *LXDRuntime) CopyContainer(ctx context.Context, source, target string) error {
 	return r.Client.CopyContainer(ctx, source, target)
 }
+
+func (r *LXDRuntime) CreateContainer(ctx context.Context, name, image string, config map[string]string) error {
+	return r.Client.CreateContainer(ctx, name, image, config)
+}
+
+func (r *LXDRuntime) DeleteContainer(ctx context.Context, name string) error {
+	return r.Client.DeleteContainer(ctx, name)
+}

@@ -86,4 +86,10 @@ type Runtime interface {
 
 	// CopyContainer clones a container
 	CopyContainer(ctx context.Context, source, target string) error
+
+	// CreateContainer creates a new container
+	CreateContainer(ctx context.Context, name, image string, config map[string]string) error
+
+	// DeleteContainer removes a container (must be stopped)
+	DeleteContainer(ctx context.Context, name string) error
 }

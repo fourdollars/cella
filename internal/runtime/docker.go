@@ -453,6 +453,30 @@ func (d *DockerClient) CopyContainer(ctx context.Context, source, target string)
 	return err
 }
 
+func (d *DockerClient) CreateContainer(ctx context.Context, name, image string, config map[string]string) error {
+	hostConfig := map[string]interface{}{}
+	if v, ok := config["limits.memory"]; ok {
+		mem := parseDockerMemory(v)
+		hostConfig["Memory"] = mem
+		hostConfig["MemorySwap"] = mem * 2
+	}
+	if v, ok := config["limits.cpu"]; ok {
+		hostConfig["CpusetCpus"] = v
+	}
+
+	body := map[string]interface{}{
+		"Image":      image,
+		"HostConfig": hostConfig,
+	}
+	payload, _ := json.Marshal(body)
+	_, err := d.doPost(ctx, "/containers/create?name="+name, strings.NewReader(string(payload)))
+	return err
+}
+
+func (d *DockerClient) DeleteContainer(ctx context.Context, name string) error {
+	return d.doDelete(ctx, "/containers/"+name)
+}
+
 // SocketPath returns the Docker socket path
 func (d *DockerClient) SocketPath() string {
 	return d.socketPath
