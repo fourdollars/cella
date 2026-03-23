@@ -1,0 +1,12 @@
+# Binary
+cella
+cella-linux-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store

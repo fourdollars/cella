@@ -1,0 +1,11 @@
+{
+  "name": "moderate",
+  "description": "Block dangerous syscalls only, allow everything else",
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "syscalls": [
+    {
+      "names": ["mount", "umount2", "reboot", "init_module", "delete_module", "finit_module", "ptrace", "kexec_load", "kexec_file_load", "bpf", "userfaultfd", "perf_event_open", "pivot_root", "chroot", "sethostname", "setdomainname", "iopl", "ioperm", "swapon", "swapoff"],
+      "action": "SCMP_ACT_ERRNO"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "strict",
+  "description": "Block dangerous syscalls, notify on file/net operations for monitoring",
+  "defaultAction": "SCMP_ACT_NOTIFY",
+  "syscalls": [
+    {
+      "names": ["mount", "umount2", "reboot", "init_module", "delete_module", "finit_module", "ptrace", "kexec_load", "kexec_file_load", "bpf", "userfaultfd", "perf_event_open", "pivot_root", "chroot", "sethostname", "setdomainname", "iopl", "ioperm", "swapon", "swapoff"],
+      "action": "SCMP_ACT_ERRNO"
+    },
+    {
+      "names": ["mmap", "mprotect", "munmap", "brk", "mremap", "futex", "clone", "clone3", "epoll_ctl", "epoll_wait", "epoll_pwait", "poll", "ppoll", "select", "pselect6", "nanosleep", "clock_nanosleep", "sched_yield", "rt_sigreturn", "rt_sigaction", "rt_sigprocmask", "sigaltstack"],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "names": ["sendmsg", "exit", "exit_group"],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}
