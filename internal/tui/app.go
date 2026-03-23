@@ -225,6 +225,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "3":
 			a.sortBy = "mem"
 			a.sortContainers()
+		case "T":
+			// Stop tracing for selected container (from any normal panel)
+			if a.selected < len(a.containers) {
+				name := a.containers[a.selected].Name
+				if t, ok := a.tracers[name]; ok {
+					t.Stop()
+					delete(a.tracers, name)
+					a.addEvent(fmt.Sprintf("🔬 syscall tracing stopped for %s", name))
+				}
+			}
 		case "e":
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
@@ -1005,8 +1015,8 @@ func (a App) renderSidebar() string {
 	b.WriteString(SectionHeaderStyle.Render("Keys") + "\n")
 	helps := [][]string{
 		{"↑↓", "select"}, {"e", "exec cmd"}, {"t", "trace"},
-		{"s", "start"}, {"x", "stop"}, {"p", "pause"},
-		{"1", "sort:name"}, {"2", "sort:cpu"}, {"3", "sort:mem"},
+		{"T", "stop trace"}, {"s", "start"}, {"x", "stop"},
+		{"p", "pause"}, {"1-3", "sort"},
 		{"tab", "panel"}, {"q", "quit"},
 	}
 	for _, h := range helps {
