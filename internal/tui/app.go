@@ -26,6 +26,8 @@ const (
 	panelSyscall
 	panelSeccompGen
 	panelLogs
+	panelResources
+	panelSnapshots
 )
 
 const tickInterval = 2 * time.Second
@@ -42,6 +44,18 @@ type execResultMsg struct {
 }
 type logLinesMsg []string
 type logErrMsg error
+type configMsg struct {
+	config *lxd.InstanceConfig
+	err    error
+}
+type snapshotsMsg struct {
+	snapshots []lxd.SnapshotInfo
+	err       error
+}
+type asyncResultMsg struct {
+	text string
+	err  error
+}
 
 // ContainerMetrics holds computed metrics for a container
 type ContainerMetrics struct {
@@ -100,6 +114,21 @@ type App struct {
 	// Flash message (temporary notification)
 	flashText   string
 	flashExpiry time.Time
+
+	// Resource limits panel
+	resConfig    *lxd.InstanceConfig
+	resTarget    string
+	resCursor    int // 0=cpu, 1=memory
+	resInput     string
+	resEditing   bool
+
+	// Snapshots panel
+	snapshots    []lxd.SnapshotInfo
+	snapTarget   string
+	snapCursor   int
+	snapInput    string
+	snapNaming   bool // entering snapshot name
+	snapCloning  bool // entering clone target name
 }
 
 type flashExpireMsg struct{}
@@ -217,6 +246,24 @@ func fetchLogs(client *lxd.Client, containerName string) tea.Cmd {
 	}
 }
 
+func fetchConfig(client *lxd.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		config, err := client.GetContainerConfig(ctx, name)
+		return configMsg{config: config, err: err}
+	}
+}
+
+func fetchSnapshots(client *lxd.Client, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		snaps, err := client.ListSnapshots(ctx, name)
+		return snapshotsMsg{snapshots: snaps, err: err}
+	}
+}
+
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -234,6 +281,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.focus == panelLogs {
 			return a.handleLogsPanel(msg)
+		}
+		if a.focus == panelResources {
+			return a.handleResourcesPanel(msg)
+		}
+		if a.focus == panelSnapshots {
+			return a.handleSnapshotsPanel(msg)
 		}
 
 		switch msg.String() {
@@ -310,6 +363,31 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.focus = panelLogs
 					return a, fetchLogs(a.client, c.Name)
 				}
+			}
+		case "r":
+			// Resource limits
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				a.resTarget = c.Name
+				a.resConfig = nil
+				a.resCursor = 0
+				a.resEditing = false
+				a.prevFocus = a.focus
+				a.focus = panelResources
+				return a, fetchConfig(a.client, c.Name)
+			}
+		case "n":
+			// Snapshots
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				a.snapTarget = c.Name
+				a.snapshots = nil
+				a.snapCursor = 0
+				a.snapNaming = false
+				a.snapCloning = false
+				a.prevFocus = a.focus
+				a.focus = panelSnapshots
+				return a, fetchSnapshots(a.client, c.Name)
 			}
 		case "e":
 			if a.selected < len(a.containers) {
@@ -436,6 +514,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flashText = ""
 		}
 		return a, nil
+
+	case configMsg:
+		if msg.err != nil {
+			a.addEvent(fmt.Sprintf("⚠ config: %v", msg.err))
+			a.focus = a.prevFocus
+		} else {
+			a.resConfig = msg.config
+		}
+		return a, nil
+
+	case snapshotsMsg:
+		if msg.err != nil {
+			a.addEvent(fmt.Sprintf("⚠ snapshots: %v", msg.err))
+			a.focus = a.prevFocus
+		} else {
+			a.snapshots = msg.snapshots
+		}
+		return a, nil
+
+	case asyncResultMsg:
+		if msg.err != nil {
+			a.addEvent(fmt.Sprintf("⚠ %v", msg.err))
+			return a, a.setFlash(fmt.Sprintf("❌ %v", msg.err))
+		}
+		a.addEvent(msg.text)
+		return a, a.setFlash(fmt.Sprintf("✅ %s", msg.text))
 
 	case containersMsg:
 		now := time.Now()
@@ -746,6 +850,184 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.resEditing {
+		switch msg.String() {
+		case "esc":
+			a.resEditing = false
+			a.resInput = ""
+			return a, nil
+		case "enter":
+			a.resEditing = false
+			val := strings.TrimSpace(a.resInput)
+			a.resInput = ""
+			if val == "" {
+				return a, nil
+			}
+			var configKey string
+			switch a.resCursor {
+			case 0:
+				configKey = "limits.cpu"
+			case 1:
+				configKey = "limits.memory"
+			}
+			if configKey != "" {
+				name := a.resTarget
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					err := a.client.UpdateContainerConfig(ctx, name, map[string]string{configKey: val})
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("set %s=%s: %w", configKey, val, err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("%s set to %s for %s", configKey, val, name)}
+				}
+			}
+			return a, nil
+		case "backspace":
+			if len(a.resInput) > 0 {
+				a.resInput = a.resInput[:len(a.resInput)-1]
+			}
+			return a, nil
+		default:
+			if len(msg.String()) == 1 {
+				a.resInput += msg.String()
+			}
+			return a, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.resCursor > 0 {
+			a.resCursor--
+		}
+	case "down", "j":
+		if a.resCursor < 1 {
+			a.resCursor++
+		}
+	case "enter":
+		a.resEditing = true
+		a.resInput = ""
+	case "r":
+		return a, fetchConfig(a.client, a.resTarget)
+	}
+	return a, nil
+}
+
+func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Text input mode for naming
+	if a.snapNaming || a.snapCloning {
+		switch msg.String() {
+		case "esc":
+			a.snapNaming = false
+			a.snapCloning = false
+			a.snapInput = ""
+			return a, nil
+		case "enter":
+			val := strings.TrimSpace(a.snapInput)
+			a.snapInput = ""
+			if val == "" {
+				a.snapNaming = false
+				a.snapCloning = false
+				return a, nil
+			}
+			name := a.snapTarget
+			if a.snapNaming {
+				a.snapNaming = false
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel()
+					err := a.client.CreateSnapshot(ctx, name, val, false)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("snapshot: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("📸 snapshot '%s' created for %s", val, name)}
+				}
+			}
+			if a.snapCloning {
+				a.snapCloning = false
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+					defer cancel()
+					err := a.client.CopyContainer(ctx, name, val)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("clone: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("🐑 cloned %s → %s", name, val)}
+				}
+			}
+			return a, nil
+		case "backspace":
+			if len(a.snapInput) > 0 {
+				a.snapInput = a.snapInput[:len(a.snapInput)-1]
+			}
+			return a, nil
+		default:
+			if len(msg.String()) == 1 {
+				a.snapInput += msg.String()
+			}
+			return a, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.snapCursor > 0 {
+			a.snapCursor--
+		}
+	case "down", "j":
+		if a.snapCursor < len(a.snapshots)-1 {
+			a.snapCursor++
+		}
+	case "n":
+		a.snapNaming = true
+		a.snapInput = fmt.Sprintf("snap-%s", time.Now().Format("20060102-1504"))
+	case "c":
+		a.snapCloning = true
+		a.snapInput = a.snapTarget + "-clone"
+	case "R":
+		// Restore snapshot
+		if a.snapCursor < len(a.snapshots) {
+			snapName := a.snapshots[a.snapCursor].Name
+			name := a.snapTarget
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				err := a.client.RestoreSnapshot(ctx, name, snapName)
+				if err != nil {
+					return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("⏪ restored %s to snapshot '%s'", name, snapName)}
+			}
+		}
+	case "D":
+		// Delete snapshot
+		if a.snapCursor < len(a.snapshots) {
+			snapName := a.snapshots[a.snapCursor].Name
+			name := a.snapTarget
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				err := a.client.DeleteSnapshot(ctx, name, snapName)
+				if err != nil {
+					return asyncResultMsg{err: fmt.Errorf("delete snapshot: %w", err)}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("🗑 deleted snapshot '%s' from %s", snapName, name)}
+			}
+		}
+	case "r":
+		return a, fetchSnapshots(a.client, a.snapTarget)
+	}
+	return a, nil
+}
+
 // ── Helpers ──
 
 func saveToFile(path, content string) error {
@@ -879,6 +1161,10 @@ func (a App) View() string {
 		dashboard = a.renderSeccompPanel()
 	case panelLogs:
 		dashboard = a.renderLogsPanel()
+	case panelResources:
+		dashboard = a.renderResourcesPanel()
+	case panelSnapshots:
+		dashboard = a.renderSnapshotsPanel()
 	default:
 		dashboard = a.renderDashboard()
 	}
@@ -929,6 +1215,10 @@ func (a App) renderStatusBar() string {
 		return " SECCOMP PROFILE │ ↑↓ scroll │ S: save to file │ Esc/q: back"
 	case panelLogs:
 		return " LOGS │ ↑↓ scroll │ g/G: top/bottom │ r: refresh │ Esc/q: back"
+	case panelResources:
+		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
+	case panelSnapshots:
+		return " SNAPSHOTS │ ↑↓ select │ n: new │ c: clone │ R: restore │ D: delete │ Esc/q: back"
 	default:
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
@@ -1279,6 +1569,167 @@ func (a App) renderLogsPanel() string {
 	return b.String()
 }
 
+// ── Resources panel ──
+
+func (a App) renderResourcesPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚙ Resource Limits — %s ◆", a.resTarget)) + "\n")
+
+	if a.resConfig == nil {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
+			Render("\n  ⏳ Loading configuration...\n"))
+		return b.String()
+	}
+
+	config := a.resConfig.Config
+
+	type resRow struct {
+		label   string
+		key     string
+		current string
+		hint    string
+	}
+
+	rows := []resRow{
+		{
+			label:   "CPU Limit",
+			key:     "limits.cpu",
+			current: config["limits.cpu"],
+			hint:    "e.g. 2, 0-3, 200ms/100ms",
+		},
+		{
+			label:   "Memory Limit",
+			key:     "limits.memory",
+			current: config["limits.memory"],
+			hint:    "e.g. 256MB, 1GB, 2GiB",
+		},
+	}
+
+	b.WriteString("\n")
+	for i, row := range rows {
+		cursor := "  "
+		style := lipgloss.NewStyle().Foreground(ColorText)
+		if i == a.resCursor {
+			cursor = "▸ "
+			style = style.Foreground(ColorBlue).Bold(true)
+		}
+
+		val := row.current
+		if val == "" {
+			val = "(not set)"
+		}
+
+		b.WriteString(cursor + style.Render(fmt.Sprintf("%-14s", row.label)))
+
+		if a.resEditing && i == a.resCursor {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+				Render(fmt.Sprintf("  → %s▌", a.resInput)))
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+				Render(fmt.Sprintf("  (%s)", row.hint)))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorText).
+				Render(fmt.Sprintf("  %s", val)))
+		}
+		b.WriteString("\n\n")
+	}
+
+	// Show other useful config values (read-only)
+	b.WriteString(SectionHeaderStyle.Render("Current Usage") + "\n\n")
+
+	// Find container in our list for live metrics
+	for _, c := range a.containers {
+		if c.Name == a.resTarget {
+			if m, ok := a.metrics[c.Name]; ok {
+				b.WriteString(fmt.Sprintf("  CPU:     %.1f%%\n", m.CPUPercent))
+				b.WriteString(fmt.Sprintf("  Memory:  %s / %s\n", formatBytes(c.MemoryCur), formatBytes(c.MemoryMax)))
+				b.WriteString(fmt.Sprintf("  PIDs:    %d\n", c.PIDs))
+				b.WriteString(fmt.Sprintf("  Disk:    %s\n", formatBytes(c.DiskUsage)))
+			}
+			break
+		}
+	}
+
+	b.WriteString("\n" + SectionHeaderStyle.Render("Other Limits") + "\n\n")
+	otherKeys := []string{"limits.cpu.allowance", "limits.cpu.priority",
+		"limits.disk.priority", "limits.memory.swap", "limits.processes"}
+	for _, k := range otherKeys {
+		if v, ok := config[k]; ok {
+			b.WriteString(fmt.Sprintf("  %-26s %s\n", k, v))
+		}
+	}
+
+	// Flash message
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		b.WriteString("\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0d1117")).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}
+
+// ── Snapshots panel ──
+
+func (a App) renderSnapshotsPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("📸 Snapshots — %s ◆", a.snapTarget)) + "\n")
+
+	if a.snapshots == nil {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
+			Render("\n  ⏳ Loading snapshots...\n"))
+		return b.String()
+	}
+
+	if len(a.snapshots) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render("\n  No snapshots yet.\n"))
+	} else {
+		b.WriteString("\n")
+		for i, snap := range a.snapshots {
+			cursor := "  "
+			style := lipgloss.NewStyle().Foreground(ColorText)
+			if i == a.snapCursor {
+				cursor = "▸ "
+				style = style.Foreground(ColorBlue).Bold(true)
+			}
+			stateful := ""
+			if snap.Stateful {
+				stateful = " [stateful]"
+			}
+			b.WriteString(cursor + style.Render(fmt.Sprintf("%-20s  %s%s", snap.Name, snap.CreatedAt, stateful)) + "\n")
+		}
+	}
+
+	// Input mode
+	if a.snapNaming {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+			Render(fmt.Sprintf("  New snapshot name: %s▌", a.snapInput)) + "\n")
+	}
+	if a.snapCloning {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+			Render(fmt.Sprintf("  Clone target name: %s▌", a.snapInput)) + "\n")
+	}
+
+	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))
+
+	// Flash message
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		b.WriteString("\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0d1117")).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}
+
 // ── Sidebar & Dashboard ──
 
 func (a App) renderSidebar() string {
@@ -1335,7 +1786,8 @@ func (a App) renderSidebar() string {
 	b.WriteString(SectionHeaderStyle.Render("Keys") + "\n")
 	helps := [][]string{
 		{"↑↓", "select"}, {"e", "exec"}, {"l", "logs"},
-		{"t", "trace"}, {"G", "gen seccomp"}, {"T", "stop trace"},
+		{"r", "resources"}, {"n", "snapshots"}, {"t", "trace"},
+		{"G", "seccomp"}, {"T", "stop trace"},
 		{"s", "start"}, {"x", "stop"}, {"p", "pause"},
 		{"1-3", "sort"}, {"tab", "panel"}, {"q", "quit"},
 	}

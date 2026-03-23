@@ -34,6 +34,20 @@ type ContainerInfo struct {
 	PIDs       int
 }
 
+// InstanceConfig holds the full instance configuration
+type InstanceConfig struct {
+	Config   map[string]string `json:"config"`
+	Devices  map[string]map[string]string `json:"devices"`
+	Profiles []string          `json:"profiles"`
+}
+
+// SnapshotInfo holds snapshot metadata
+type SnapshotInfo struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	Stateful  bool   `json:"stateful"`
+}
+
 // ExecResult holds the result of an exec operation
 type ExecResult struct {
 	Stdout   string
@@ -64,6 +78,7 @@ type lxdInstance struct {
 	Status    string            `json:"status"`
 	Type      string            `json:"type"`
 	Profiles  []string          `json:"profiles"`
+	Config    map[string]string `json:"config"`
 	CreatedAt time.Time         `json:"created_at"`
 	State     *lxdInstanceState `json:"state"`
 }
@@ -184,6 +199,33 @@ func (c *Client) doPut(ctx context.Context, path string, body io.Reader) (*lxdRe
 	return &lxdResp, nil
 }
 
+func (c *Client) doPatch(ctx context.Context, path string, body io.Reader) (*lxdResponse, error) {
+	url := fmt.Sprintf("http://unix%s", path)
+	req, err := http.NewRequestWithContext(ctx, "PATCH", url, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("LXD API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	var lxdResp lxdResponse
+	if err := json.Unmarshal(respBody, &lxdResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	return &lxdResp, nil
+}
+
 func (c *Client) doPost(ctx context.Context, path string, body io.Reader) (*lxdResponse, error) {
 	url := fmt.Sprintf("http://unix%s", path)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
@@ -191,6 +233,32 @@ func (c *Client) doPost(ctx context.Context, path string, body io.Reader) (*lxdR
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("LXD API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	var lxdResp lxdResponse
+	if err := json.Unmarshal(respBody, &lxdResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	return &lxdResp, nil
+}
+
+func (c *Client) doDelete(ctx context.Context, path string) (*lxdResponse, error) {
+	url := fmt.Sprintf("http://unix%s", path)
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -302,14 +370,153 @@ func (c *Client) GetInstanceState(ctx context.Context, name string) (*ContainerI
 	return ci, nil
 }
 
+// GetContainerConfig gets the full instance configuration
+func (c *Client) GetContainerConfig(ctx context.Context, name string) (*InstanceConfig, error) {
+	resp, err := c.doGet(ctx, fmt.Sprintf("/1.0/instances/%s", name))
+	if err != nil {
+		return nil, err
+	}
+
+	var inst struct {
+		Config   map[string]string            `json:"config"`
+		Devices  map[string]map[string]string `json:"devices"`
+		Profiles []string                     `json:"profiles"`
+	}
+	if err := json.Unmarshal(resp.Metadata, &inst); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	return &InstanceConfig{
+		Config:   inst.Config,
+		Devices:  inst.Devices,
+		Profiles: inst.Profiles,
+	}, nil
+}
+
+// UpdateContainerConfig patches the instance configuration (merge, not replace)
+func (c *Client) UpdateContainerConfig(ctx context.Context, name string, config map[string]string) error {
+	payload := map[string]interface{}{
+		"config": config,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := c.doPatch(ctx, fmt.Sprintf("/1.0/instances/%s", name), strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 && resp.StatusCode != 202 {
+		return fmt.Errorf("update config failed: %s (code %d)", resp.Status, resp.StatusCode)
+	}
+	return nil
+}
+
+// ListSnapshots returns all snapshots for a container
+func (c *Client) ListSnapshots(ctx context.Context, name string) ([]SnapshotInfo, error) {
+	resp, err := c.doGet(ctx, fmt.Sprintf("/1.0/instances/%s/snapshots?recursion=1", name))
+	if err != nil {
+		return nil, err
+	}
+
+	var snapshots []SnapshotInfo
+	if err := json.Unmarshal(resp.Metadata, &snapshots); err != nil {
+		return nil, fmt.Errorf("parse snapshots: %w", err)
+	}
+	return snapshots, nil
+}
+
+// CreateSnapshot creates a snapshot of the container
+func (c *Client) CreateSnapshot(ctx context.Context, containerName, snapshotName string, stateful bool) error {
+	payload := map[string]interface{}{
+		"name":     snapshotName,
+		"stateful": stateful,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := c.doPost(ctx, fmt.Sprintf("/1.0/instances/%s/snapshots", containerName),
+		strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("create snapshot: %w", err)
+	}
+
+	// Wait for async operation
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=60")
+		if err != nil {
+			return fmt.Errorf("wait for snapshot: %w", err)
+		}
+	}
+	return nil
+}
+
+// DeleteSnapshot deletes a snapshot
+func (c *Client) DeleteSnapshot(ctx context.Context, containerName, snapshotName string) error {
+	resp, err := c.doDelete(ctx, fmt.Sprintf("/1.0/instances/%s/snapshots/%s", containerName, snapshotName))
+	if err != nil {
+		return fmt.Errorf("delete snapshot: %w", err)
+	}
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=60")
+		if err != nil {
+			return fmt.Errorf("wait for delete: %w", err)
+		}
+	}
+	return nil
+}
+
+// CopyContainer copies/clones an instance to a new name
+func (c *Client) CopyContainer(ctx context.Context, sourceName, targetName string) error {
+	payload := map[string]interface{}{
+		"name": targetName,
+		"source": map[string]interface{}{
+			"type":   "copy",
+			"source": sourceName,
+		},
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := c.doPost(ctx, "/1.0/instances", strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("copy container: %w", err)
+	}
+
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=120")
+		if err != nil {
+			return fmt.Errorf("wait for copy: %w", err)
+		}
+	}
+	return nil
+}
+
+// RestoreSnapshot restores a container to a snapshot
+func (c *Client) RestoreSnapshot(ctx context.Context, containerName, snapshotName string) error {
+	payload := map[string]interface{}{
+		"restore": snapshotName,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := c.doPut(ctx, fmt.Sprintf("/1.0/instances/%s", containerName),
+		strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("restore snapshot: %w", err)
+	}
+
+	if resp.Operation != "" {
+		_, err = c.doGet(ctx, resp.Operation+"/wait?timeout=120")
+		if err != nil {
+			return fmt.Errorf("wait for restore: %w", err)
+		}
+	}
+	return nil
+}
+
 // ExecCommand runs a command inside a container via LXD exec API
-// Returns stdout output. For non-interactive use.
 func (c *Client) ExecCommand(ctx context.Context, name string, command []string) (*ExecResult, error) {
 	payload := map[string]interface{}{
-		"command":      command,
-		"wait-for-websocket": false,
-		"record-output":      true,
-		"interactive":        false,
+		"command":              command,
+		"wait-for-websocket":  false,
+		"record-output":       true,
+		"interactive":         false,
 	}
 	payloadBytes, _ := json.Marshal(payload)
 
@@ -318,10 +525,8 @@ func (c *Client) ExecCommand(ctx context.Context, name string, command []string)
 		return nil, fmt.Errorf("exec request failed: %w", err)
 	}
 
-	// The response contains an operation URL — we need to wait for it
 	opURL := resp.Operation
 	if opURL == "" {
-		// Try to extract from metadata
 		var opMeta struct {
 			ID string `json:"id"`
 		}
@@ -335,7 +540,6 @@ func (c *Client) ExecCommand(ctx context.Context, name string, command []string)
 		return nil, fmt.Errorf("no operation URL in exec response")
 	}
 
-	// Wait for the operation to complete
 	waitResp, err := c.doGet(ctx, opURL+"/wait?timeout=30")
 	if err != nil {
 		return nil, fmt.Errorf("wait for exec: %w", err)
@@ -348,7 +552,6 @@ func (c *Client) ExecCommand(ctx context.Context, name string, command []string)
 
 	result := &ExecResult{}
 
-	// Get exit code from operation metadata
 	if returnVal, ok := op.Metadata["return"]; ok {
 		switch v := returnVal.(type) {
 		case float64:
@@ -356,7 +559,6 @@ func (c *Client) ExecCommand(ctx context.Context, name string, command []string)
 		}
 	}
 
-	// Get output from log files (raw file content, not JSON)
 	if output, ok := op.Metadata["output"]; ok {
 		if outputMap, ok := output.(map[string]interface{}); ok {
 			if stdoutPath, ok := outputMap["1"].(string); ok {
@@ -405,7 +607,6 @@ func (c *Client) UnfreezeContainer(ctx context.Context, name string) error {
 	return c.changeState(ctx, name, "unfreeze")
 }
 
-// doGetRaw performs a GET and returns the raw body (for log files, not JSON)
 func (c *Client) doGetRaw(ctx context.Context, path string) (string, error) {
 	url := fmt.Sprintf("http://unix%s", path)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -427,7 +628,6 @@ func (c *Client) doGetRaw(ctx context.Context, path string) (string, error) {
 	return string(body), nil
 }
 
-// SocketPath returns the socket path for event streaming
 func (c *Client) SocketPath() string {
 	return c.socketPath
 }
