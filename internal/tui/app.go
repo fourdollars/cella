@@ -147,6 +147,8 @@ type App struct {
 	// Sidebar scroll
 	sideScroll int
 
+	// Data fetch in-flight guard
+	fetching bool
 	// Quit confirmation
 	confirmQuit bool
 }
@@ -185,6 +187,7 @@ func NewApp() App {
 func (a App) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		fetchAllContainers(a.runtimes),
+		tickCmd(), // tick runs independently from data fetch
 		tea.ClearScreen,
 	}
 	// LXD event monitor only if LXD is available
@@ -689,6 +692,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.setFlash(fmt.Sprintf("✅ %s", msg.text))
 
 	case containersMsg:
+		a.fetching = false
 		now := time.Now()
 		newContainers := []runtime.ContainerInfo(msg)
 
@@ -761,18 +765,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.selected < 0 {
 			a.selected = 0
 		}
-		return a, tickCmd()
+		return a, nil
 
 	case errMsg:
+		a.fetching = false
 		a.err = msg
-		return a, tickCmd()
+		return a, nil
 
 	case tickMsg:
-		// Also refresh per-CPU stats when in resources panel
-		if a.focus == panelResources && a.resTarget != "" {
-			return a, tea.Batch(fetchAllContainers(a.runtimes), fetchConfig(a.runtimeFor(a.resTarget), a.resTarget))
+		// Tick fires independently — always schedule next tick
+		cmds := []tea.Cmd{tickCmd()}
+		// Only start new fetch if previous one completed
+		if !a.fetching {
+			a.fetching = true
+			cmds = append(cmds, fetchAllContainers(a.runtimes))
+			if a.focus == panelResources && a.resTarget != "" {
+				cmds = append(cmds, fetchConfig(a.runtimeFor(a.resTarget), a.resTarget))
+			}
 		}
-		return a, fetchAllContainers(a.runtimes)
+		return a, tea.Batch(cmds...)
 	}
 
 	return a, nil
