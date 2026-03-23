@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fourdoors/cella/internal/lxd"
+	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -19,10 +20,10 @@ var version = "0.1.0-dev"
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "cella",
-		Short: "cella — LXC/LXD container management TUI",
+		Short: "cella — container management TUI for LXD & Docker",
 		Long: `cella (Latin: "small room") is a terminal UI for managing and
-monitoring LXC/LXD containers with real-time metrics, syscall tracing,
-and security policy management.`,
+monitoring LXD and Docker containers with real-time metrics, syscall
+tracing, disk I/O, network monitoring, and security policy management.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTUI()
@@ -30,7 +31,6 @@ and security policy management.`,
 	}
 
 	rootCmd.AddCommand(listCmd())
-	rootCmd.AddCommand(topCmd())
 	rootCmd.AddCommand(execCmd())
 
 	if err := rootCmd.Execute(); err != nil {
@@ -48,29 +48,53 @@ func runTUI() error {
 	return err
 }
 
+// initRuntimes detects available container runtimes and returns them
+func initRuntimes() ([]runtime.Runtime, error) {
+	var runtimes []runtime.Runtime
+
+	// Try LXD
+	client, err := lxd.NewClient("")
+	if err == nil {
+		runtimes = append(runtimes, runtime.NewLXDRuntime(client))
+	}
+
+	// Try Docker
+	dockerClient, err := runtime.NewDockerClient("")
+	if err == nil {
+		runtimes = append(runtimes, dockerClient)
+	}
+
+	if len(runtimes) == 0 {
+		return nil, fmt.Errorf("no container runtime detected (checked LXD socket + Docker socket)")
+	}
+	return runtimes, nil
+}
+
 func listCmd() *cobra.Command {
 	var watch bool
 	var sortBy string
+	var filterRuntime string
 
 	cmd := &cobra.Command{
 		Use:     "list",
-		Short:   "List all LXC containers",
+		Short:   "List all containers (LXD + Docker)",
 		Aliases: []string{"ls"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, err := lxd.NewClient("")
+			runtimes, err := initRuntimes()
 			if err != nil {
 				return err
 			}
 
 			if watch {
-				return watchList(client, sortBy)
+				return watchList(runtimes, sortBy, filterRuntime)
 			}
-			return printList(client, sortBy)
+			return printList(runtimes, sortBy, filterRuntime)
 		},
 	}
 
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Auto-refresh every 2 seconds")
 	cmd.Flags().StringVarP(&sortBy, "sort", "s", "name", "Sort by: name, cpu, mem, status")
+	cmd.Flags().StringVarP(&filterRuntime, "runtime", "r", "", "Filter by runtime: lxd, docker (default: all)")
 
 	return cmd
 }
@@ -92,7 +116,7 @@ func execCmd() *cobra.Command {
 				command = args[1:]
 			}
 
-			client, err := lxd.NewClient("")
+			runtimes, err := initRuntimes()
 			if err != nil {
 				return err
 			}
@@ -100,38 +124,58 @@ func execCmd() *cobra.Command {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			result, err := client.ExecCommand(ctx, containerName, command)
-			if err != nil {
-				return fmt.Errorf("exec in %s failed: %w", containerName, err)
+			// Try each runtime to find the container
+			for _, rt := range runtimes {
+				result, err := rt.ExecCommand(ctx, containerName, command)
+				if err != nil {
+					continue // container might be in another runtime
+				}
+
+				if result.Stdout != "" {
+					fmt.Print(result.Stdout)
+				}
+				if result.Stderr != "" {
+					fmt.Fprint(os.Stderr, result.Stderr)
+				}
+
+				if result.ExitCode != 0 {
+					os.Exit(result.ExitCode)
+				}
+				return nil
 			}
 
-			if result.Stdout != "" {
-				fmt.Print(result.Stdout)
-			}
-			if result.Stderr != "" {
-				fmt.Fprint(os.Stderr, result.Stderr)
-			}
-
-			if result.ExitCode != 0 {
-				os.Exit(result.ExitCode)
-			}
-
-			return nil
+			return fmt.Errorf("container %q not found in any runtime", containerName)
 		},
 	}
 }
 
-func printList(client *lxd.Client, sortBy string) error {
-	containers, err := client.ListContainers(context.Background())
+func fetchAllContainers(runtimes []runtime.Runtime) ([]runtime.ContainerInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var all []runtime.ContainerInfo
+	for _, rt := range runtimes {
+		containers, err := rt.ListContainers(ctx)
+		if err != nil {
+			continue
+		}
+		all = append(all, containers...)
+	}
+	return all, nil
+}
+
+func printList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
+	containers, err := fetchAllContainers(runtimes)
 	if err != nil {
 		return err
 	}
 
-	sortContainers(containers, sortBy)
+	containers = filterByRuntime(containers, filterRuntime)
+	sortRuntimeContainers(containers, sortBy)
 
-	fmt.Printf("%-20s %-10s %-8s %-18s %-10s %-6s\n",
-		"NAME", "STATUS", "TYPE", "IP", "MEMORY", "PIDs")
-	fmt.Println(strings.Repeat("─", 80))
+	fmt.Printf("%-2s %-20s %-7s %-10s %-7s %-18s %-10s %-6s\n",
+		"", "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
+	fmt.Println(strings.Repeat("─", 85))
 
 	for _, c := range containers {
 		ip := c.IP
@@ -142,13 +186,33 @@ func printList(client *lxd.Client, sortBy string) error {
 		if c.MemoryCur > 0 {
 			mem = formatBytes(c.MemoryCur)
 		}
-		fmt.Printf("%-20s %-10s %-8s %-18s %-10s %-6d\n",
-			c.Name, c.Status, c.Type, ip, mem, c.PIDs)
+		rtIcon := "🔷"
+		if c.Runtime == "docker" {
+			rtIcon = "🐳"
+		}
+		fmt.Printf("%s %-20s %-7s %-10s %-7s %-18s %-10s %-6d\n",
+			rtIcon, truncate(c.Name, 20), c.Runtime, c.Status, "-", ip, mem, c.PIDs)
 	}
+
+	// Summary
+	lxdCount, dockerCount, runningCount := 0, 0, 0
+	for _, c := range containers {
+		if c.Runtime == "lxd" {
+			lxdCount++
+		} else {
+			dockerCount++
+		}
+		if c.Status == "Running" {
+			runningCount++
+		}
+	}
+	fmt.Printf("\n%d containers (%d running) — LXD: %d, Docker: %d\n",
+		len(containers), runningCount, lxdCount, dockerCount)
+
 	return nil
 }
 
-func watchList(client *lxd.Client, sortBy string) error {
+func watchList(runtimes []runtime.Runtime, sortBy, filterRuntime string) error {
 	type prevData struct {
 		cpuNs int64
 		t     time.Time
@@ -158,33 +222,36 @@ func watchList(client *lxd.Client, sortBy string) error {
 	for {
 		fmt.Print("\033[H\033[2J")
 
-		containers, err := client.ListContainers(context.Background())
+		containers, err := fetchAllContainers(runtimes)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
 
+		containers = filterByRuntime(containers, filterRuntime)
+
 		now := time.Now()
 		cpuPcts := make(map[string]float64)
 
 		for _, c := range containers {
+			key := c.Runtime + ":" + c.Name
 			if c.Status == "Running" {
-				if p, ok := prev[c.Name]; ok && !p.t.IsZero() {
+				if p, ok := prev[key]; ok && !p.t.IsZero() {
 					dt := now.Sub(p.t)
 					if dt > 0 {
 						dCPU := c.CPUUsage - p.cpuNs
 						if dCPU < 0 {
 							dCPU = 0
 						}
-						cpuPcts[c.Name] = float64(dCPU) / float64(dt.Nanoseconds()) * 100.0
+						cpuPcts[key] = float64(dCPU) / float64(dt.Nanoseconds()) * 100.0
 					}
 				}
-				prev[c.Name] = prevData{cpuNs: c.CPUUsage, t: now}
+				prev[key] = prevData{cpuNs: c.CPUUsage, t: now}
 			}
 		}
 
-		sortContainers(containers, sortBy)
+		sortRuntimeContainers(containers, sortBy)
 
 		ts := now.UTC().Add(8 * time.Hour).Format("15:04:05")
 		running := 0
@@ -193,11 +260,12 @@ func watchList(client *lxd.Client, sortBy string) error {
 				running++
 			}
 		}
-		fmt.Printf("📡 cella watch  %d/%d running  %s  (Ctrl+C to quit)\n\n", running, len(containers), ts)
+		fmt.Printf("📡 cella watch  %d/%d running  %s  (Ctrl+C to quit)\n\n",
+			running, len(containers), ts)
 
-		fmt.Printf("%-20s %-10s %-7s %-18s %-10s %-6s\n",
-			"NAME", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
-		fmt.Println(strings.Repeat("─", 80))
+		fmt.Printf("%-2s %-20s %-7s %-10s %-7s %-18s %-10s %-6s\n",
+			"", "NAME", "RT", "STATUS", "CPU%", "IP", "MEMORY", "PIDs")
+		fmt.Println(strings.Repeat("─", 85))
 
 		for _, c := range containers {
 			ip := c.IP
@@ -208,20 +276,42 @@ func watchList(client *lxd.Client, sortBy string) error {
 			if c.MemoryCur > 0 {
 				mem = formatBytes(c.MemoryCur)
 			}
+			key := c.Runtime + ":" + c.Name
 			cpuStr := "-"
-			if pct, ok := cpuPcts[c.Name]; ok {
+			if pct, ok := cpuPcts[key]; ok {
 				cpuStr = fmt.Sprintf("%.1f%%", pct)
 			}
-			fmt.Printf("%-20s %-10s %-7s %-18s %-10s %-6d\n",
-				c.Name, c.Status, cpuStr, ip, mem, c.PIDs)
+			rtIcon := "🔷"
+			if c.Runtime == "docker" {
+				rtIcon = "🐳"
+			}
+			fmt.Printf("%s %-20s %-7s %-10s %-7s %-18s %-10s %-6d\n",
+				rtIcon, truncate(c.Name, 20), c.Runtime, c.Status, cpuStr, ip, mem, c.PIDs)
 		}
 
 		time.Sleep(2 * time.Second)
 	}
 }
 
-func sortContainers(containers []lxd.ContainerInfo, sortBy string) {
+func filterByRuntime(containers []runtime.ContainerInfo, rt string) []runtime.ContainerInfo {
+	if rt == "" {
+		return containers
+	}
+	var result []runtime.ContainerInfo
+	for _, c := range containers {
+		if c.Runtime == rt {
+			result = append(result, c)
+		}
+	}
+	return result
+}
+
+func sortRuntimeContainers(containers []runtime.ContainerInfo, sortBy string) {
 	switch sortBy {
+	case "cpu":
+		sort.Slice(containers, func(i, j int) bool {
+			return containers[i].CPUUsage > containers[j].CPUUsage
+		})
 	case "mem":
 		sort.Slice(containers, func(i, j int) bool {
 			return containers[i].MemoryCur > containers[j].MemoryCur
@@ -230,7 +320,14 @@ func sortContainers(containers []lxd.ContainerInfo, sortBy string) {
 		sort.Slice(containers, func(i, j int) bool {
 			return containers[i].Status < containers[j].Status
 		})
-	default:
+	case "runtime":
+		sort.Slice(containers, func(i, j int) bool {
+			if containers[i].Runtime != containers[j].Runtime {
+				return containers[i].Runtime < containers[j].Runtime
+			}
+			return containers[i].Name < containers[j].Name
+		})
+	default: // name
 		sort.Slice(containers, func(i, j int) bool {
 			si := statusOrder(containers[i].Status)
 			sj := statusOrder(containers[j].Status)
@@ -253,14 +350,14 @@ func statusOrder(s string) int {
 	}
 }
 
-func topCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "top",
-		Short: "Real-time container resource monitoring",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
-		},
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
 	}
+	if max <= 2 {
+		return s[:max]
+	}
+	return s[:max-2] + ".."
 }
 
 func formatBytes(b int64) string {
