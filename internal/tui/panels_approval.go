@@ -190,11 +190,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.auditScroll = 0
 		return a, nil
 	case "p":
-		// Auto-setup proxy on selected container
-		if a.proxyServer == nil {
-			a.addEvent("⚠ proxy not running — start cella with --proxy <port>")
-			return a, a.setFlash("❌ Start cella with --proxy to use auto-setup")
-		}
+		// Auto-setup interception on selected container (lazy-starts listener)
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
 			if c.Runtime != "lxd" {
@@ -210,10 +206,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case "u":
-		// Remove proxy setup from selected container
-		if a.proxyServer == nil {
-			return a, a.setFlash("❌ Proxy not running")
-		}
+		// Remove interception from selected container
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
 			if c.Runtime == "lxd" {
@@ -512,27 +505,34 @@ func (a App) renderAuditPanel() string {
 // autoSetupProxy configures proxy env + CA cert on a container via LXD API
 func (a *App) autoSetupProxy(container string) tea.Cmd {
 	return func() tea.Msg {
-		if a.proxyServer == nil || a.client == nil {
-			return asyncResultMsg{err: fmt.Errorf("proxy or LXD client not available")}
+		if a.client == nil {
+			return asyncResultMsg{err: fmt.Errorf("LXD client not available")}
 		}
 
-		bridgeIP := proxy.DetectBridgeIP()
-		if bridgeIP == "" {
-			return asyncResultMsg{err: fmt.Errorf("cannot detect lxdbr0 bridge IP")}
+		// Lazy-start: create Server + MITM + TransparentListener on first use
+		if a.proxyServer == nil {
+			approvalCh := make(chan proxy.ApprovalRequest, 10)
+			srv := proxy.NewServer(9081, approvalCh)
+			a.proxyServer = srv
+			a.approvalCh = approvalCh
+
+			// Always enable MITM (CA cert will be injected into container)
+			dataDir := os.ExpandEnv("$HOME/.cella")
+			mitmCfg, err := proxy.NewMITMConfig(dataDir)
+			if err != nil {
+				return asyncResultMsg{err: fmt.Errorf("generate CA: %w", err)}
+			}
+			srv.EnableMITM(mitmCfg)
+
+			// Start transparent listener
+			tl := proxy.NewTransparentListener(9081, srv)
+			if err := tl.Start(); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("start listener :9081: %w", err)}
+			}
+			a.tproxyListener = tl
 		}
 
-		setup := &proxy.AutoSetup{
-			ProxyHost: bridgeIP,
-			ProxyPort: 9081,
-			MITMPem:   a.proxyServer.MITMCAPem(), // nil if MITM disabled
-		}
-
-		socketPath := a.client.SocketPath()
-		if err := setup.SetupContainer(socketPath, container); err != nil {
-			return asyncResultMsg{err: fmt.Errorf("auto-setup %s: %w", container, err)}
-		}
-
-		// Setup transparent redirect (nftables DNAT) for apps that ignore HTTP_PROXY (e.g. Node.js)
+		// Find container IP
 		containerIP := ""
 		for _, c := range a.allContainers {
 			if c.Name == container && c.IP != "" {
@@ -540,15 +540,34 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 				break
 			}
 		}
-		if containerIP != "" {
-			if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
-				// Non-fatal: env-based proxy still works for curl etc.
-				_ = err
-			}
+		if containerIP == "" {
+			return asyncResultMsg{err: fmt.Errorf("cannot find IP for %s", container)}
 		}
 
-		msg := fmt.Sprintf("🔧 nftables REDIRECT + CA cert on %s (→ :%d)", container, 9081)
-		return asyncResultMsg{text: msg}
+		// 1. nftables REDIRECT (port 80/443 → :9081)
+		if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
+			return asyncResultMsg{err: fmt.Errorf("nftables REDIRECT: %w", err)}
+		}
+
+		// 2. CA cert inject + update-ca-certificates
+		socketPath := a.client.SocketPath()
+		setup := &proxy.AutoSetup{
+			MITMPem: a.proxyServer.MITMCAPem(),
+		}
+		if err := setup.SetupContainer(socketPath, container); err != nil {
+			return asyncResultMsg{err: fmt.Errorf("CA cert: %w", err)}
+		}
+
+		// Update container IP mapping for the proxy
+		ipMap := make(map[string]string)
+		for _, c := range a.allContainers {
+			if c.IP != "" {
+				ipMap[c.IP] = c.Name
+			}
+		}
+		a.proxyServer.UpdateContainerMap(ipMap)
+
+		return asyncResultMsg{text: fmt.Sprintf("🔧 intercepting %s (%s) — REDIRECT :9081 + CA cert", container, containerIP)}
 	}
 }
 

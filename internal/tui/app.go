@@ -242,6 +242,7 @@ type App struct {
 	auditFilterInput  string
 	auditFilterText   string
 	auditStatusFilter string
+	listeningApprovals bool
 
 	// Search / filter by name
 	searchMode   bool
@@ -251,7 +252,7 @@ type App struct {
 
 type flashExpireMsg struct{}
 
-func NewApp(interceptEnabled bool, mitmEnabled bool) App {
+func NewApp() App {
 	var runtimes []runtime.Runtime
 	var lxdClient *lxd.Client
 
@@ -277,25 +278,6 @@ func NewApp(interceptEnabled bool, mitmEnabled bool) App {
 		sortBy:   "name",
 		eventCh:  make(chan string, 100),
 		tracers:  make(map[string]*trace.Tracer),
-	}
-
-	if interceptEnabled {
-		approvalCh := make(chan proxy.ApprovalRequest, 10)
-		srv := proxy.NewServer(9081, approvalCh)
-		app.proxyServer = srv
-		app.approvalCh = approvalCh
-		if mitmEnabled {
-			dataDir := os.ExpandEnv("$HOME/.cella")
-			mitmCfg, err := proxy.NewMITMConfig(dataDir)
-			if err == nil {
-				srv.EnableMITM(mitmCfg)
-			}
-		}
-		// Start transparent listener on proxyPort+1 for nftables REDIRECT
-		tl := proxy.NewTransparentListener(9081, srv)
-		if err := tl.Start(); err == nil {
-			app.tproxyListener = tl
-		}
 	}
 
 	return app
@@ -1255,7 +1237,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.setFlash(fmt.Sprintf("❌ %v", msg.err))
 		}
 		a.addEvent(msg.text)
-		return a, a.setFlash(fmt.Sprintf("✅ %s", msg.text))
+		cmds := []tea.Cmd{a.setFlash(fmt.Sprintf("✅ %s", msg.text))}
+		// Start listening for approval requests after lazy proxy init
+		if a.approvalCh != nil && !a.listeningApprovals {
+			a.listeningApprovals = true
+			cmds = append(cmds, listenApprovals(a.approvalCh))
+		}
+		return a, tea.Batch(cmds...)
 
 	case containersMsg:
 		a.fetching = false

@@ -26,14 +26,10 @@ monitoring LXD and Docker containers with real-time metrics, syscall
 tracing, disk I/O, network monitoring, and security policy management.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			interceptEnabled, _ := cmd.Flags().GetBool("intercept")
-			mitmEnabled, _ := cmd.Flags().GetBool("mitm")
-			return runTUI(interceptEnabled || mitmEnabled, mitmEnabled)
+			return runTUI()
 		},
 	}
 
-	rootCmd.Flags().Bool("intercept", false, "Enable transparent traffic interception via nftables REDIRECT")
-	rootCmd.Flags().Bool("mitm", false, "Enable HTTPS MITM decryption (implies --intercept; requires CA cert in container)")
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(execCmd())
 
@@ -42,9 +38,9 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 	}
 }
 
-func runTUI(interceptEnabled bool, mitmEnabled bool) error {
+func runTUI() error {
 	p := tea.NewProgram(
-		tui.NewApp(interceptEnabled, mitmEnabled),
+		tui.NewApp(),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
