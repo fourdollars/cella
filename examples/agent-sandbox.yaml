@@ -1,0 +1,21 @@
+# Policy: AI Agent Sandbox (strict + egress controlled)
+# For running untrusted AI agent code in a sandboxed container.
+# Strict syscall filtering, hardened AppArmor, egress whitelist only.
+
+version: "1"
+container: ""
+seccomp:
+    profile: strict
+apparmor:
+    profile: hardened
+egress:
+    restricted: true
+    allow:
+        - "20.27.177.113"    # github.com
+        - "185.125.190.21"   # ubuntu.com (apt)
+        - "185.125.190.29"   # ubuntu.com
+        - "185.125.190.20"   # ubuntu.com
+    deny_all: true
+flags:
+    privileged: false
+    nesting: false

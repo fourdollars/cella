@@ -1,0 +1,15 @@
+# Policy: Development Container (permissive)
+# For developer workstations / interactive development.
+# Minimal restrictions, full network access, nesting allowed for Docker-in-LXD.
+
+version: "1"
+container: ""
+seccomp:
+    profile: permissive
+apparmor:
+    profile: default
+egress:
+    restricted: false
+flags:
+    privileged: false
+    nesting: true

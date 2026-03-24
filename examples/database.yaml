@@ -1,0 +1,15 @@
+# Policy: Database Server (moderate + read-only filesystem)
+# For database containers where filesystem writes should be limited.
+# Network restricted to prevent raw socket attacks.
+
+version: "1"
+container: ""
+seccomp:
+    profile: moderate
+apparmor:
+    profile: read-only
+egress:
+    restricted: false
+flags:
+    privileged: false
+    nesting: false

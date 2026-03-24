@@ -1,0 +1,41 @@
+# Policy: Custom seccomp + custom AppArmor example
+# Demonstrates how to define custom policies beyond the built-in presets.
+
+version: "1"
+container: ""
+seccomp:
+    profile: custom
+    custom:
+        name: my-custom-profile
+        description: "Allow most syscalls, block only the most dangerous ones"
+        defaultAction: SCMP_ACT_ALLOW
+        syscalls:
+            - names:
+                  - mount
+                  - umount2
+                  - reboot
+                  - kexec_load
+                  - init_module
+                  - delete_module
+              action: SCMP_ACT_ERRNO
+            - names:
+                  - ptrace
+                  - bpf
+              action: SCMP_ACT_LOG
+apparmor:
+    profile: custom
+    rules:
+        - "deny mount,"
+        - "deny /proc/kcore r,"
+        - "deny /proc/sys/kernel/modules_disabled w,"
+        - "deny /sys/firmware/** r,"
+egress:
+    restricted: true
+    allow:
+        - "10.0.0.0/8"       # internal network
+        - "172.16.0.0/12"    # internal network
+        - "192.168.0.0/16"   # internal network
+    deny_all: true
+flags:
+    privileged: false
+    nesting: false

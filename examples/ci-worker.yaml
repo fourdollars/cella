@@ -1,0 +1,15 @@
+# Policy: CI Worker (moderate)
+# For build/CI containers that need package installation and network access.
+# Blocks dangerous kernel operations but allows most userland activity.
+
+version: "1"
+container: ""
+seccomp:
+    profile: moderate
+apparmor:
+    profile: net-restricted
+egress:
+    restricted: false
+flags:
+    privileged: false
+    nesting: false

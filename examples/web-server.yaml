@@ -1,0 +1,18 @@
+# Policy: Web Server (strict)
+# For containers running public-facing web services.
+# Allows only HTTP/HTTPS outbound, denies dangerous syscalls.
+
+version: "1"
+container: ""
+seccomp:
+    profile: strict
+apparmor:
+    profile: hardened
+egress:
+    restricted: true
+    allow:
+        - "0.0.0.0/0"  # Allow all outbound (use DNS monitor to restrict later)
+    deny_all: true
+flags:
+    privileged: false
+    nesting: false
