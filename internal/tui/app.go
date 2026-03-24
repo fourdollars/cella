@@ -47,6 +47,7 @@ const (
 	panelDNS
 	panelEvents
 	panelAudit
+	panelInference
 )
 
 const tickInterval = 2 * time.Second
@@ -247,6 +248,7 @@ type App struct {
 	auditFilterInput  string
 	auditFilterText   string
 	auditStatusFilter string
+	inferenceScroll   int
 
 	// Search / filter by name
 	searchMode   bool
@@ -637,6 +639,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelEvents {
 			return a.handleEventsPanel(msg)
 		}
+		if a.focus == panelInference {
+			return a.handleInferencePanel(msg)
+		}
 		if a.focus == panelAudit {
 			return a.handleAuditPanel(msg)
 		}
@@ -916,6 +921,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.auditScroll = 0
 			a.prevFocus = a.focus
 			a.focus = panelAudit
+			return a, nil
+		case "M":
+			// Inference stats panel
+			a.inferenceScroll = 0
+			a.prevFocus = a.focus
+			a.focus = panelInference
 			return a, nil
 		case "V":
 			// Events panel
@@ -1574,8 +1585,8 @@ func (a App) View() string {
 		dashboard = a.renderDNSPanel()
 	case panelEvents:
 		dashboard = a.renderEventsPanel()
-	case panelAudit:
-		dashboard = a.renderAuditPanel()
+	case panelInference:
+		dashboard = a.renderInferencePanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -1674,6 +1685,8 @@ func (a App) renderStatusBar() string {
 		return " DNS │ ↑↓ select │ a: allow │ x: deny │ u: unset │ Esc/q: back"
 	case panelEvents:
 		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
+	case panelInference:
+		return " INFERENCE STATS │ ↑↓ scroll │ M: refresh │ Esc: back"
 	case panelAudit:
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)

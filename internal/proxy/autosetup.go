@@ -41,8 +41,19 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		})
 	}
 
-	// 2. nftables REDIRECT is handled by the caller (transparent.go)
-	// No env vars, no profile.d, no /etc/environment — zero config pollution
+	// 2. Set NODE_EXTRA_CA_CERTS so Node.js trusts our CA
+	if len(s.MITMPem) > 0 {
+		certPath := "/usr/local/share/ca-certificates/cella-proxy.crt"
+		config := map[string]interface{}{
+			"config": map[string]string{
+				"environment.NODE_EXTRA_CA_CERTS": certPath,
+			},
+		}
+		body, _ := json.Marshal(config)
+		_ = lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body)
+	}
+
+	// nftables REDIRECT is handled by the caller
 
 	return nil
 }

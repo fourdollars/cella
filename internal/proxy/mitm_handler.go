@@ -170,7 +170,8 @@ func isInferencePath(path string) bool {
 		"/v1/chat/completions",
 		"/v1/completions",
 		"/v1/messages",         // Anthropic
-		"/v1/embeddings":
+		"/v1/embeddings",
+		"/responses":         // GitHub Copilot
 		return true
 	}
 	return false
