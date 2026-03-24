@@ -174,8 +174,7 @@ func (m *DNSMonitor) capture(ctx context.Context) {
 		}
 
 		cmd := exec.CommandContext(ctx, "sudo", "-n", "tcpdump",
-			"-l", "-i", bridgeIf, "-n", "port", "53",
-			"-Q", "in") // only incoming to bridge (from containers)
+			"-l", "-i", bridgeIf, "-n", "port", "53")
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
 			time.Sleep(2 * time.Second)
