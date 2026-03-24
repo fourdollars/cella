@@ -108,12 +108,16 @@ func (t *TransparentListener) handleTLS(
 	}
 
 	// Check allowlist
+	justApproved := false
 	al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
 		status := t.server.requestApproval(container, domain, "CONNECT", domain+":443", "")
 		if status == "approved-permanent" {
 			al.Add(domain)
-		} else if status != "approved" {
+			justApproved = true
+		} else if status == "approved" {
+			justApproved = true
+		} else {
 			t.server.audit.Add(AuditEntry{
 				Time: start, Container: container, Domain: domain,
 				Method: "TPROXY", Status: status, TLS: true,
@@ -134,8 +138,9 @@ func (t *TransparentListener) handleTLS(
 	// Wrap reader back into a net.Conn
 	bufferedConn := &bufferedConn{Conn: clientConn, reader: reader}
 
-	// MITM mode: intercept TLS
-	if mitmCfg != nil {
+	// MITM mode: intercept TLS (only for pre-allowed domains where CA cert is trusted)
+	// Freshly-approved connections use plain tunnel (CA cert may not be trusted yet)
+	if mitmCfg != nil && !justApproved {
 		t.handleMITMTransparent(bufferedConn, container, domain, mitmCfg, start)
 		return
 	}
@@ -169,6 +174,11 @@ func (t *TransparentListener) handleMITMTransparent(
 
 	cert, err := mitmCfg.GetCertForHost(domain)
 	if err != nil {
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: "MITM", Status: "error-cert", TLS: true,
+			Latency: time.Since(start),
+		})
 		return
 	}
 
@@ -176,6 +186,11 @@ func (t *TransparentListener) handleMITMTransparent(
 		Certificates: []tls.Certificate{*cert},
 	})
 	if err := tlsConn.Handshake(); err != nil {
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: "MITM", Status: "error-handshake", TLS: true,
+			Latency: time.Since(start),
+		})
 		return
 	}
 	defer tlsConn.Close()
@@ -187,6 +202,11 @@ func (t *TransparentListener) handleMITMTransparent(
 		&tls.Config{ServerName: domain},
 	)
 	if err != nil {
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: "MITM", Status: "error-upstream", TLS: true,
+			Latency: time.Since(start),
+		})
 		return
 	}
 	defer upstream.Close()
