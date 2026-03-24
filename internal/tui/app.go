@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	goruntime "runtime"
@@ -2637,14 +2638,13 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "y", "Y":
 			if a.selected < len(a.containers) {
-				name := a.containers[a.selected].Name
-				if err := security.RemoveEgressRules(name); err != nil {
+				c := a.containers[a.selected]
+				if err := security.RemoveEgressRules(c.Name, c.IP); err != nil {
 					a.addEvent(fmt.Sprintf("⚠ egress remove failed: %v", err))
 				} else {
-					a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", name))
+					a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", c.Name))
 				}
 				a.policyMode = "view"
-				c := a.containers[a.selected]
 				return a, a.fetchPolicyInfo(c)
 			}
 		default:
@@ -2659,20 +2659,39 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key == "enter":
 			domain := strings.TrimSpace(a.policyInput)
 			if domain != "" && a.selected < len(a.containers) {
-				name := a.containers[a.selected].Name
-				// Apply egress rule
+				c := a.containers[a.selected]
+				// Resolve domain to IPv4 addresses only (nftables ip family)
+				allIPs, err := net.LookupHost(domain)
+				if err != nil {
+					a.addEvent(fmt.Sprintf("⚠ resolve %s failed: %v", domain, err))
+					a.policyMode = "view"
+					a.policyInput = ""
+					return a, nil
+				}
+				var ips []string
+				for _, ip := range allIPs {
+					if net.ParseIP(ip) != nil && !strings.Contains(ip, ":") {
+						ips = append(ips, ip)
+					}
+				}
+				if len(ips) == 0 {
+					a.addEvent(fmt.Sprintf("⚠ %s has no IPv4 addresses", domain))
+					a.policyMode = "view"
+					a.policyInput = ""
+					return a, nil
+				}
+				// Apply egress rule with resolved IPs
 				rule := security.EgressRule{
-					Container: name,
-					Allow:     []string{domain},
-					DenyAll:   true,
+					Container: c.Name,
+					SrcIP:     c.IP,
+					Allow:     ips,
 				}
 				if err := security.ApplyEgressRules(rule); err != nil {
 					a.addEvent(fmt.Sprintf("⚠ egress add failed: %v", err))
 				} else {
-					a.addEvent(fmt.Sprintf("🛡 egress allow %s for %s", domain, name))
+					a.addEvent(fmt.Sprintf("🛡 egress allow %s (%s) for %s", domain, strings.Join(ips, ","), c.Name))
 				}
 				// Refresh
-				c := a.containers[a.selected]
 				a.policyMode = "view"
 				a.policyInput = ""
 				return a, a.fetchPolicyInfo(c)
