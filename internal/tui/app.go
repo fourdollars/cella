@@ -3030,7 +3030,7 @@ func (a App) renderDNSPanel() string {
 		containerIP = c.IP
 	}
 
-	b.WriteString(title.Render(fmt.Sprintf("🔍 DNS Monitor — %s (%s)", containerName, containerIP)))
+	b.WriteString(title.Render(fmt.Sprintf("🔍 DNS Monitor — %s (%s)", containerIP, containerName)))
 	b.WriteString("\n\n")
 
 	if a.dnsMonitor == nil || !a.dnsMonitor.IsRunning() {
@@ -3063,8 +3063,16 @@ func (a App) renderDNSPanel() string {
 				if len(ips) > 30 {
 					ips = ips[:27] + "..."
 				}
+				// Resolve container IP to hostname
+				srcLabel := e.SrcIP
+				for _, c := range a.containers {
+					if c.IP == e.SrcIP {
+						srcLabel = fmt.Sprintf("%s (%s)", e.SrcIP, c.Name)
+						break
+					}
+				}
 				b.WriteString(fmt.Sprintf("  %-30s %3d queries  %s  %s\n",
-					e.Domain, e.QueryCount, e.SrcIP, dim.Render(ips)))
+					e.Domain, e.QueryCount, srcLabel, dim.Render(ips)))
 			}
 		}
 		return b.String()
