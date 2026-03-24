@@ -47,7 +47,8 @@ type Server struct {
 	allowlists    map[string]*Allowlist // container name → allowlist
 	containerByIP map[string]string     // source IP → container name
 	approvalCh    chan ApprovalRequest   // → TUI for approval
-	audit         *AuditLog
+	audit          *AuditLog
+	inferenceStats *InferenceStats
 	mitm          *MITMConfig           // nil = tunnel mode, non-nil = MITM mode
 	mu            sync.RWMutex
 	nextID        int
@@ -61,7 +62,8 @@ func NewServer(port int, approvalCh chan ApprovalRequest) *Server {
 		allowlists:    make(map[string]*Allowlist),
 		containerByIP: make(map[string]string),
 		approvalCh:    approvalCh,
-		audit:         NewAuditLog(500),
+		audit:          NewAuditLog(500),
+		inferenceStats: NewInferenceStats(),
 		timeout:       30 * time.Second,
 	}
 }
@@ -115,6 +117,8 @@ func (s *Server) GetAllowlist(container string) *Allowlist {
 
 // Audit returns the audit log
 func (s *Server) Audit() *AuditLog { return s.audit }
+
+func (s *Server) InferenceStats() *InferenceStats { return s.inferenceStats }
 
 
 

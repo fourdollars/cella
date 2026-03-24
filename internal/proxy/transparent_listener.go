@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -201,94 +200,6 @@ func (t *TransparentListener) handleTLS(
 	})
 }
 
-func (t *TransparentListener) handleMITMTransparent(
-	clientConn net.Conn,
-	container, domain string,
-	mitmCfg *MITMConfig,
-	start time.Time,
-) {
-	defer clientConn.Close()
-
-	cert, err := mitmCfg.GetCertForHost(domain)
-	if err != nil {
-		t.server.audit.Add(AuditEntry{
-			Time: start, Container: container, Domain: domain,
-			Method: "MITM", Status: "error-cert", TLS: true,
-			Latency: time.Since(start),
-		})
-		return
-	}
-
-	tlsConn := tls.Server(clientConn, &tls.Config{
-		Certificates: []tls.Certificate{*cert},
-		NextProtos:   []string{"http/1.1"}, // Force HTTP/1.1 — http.ReadRequest cannot parse HTTP/2
-	})
-	if err := tlsConn.Handshake(); err != nil {
-		// Remember this domain as cert-pinned — future connections skip MITM
-		t.mu.Lock()
-		t.mitmFailed[domain] = true
-		t.mu.Unlock()
-		t.server.audit.Add(AuditEntry{
-			Time: start, Container: container, Domain: domain,
-			Method: "MITM", Status: "pinned-fallback", TLS: true,
-			Latency: time.Since(start),
-		})
-		return // client connection is broken, but next connection will tunnel
-	}
-	defer tlsConn.Close()
-
-	// Use http.Client for upstream (handles HTTP/2, connection pooling)
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-
-	// Read HTTP requests from decrypted client stream
-	clientReader := bufio.NewReader(tlsConn)
-	for {
-		req, err := http.ReadRequest(clientReader)
-		if err != nil {
-			t.server.audit.Add(AuditEntry{
-				Time: time.Now(), Container: container, Domain: domain,
-				Method: "MITM", Status: "error-read",
-				URL: err.Error(), TLS: true,
-			})
-			break
-		}
-
-		reqStart := time.Now()
-		req.URL.Scheme = "https"
-		req.URL.Host = domain
-		req.RequestURI = ""
-		removeHopByHopHeaders(req.Header)
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			t.server.audit.Add(AuditEntry{
-				Time: reqStart, Container: container, Domain: domain,
-				Method: req.Method, URL: req.URL.String(), Path: req.URL.Path,
-				Status: "error-upstream", TLS: true,
-				Latency: time.Since(reqStart),
-			})
-			break
-		}
-
-		t.server.audit.Add(AuditEntry{
-			Time: reqStart, Container: container, Domain: domain,
-			Method: req.Method, URL: req.URL.String(), Path: req.URL.Path,
-			Status: "allowed", RespCode: resp.StatusCode, TLS: true,
-			Latency: time.Since(reqStart),
-		})
-
-		removeHopByHopHeaders(resp.Header)
-		if err := resp.Write(tlsConn); err != nil {
-			resp.Body.Close()
-			break
-		}
-		resp.Body.Close()
-
-		if resp.Close || req.Close {
-			break
-		}
-	}
-}
 
 func (t *TransparentListener) handlePlainHTTP(
 	clientConn net.Conn,
