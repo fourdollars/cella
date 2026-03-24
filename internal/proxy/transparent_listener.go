@@ -123,6 +123,14 @@ func (t *TransparentListener) handleTLS(
 		}
 	}
 
+	// Log the approval
+	t.server.audit.Add(AuditEntry{
+		Time: start, Container: container, Domain: domain,
+		Method: "TPROXY", URL: domain + ":443",
+		Status: "allowed", TLS: true,
+		Latency: time.Since(start),
+	})
+
 	// Wrap reader back into a net.Conn
 	bufferedConn := &bufferedConn{Conn: clientConn, reader: reader}
 
