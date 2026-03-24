@@ -1627,6 +1627,10 @@ func (a App) View() string {
 }
 
 func (a App) renderStatusBar() string {
+	// Flash message takes priority over normal status bar
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		return " " + a.flashText
+	}
 	if a.searchMode {
 		return fmt.Sprintf(" 🔍 SEARCH │ type name → Enter │ Esc: cancel │ > %s█", a.searchInput)
 	}
