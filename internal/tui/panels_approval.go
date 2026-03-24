@@ -532,6 +532,21 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 			return asyncResultMsg{err: fmt.Errorf("auto-setup %s: %w", container, err)}
 		}
 
+		// Setup transparent redirect (nftables DNAT) for apps that ignore HTTP_PROXY (e.g. Node.js)
+		containerIP := ""
+		for _, c := range a.allContainers {
+			if c.Name == container && c.IP != "" {
+				containerIP = c.IP
+				break
+			}
+		}
+		if containerIP != "" {
+			if err := proxy.SetupTransparentRedirect(containerIP, a.proxyServer.Port()+1); err != nil {
+				// Non-fatal: env-based proxy still works for curl etc.
+				_ = err
+			}
+		}
+
 		msg := fmt.Sprintf("🔧 proxy configured on %s (→ %s:%d)", container, bridgeIP, a.proxyServer.Port())
 		if a.proxyServer.MITMEnabled() {
 			msg += " +CA cert injected"
@@ -551,6 +566,14 @@ func (a *App) removeProxySetup(container string) tea.Cmd {
 		socketPath := a.client.SocketPath()
 		if err := setup.RemoveSetup(socketPath, container); err != nil {
 			return asyncResultMsg{err: fmt.Errorf("remove proxy %s: %w", container, err)}
+		}
+
+		// Remove transparent redirect
+		for _, c := range a.allContainers {
+			if c.Name == container && c.IP != "" {
+				_ = proxy.RemoveTransparentRedirect(c.IP)
+				break
+			}
 		}
 
 		return asyncResultMsg{text: fmt.Sprintf("🔧 proxy removed from %s", container)}

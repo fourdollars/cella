@@ -234,6 +234,7 @@ type App struct {
 
 	// Proxy + Operator Approval
 	proxyServer     *proxy.Server
+	tproxyListener  *proxy.TransparentListener
 	approvalCh      chan proxy.ApprovalRequest
 	pendingApproval *proxy.ApprovalRequest
 	auditScroll       int
@@ -293,6 +294,11 @@ func NewApp(proxyPort int, mitmEnabled bool) App {
 		go func() {
 			_ = srv.Start(context.Background())
 		}()
+		// Start transparent listener on proxyPort+1 for nftables REDIRECT
+		tl := proxy.NewTransparentListener(proxyPort+1, srv)
+		if err := tl.Start(); err == nil {
+			app.tproxyListener = tl
+		}
 	}
 
 	return app
