@@ -1,0 +1,452 @@
+package tui
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/fourdoors/cella/internal/lxd"
+)
+
+// ── Resources panel handler ──
+
+func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.resEditing {
+		switch msg.String() {
+		case "esc":
+			a.resEditing = false
+			a.resInput = ""
+			return a, nil
+		case "enter":
+			a.resEditing = false
+			val := strings.TrimSpace(a.resInput)
+			a.resInput = ""
+			if val == "" {
+				return a, nil
+			}
+			var configKey string
+			switch a.resCursor {
+			case 0:
+				configKey = "limits.cpu"
+			case 1:
+				configKey = "limits.memory"
+			}
+			if configKey != "" {
+				name := a.resTarget
+				rt := a.runtimeFor(name)
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.UpdateConfig(ctx, name, map[string]string{configKey: val})
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("set %s=%s: %w", configKey, val, err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("%s set to %s for %s", configKey, val, name)}
+				}
+			}
+			return a, nil
+		case "backspace":
+			if len(a.resInput) > 0 {
+				a.resInput = a.resInput[:len(a.resInput)-1]
+			}
+			return a, nil
+		default:
+			if len(msg.String()) == 1 {
+				a.resInput += msg.String()
+			}
+			return a, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.resCursor > 0 {
+			a.resCursor--
+		}
+	case "down", "j":
+		if a.resCursor < 1 {
+			a.resCursor++
+		}
+	case "enter":
+		a.resEditing = true
+		a.resInput = ""
+	case "r":
+		return a, fetchConfig(a.runtimeFor(a.resTarget), a.resTarget)
+	}
+	return a, nil
+}
+
+// ── Resources panel render ──
+
+func (a App) renderResourcesPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("⚙ Resource Limits — %s ◆", a.resTarget)) + "\n")
+
+	if a.resConfig == nil {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
+			Render("\n  ⏳ Loading configuration...\n"))
+		return b.String()
+	}
+
+	// Host system info
+	if a.hostRes != nil {
+		hostStyle := lipgloss.NewStyle().Foreground(ColorSubtle)
+		memFree := a.hostRes.MemoryTotal - a.hostRes.MemoryUsed
+		memPct := float64(a.hostRes.MemoryUsed) / float64(a.hostRes.MemoryTotal) * 100
+		b.WriteString(hostStyle.Render(fmt.Sprintf("  Host: %d CPUs │ RAM %s / %s (%.0f%% used, %s free)",
+			a.hostRes.CPUTotal,
+			formatBytes(a.hostRes.MemoryUsed), formatBytes(a.hostRes.MemoryTotal),
+			memPct, formatBytes(memFree))) + "\n\n")
+	}
+
+	config := a.resConfig.Config
+
+	type resRow struct {
+		label   string
+		key     string
+		current string
+		hint    string
+	}
+
+	cpuHint := "e.g. 2, 0-3, 200ms/100ms"
+	memHint := "e.g. 256MB, 1GB, 2GiB"
+	if a.hostRes != nil {
+		cpuHint = fmt.Sprintf("max %d │ e.g. 2, 0-3, 200ms/100ms", a.hostRes.CPUTotal)
+		memFree := a.hostRes.MemoryTotal - a.hostRes.MemoryUsed
+		memHint = fmt.Sprintf("free %s │ e.g. 256MB, 1GB", formatBytes(memFree))
+	}
+
+	rows := []resRow{
+		{
+			label:   "CPU Limit",
+			key:     "limits.cpu",
+			current: config["limits.cpu"],
+			hint:    cpuHint,
+		},
+		{
+			label:   "Memory Limit",
+			key:     "limits.memory",
+			current: config["limits.memory"],
+			hint:    memHint,
+		},
+	}
+
+	b.WriteString("\n")
+	for i, row := range rows {
+		cursor := "  "
+		style := lipgloss.NewStyle().Foreground(ColorText)
+		if i == a.resCursor {
+			cursor = "▸ "
+			style = style.Foreground(ColorBlue).Bold(true)
+		}
+
+		val := row.current
+		if val == "" {
+			val = "(not set)"
+		}
+
+		b.WriteString(cursor + style.Render(fmt.Sprintf("%-14s", row.label)))
+
+		if a.resEditing && i == a.resCursor {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+				Render(fmt.Sprintf("  → %s▌", a.resInput)))
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+				Render(fmt.Sprintf("  (%s)", row.hint)))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorText).
+				Render(fmt.Sprintf("  %s", val)))
+		}
+		b.WriteString("\n\n")
+	}
+
+	// Show other useful config values (read-only)
+	b.WriteString(SectionHeaderStyle.Render("Current Usage") + "\n\n")
+
+	barWidth := 30
+
+	// Find container in our list for live metrics
+	for _, c := range a.containers {
+		if c.Name == a.resTarget {
+			if m, ok := a.metrics[c.Name]; ok {
+				// Check if CPU is pinned to specific cores
+				cpuPins := parseCPUPins(config["limits.cpu"])
+
+				if len(cpuPins) > 0 && len(a.perCPUUsage) > 0 {
+					// Show per-CPU bars for pinned cores
+					usageMap := make(map[int]float64)
+					for _, u := range a.perCPUUsage {
+						usageMap[u.ID] = u.Percent
+					}
+					for _, cpuID := range cpuPins {
+						pct := usageMap[cpuID]
+						bar := renderProgressBar(pct, 100.0, barWidth)
+						b.WriteString(fmt.Sprintf("  CPU%-2d   %s  %.1f%%\n", cpuID, bar, pct))
+					}
+				} else {
+					// Aggregate CPU bar
+					cpuPct := m.CPUPercent
+					cpuBar := renderProgressBar(cpuPct, 100.0, barWidth)
+					b.WriteString(fmt.Sprintf("  CPU     %s  %.1f%%\n", cpuBar, cpuPct))
+				}
+
+				// Memory bar (container usage vs limit or host total)
+				memLimit := c.MemoryMax
+				if memLimit == 0 && a.hostRes != nil {
+					memLimit = a.hostRes.MemoryTotal
+				}
+				memPct := 0.0
+				if memLimit > 0 {
+					memPct = float64(c.MemoryCur) / float64(memLimit) * 100
+				}
+				memBar := renderProgressBar(memPct, 100.0, barWidth)
+				b.WriteString(fmt.Sprintf("  MEM     %s  %s / %s (%.0f%%)\n",
+					memBar, formatBytes(c.MemoryCur), formatBytes(memLimit), memPct))
+
+				// Disk I/O rate
+				b.WriteString(fmt.Sprintf("  DISK    R %s/s  W %s/s\n",
+					formatBytes(m.DiskReadRate), formatBytes(m.DiskWriteRate)))
+				if c.DiskUsage > 0 {
+					b.WriteString(fmt.Sprintf("          %s used\n", formatBytes(c.DiskUsage)))
+				}
+
+				b.WriteString(fmt.Sprintf("  PIDs    %d\n", c.PIDs))
+
+				// Network rates
+				b.WriteString(fmt.Sprintf("  NET     ↓ %s/s  ↑ %s/s\n",
+					formatBytes(m.NetRxRate), formatBytes(m.NetTxRate)))
+			}
+			break
+		}
+	}
+
+	// Host-level bar if available
+	if a.hostRes != nil {
+		b.WriteString("\n" + SectionHeaderStyle.Render("Host Overview") + "\n\n")
+		hostMemPct := float64(a.hostRes.MemoryUsed) / float64(a.hostRes.MemoryTotal) * 100
+		hostMemBar := renderProgressBar(hostMemPct, 100.0, barWidth)
+		b.WriteString(fmt.Sprintf("  RAM     %s  %s / %s (%.0f%%)\n",
+			hostMemBar,
+			formatBytes(a.hostRes.MemoryUsed), formatBytes(a.hostRes.MemoryTotal), hostMemPct))
+	}
+
+	b.WriteString("\n" + SectionHeaderStyle.Render("Other Limits") + "\n\n")
+	otherKeys := []string{"limits.cpu.allowance", "limits.cpu.priority",
+		"limits.disk.priority", "limits.memory.swap", "limits.processes"}
+	for _, k := range otherKeys {
+		if v, ok := config[k]; ok {
+			b.WriteString(fmt.Sprintf("  %-26s %s\n", k, v))
+		}
+	}
+
+	// Flash message
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		b.WriteString("\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0d1117")).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}
+
+// ── Snapshots panel handler ──
+
+func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Text input mode for naming
+	if a.snapNaming || a.snapCloning {
+		switch msg.String() {
+		case "esc":
+			a.snapNaming = false
+			a.snapCloning = false
+			a.snapInput = ""
+			return a, nil
+		case "enter":
+			val := strings.TrimSpace(a.snapInput)
+			a.snapInput = ""
+			if val == "" {
+				a.snapNaming = false
+				a.snapCloning = false
+				return a, nil
+			}
+			name := a.snapTarget
+			if a.snapNaming {
+				a.snapNaming = false
+				rt := a.runtimeFor(name)
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel()
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.CreateSnapshot(ctx, name, val)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("snapshot: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("📸 snapshot '%s' created for %s", val, name)}
+				}
+			}
+			if a.snapCloning {
+				a.snapCloning = false
+				rt := a.runtimeFor(name)
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+					defer cancel()
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.CopyContainer(ctx, name, val)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("clone: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("🐑 cloned %s → %s", name, val)}
+				}
+			}
+			return a, nil
+		case "backspace":
+			if len(a.snapInput) > 0 {
+				a.snapInput = a.snapInput[:len(a.snapInput)-1]
+			}
+			return a, nil
+		default:
+			if len(msg.String()) == 1 {
+				a.snapInput += msg.String()
+			}
+			return a, nil
+		}
+	}
+
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = a.prevFocus
+		return a, nil
+	case "up", "k":
+		if a.snapCursor > 0 {
+			a.snapCursor--
+		}
+	case "down", "j":
+		if a.snapCursor < len(a.snapshots)-1 {
+			a.snapCursor++
+		}
+	case "n":
+		a.snapNaming = true
+		a.snapInput = fmt.Sprintf("snap-%s", time.Now().Format("20060102-1504"))
+	case "c":
+		a.snapCloning = true
+		a.snapInput = a.snapTarget + "-clone"
+	case "R":
+		// Restore snapshot (LXD only)
+		if a.snapCursor < len(a.snapshots) {
+			snapName := a.snapshots[a.snapCursor].Name
+			name := a.snapTarget
+			if a.containerRuntime(name) == "docker" {
+				a.addEvent("⚠ Docker doesn't support snapshot restore")
+				return a, nil
+			}
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				// RestoreSnapshot is LXD-specific, use client directly
+				lxdClient, _ := lxd.NewClient("")
+				if lxdClient != nil {
+					err := lxdClient.RestoreSnapshot(ctx, name, snapName)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
+					}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("⏪ restored %s to snapshot '%s'", name, snapName)}
+			}
+		}
+	case "D":
+		// Delete snapshot
+		if a.snapCursor < len(a.snapshots) {
+			snapName := a.snapshots[a.snapCursor].Name
+			name := a.snapTarget
+			rt := a.runtimeFor(name)
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				if rt == nil {
+					return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+				}
+				err := rt.DeleteSnapshot(ctx, name, snapName)
+				if err != nil {
+					return asyncResultMsg{err: fmt.Errorf("delete snapshot: %w", err)}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("🗑 deleted snapshot '%s' from %s", snapName, name)}
+			}
+		}
+	case "r":
+		return a, fetchSnapshots(a.runtimeFor(a.snapTarget), a.snapTarget)
+	}
+	return a, nil
+}
+
+// ── Snapshots panel render ──
+
+func (a App) renderSnapshotsPanel() string {
+	var b strings.Builder
+
+	b.WriteString(TitleStyle.Render(fmt.Sprintf("📸 Snapshots — %s ◆", a.snapTarget)) + "\n")
+
+	if a.snapshots == nil {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
+			Render("\n  ⏳ Loading snapshots...\n"))
+		return b.String()
+	}
+
+	if len(a.snapshots) == 0 {
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).
+			Render("\n  No snapshots yet.\n"))
+	} else {
+		b.WriteString("\n")
+		for i, snap := range a.snapshots {
+			cursor := "  "
+			style := lipgloss.NewStyle().Foreground(ColorText)
+			if i == a.snapCursor {
+				cursor = "▸ "
+				style = style.Foreground(ColorBlue).Bold(true)
+			}
+			stateful := ""
+			if snap.Stateful {
+				stateful = " [stateful]"
+			}
+			b.WriteString(cursor + style.Render(fmt.Sprintf("%-20s  %s%s", snap.Name, snap.CreatedAt, stateful)) + "\n")
+		}
+	}
+
+	// Input mode
+	if a.snapNaming {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+			Render(fmt.Sprintf("  New snapshot name: %s▌", a.snapInput)) + "\n")
+	}
+	if a.snapCloning {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
+			Render(fmt.Sprintf("  Clone target name: %s▌", a.snapInput)) + "\n")
+	}
+
+	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))
+
+	// Flash message
+	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
+		b.WriteString("\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#0d1117")).
+			Background(ColorGreen).
+			Bold(true).
+			Padding(0, 1).
+			Render(a.flashText) + "\n")
+	}
+
+	return b.String()
+}

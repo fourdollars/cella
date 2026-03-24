@@ -12,3 +12,4 @@ cella-linux-*
 .DS_Store
 # Container config exports
 juju-*.json
+tmp.yaml
