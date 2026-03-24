@@ -250,7 +250,7 @@ type App struct {
 
 type flashExpireMsg struct{}
 
-func NewApp(proxyPort int) App {
+func NewApp(proxyPort int, mitmEnabled bool) App {
 	var runtimes []runtime.Runtime
 	var lxdClient *lxd.Client
 
@@ -283,6 +283,13 @@ func NewApp(proxyPort int) App {
 		srv := proxy.NewServer(proxyPort, approvalCh)
 		app.proxyServer = srv
 		app.approvalCh = approvalCh
+		if mitmEnabled {
+			dataDir := os.ExpandEnv("$HOME/.cella")
+			mitmCfg, err := proxy.NewMITMConfig(dataDir)
+			if err == nil {
+				srv.EnableMITM(mitmCfg)
+			}
+		}
 		go func() {
 			_ = srv.Start(context.Background())
 		}()

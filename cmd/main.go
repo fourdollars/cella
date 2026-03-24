@@ -27,11 +27,13 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			proxyPort, _ := cmd.Flags().GetInt("proxy")
-			return runTUI(proxyPort)
+			mitmEnabled, _ := cmd.Flags().GetBool("mitm")
+			return runTUI(proxyPort, mitmEnabled)
 		},
 	}
 
 	rootCmd.Flags().Int("proxy", 0, "Start HTTP proxy on this port for operator approval (e.g. --proxy 9080)")
+	rootCmd.Flags().Bool("mitm", false, "Enable HTTPS MITM interception (requires --proxy; injects CA into containers)")
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(execCmd())
 
@@ -40,9 +42,9 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 	}
 }
 
-func runTUI(proxyPort int) error {
+func runTUI(proxyPort int, mitmEnabled bool) error {
 	p := tea.NewProgram(
-		tui.NewApp(proxyPort),
+		tui.NewApp(proxyPort, mitmEnabled),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

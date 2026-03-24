@@ -73,15 +73,18 @@ func (a *AuditLog) Stats() AuditStats {
 	defer a.mu.RUnlock()
 
 	stats := AuditStats{
-		Total:      len(a.entries),
-		ByStatus:   make(map[string]int),
-		ByDomain:   make(map[string]int),
+		Total:       len(a.entries),
+		ByStatus:    make(map[string]int),
+		ByDomain:    make(map[string]int),
 		ByContainer: make(map[string]int),
 	}
 	for _, e := range a.entries {
 		stats.ByStatus[e.Status]++
 		stats.ByDomain[e.Domain]++
 		stats.ByContainer[e.Container]++
+		if e.TLS {
+			stats.TLSCount++
+		}
 	}
 	return stats
 }
@@ -89,6 +92,7 @@ func (a *AuditLog) Stats() AuditStats {
 // AuditStats holds aggregated stats
 type AuditStats struct {
 	Total       int
+	TLSCount    int
 	ByStatus    map[string]int
 	ByDomain    map[string]int
 	ByContainer map[string]int
@@ -106,14 +110,41 @@ func FormatEntry(e AuditEntry) string {
 		statusIcon = "👤"
 	case e.Status == "approved-permanent":
 		statusIcon = "👤+"
+	case e.Status == "error-cert" || e.Status == "error-handshake" || e.Status == "error-upstream":
+		statusIcon = "💥"
 	}
 
-	return fmt.Sprintf("%s %s %s %s → %s (%s)",
+	// TLS indicator
+	tlsTag := ""
+	if e.TLS {
+		tlsTag = "🔓"
+	}
+
+	// Path info (MITM mode gives us the full path)
+	pathInfo := ""
+	if e.Path != "" && e.Path != "/" {
+		path := e.Path
+		if len(path) > 40 {
+			path = path[:37] + "..."
+		}
+		pathInfo = " " + path
+	}
+
+	// Response code
+	respInfo := ""
+	if e.RespCode > 0 {
+		respInfo = fmt.Sprintf(" [%d]", e.RespCode)
+	}
+
+	return fmt.Sprintf("%s %s%s %s %s → %s%s%s (%s)",
 		e.Time.Format("15:04:05"),
 		statusIcon,
+		tlsTag,
 		e.Container,
 		e.Method,
 		e.Domain,
+		pathInfo,
+		respInfo,
 		e.Latency.Truncate(time.Millisecond),
 	)
 }
