@@ -811,7 +811,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focus = panelPolicy
 				return a, a.fetchPolicyInfo(c)
 			}
-		case "H":
+		case "D":
 			// DNS Monitor panel
 			if a.dnsMonitor == nil {
 				a.dnsMonitor = security.NewDNSMonitor()
@@ -3696,7 +3696,7 @@ func (a App) renderHelpOverlay() string {
 		{"r", "Resource limits & usage"},
 		{"n", "Snapshots & clone"},
 		{"P", "Security policy (seccomp/egress)"},
-		{"H", "DNS monitor (traffic/allow/deny)"},
+		{"D", "DNS monitor (traffic/allow/deny)"},
 		{"t", "Start syscall trace"},
 		{"T", "Stop syscall trace"},
 		{"G", "Generate seccomp profile"},
