@@ -59,10 +59,10 @@ func (a *App) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // listenApprovalsContinue continues listening for approvals
 func (a App) listenApprovalsContinue() tea.Cmd {
-	if a.approvalCh == nil {
+	if globalApprovalCh == nil {
 		return nil
 	}
-	return listenApprovals(a.approvalCh)
+	return listenApprovals(globalApprovalCh)
 }
 
 // renderApprovalOverlay draws the approval prompt at the bottom of the screen
@@ -160,8 +160,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.focus = panelSidebar
 		return a, nil
 	case "c":
-		if a.proxyServer != nil {
-			a.proxyServer.Audit().Clear()
+		if globalProxyServer != nil {
+			globalProxyServer.Audit().Clear()
 			a.addEvent("📋 audit log cleared")
 		}
 		return a, nil
@@ -200,7 +200,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return a, a.setFlash("❌ Container must be running")
 			}
 			// Lazy-start: create Server + MITM + Listener SYNCHRONOUSLY (in Update)
-			if a.proxyServer == nil {
+			if globalProxyServer == nil {
 				approvalCh := make(chan proxy.ApprovalRequest, 10)
 				srv := proxy.NewServer(9081, approvalCh)
 				dataDir := os.ExpandEnv("$HOME/.cella")
@@ -213,12 +213,12 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if err := tl.Start(); err != nil {
 					return a, a.setFlash(fmt.Sprintf("❌ listener: %v", err))
 				}
-				a.proxyServer = srv
-				a.approvalCh = approvalCh
-				a.tproxyListener = tl
+				globalProxyServer = srv
+				globalApprovalCh = approvalCh
+				globalTproxyListener = tl
 			}
 			a.addEvent(fmt.Sprintf("🔧 setting up interception on %s...", c.Name))
-			return a, a.autoSetupProxy(c.Name, a.proxyServer, a.client.SocketPath())
+			return a, a.autoSetupProxy(c.Name, globalProxyServer, a.client.SocketPath())
 		}
 		return a, nil
 	case "u":
@@ -233,8 +233,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 		case "S":
-		if a.proxyServer != nil {
-			entries := a.filterAuditEntries(a.proxyServer.Audit().All())
+		if globalProxyServer != nil {
+			entries := a.filterAuditEntries(globalProxyServer.Audit().All())
 			return a, a.exportAuditJSON(entries)
 		}
 		return a, nil
@@ -337,7 +337,7 @@ func (a App) renderAuditPanel() string {
 	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
 
-	if a.proxyServer == nil {
+	if globalProxyServer == nil {
 		var b strings.Builder
 		b.WriteString("\n")
 		b.WriteString(dim.Render("  Interception not active.") + "\n\n")
@@ -362,14 +362,14 @@ func (a App) renderAuditPanel() string {
 	// Title line
 	b.WriteString(blue.Render("📋 API Audit Log ◆"))
 	b.WriteString(green.Render(fmt.Sprintf(" (intercept :%d", 9081)))
-	if a.proxyServer.MITMEnabled() {
+	if globalProxyServer.MITMEnabled() {
 		b.WriteString(bright.Render(" +MITM🔓"))
 	}
 	b.WriteString(green.Render(")"))
 	b.WriteString("\n")
 
 	// Stats
-	stats := a.proxyServer.Audit().Stats()
+	stats := globalProxyServer.Audit().Stats()
 	allowed := stats.ByStatus["allowed"]
 	denied := stats.ByStatus["denied"] + stats.ByStatus["denied-queue-full"]
 	approved := stats.ByStatus["approved"] + stats.ByStatus["approved-permanent"]
@@ -437,7 +437,7 @@ func (a App) renderAuditPanel() string {
 	}
 
 	// Entries
-	allEntries := a.proxyServer.Audit().All()
+	allEntries := globalProxyServer.Audit().All()
 	entries := a.filterAuditEntries(allEntries)
 
 	if len(entries) == 0 {
@@ -573,7 +573,7 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 // removeProxySetup removes proxy configuration from a container
 func (a *App) removeProxySetup(container string) tea.Cmd {
 	return func() tea.Msg {
-		if a.proxyServer == nil || a.client == nil {
+		if globalProxyServer == nil || a.client == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy or LXD client not available")}
 		}
 

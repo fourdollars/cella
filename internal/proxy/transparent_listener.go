@@ -69,6 +69,7 @@ func (t *TransparentListener) Stop() {
 func (t *TransparentListener) handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 	start := time.Now()
+	
 
 	// Resolve source container
 	srcIP := extractIP(clientConn.RemoteAddr().String())
@@ -220,6 +221,7 @@ func (t *TransparentListener) handleMITMTransparent(
 
 	tlsConn := tls.Server(clientConn, &tls.Config{
 		Certificates: []tls.Certificate{*cert},
+		NextProtos:   []string{"http/1.1"}, // Force HTTP/1.1 — http.ReadRequest cannot parse HTTP/2
 	})
 	if err := tlsConn.Handshake(); err != nil {
 		// Remember this domain as cert-pinned — future connections skip MITM

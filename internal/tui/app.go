@@ -52,6 +52,14 @@ const (
 const tickInterval = 2 * time.Second
 const sparklineLen = 30
 
+// Package-level proxy state — survives Bubbletea model copies
+var (
+	globalProxyServer     *proxy.Server
+	globalTproxyListener  *proxy.TransparentListener
+	globalApprovalCh      chan proxy.ApprovalRequest
+	globalListeningApprvals bool
+)
+
 type tickMsg time.Time
 type containersMsg []runtime.ContainerInfo
 type errMsg error
@@ -233,16 +241,12 @@ type App struct {
 	confirmQuit bool
 
 	// Proxy + Operator Approval
-	proxyServer     *proxy.Server
-	tproxyListener  *proxy.TransparentListener
-	approvalCh      chan proxy.ApprovalRequest
 	pendingApproval *proxy.ApprovalRequest
 	auditScroll       int
 	auditFilterMode   bool
 	auditFilterInput  string
 	auditFilterText   string
 	auditStatusFilter string
-	listeningApprovals bool
 
 	// Search / filter by name
 	searchMode   bool
@@ -294,8 +298,8 @@ func (a App) Init() tea.Cmd {
 		cmds = append(cmds, a.startEventMonitor(), a.listenEvents())
 	}
 	// Start listening for proxy approval requests
-	if a.approvalCh != nil {
-		cmds = append(cmds, listenApprovals(a.approvalCh))
+	if globalApprovalCh != nil {
+		cmds = append(cmds, listenApprovals(globalApprovalCh))
 	}
 	return tea.Batch(cmds...)
 }
@@ -1239,9 +1243,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.addEvent(msg.text)
 		cmds := []tea.Cmd{a.setFlash(fmt.Sprintf("✅ %s", msg.text))}
 		// Start listening for approval requests after lazy proxy init
-		if a.approvalCh != nil && !a.listeningApprovals {
-			a.listeningApprovals = true
-			cmds = append(cmds, listenApprovals(a.approvalCh))
+		if globalApprovalCh != nil && !globalListeningApprvals {
+			globalListeningApprvals = true
+			cmds = append(cmds, listenApprovals(globalApprovalCh))
 		}
 		return a, tea.Batch(cmds...)
 
@@ -1339,14 +1343,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		a.allContainers = newContainers
 		// Update proxy container IP mapping
-		if a.proxyServer != nil {
+		if globalProxyServer != nil {
 			ipMap := make(map[string]string)
 			for _, c := range newContainers {
 				if c.IP != "" {
 					ipMap[c.IP] = c.Name
 				}
 			}
-			a.proxyServer.UpdateContainerMap(ipMap)
+			globalProxyServer.UpdateContainerMap(ipMap)
 		}
 		a.sortContainers()
 		a.applyFilter()
