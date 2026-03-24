@@ -21,6 +21,7 @@ type TransparentListener struct {
 	server           *Server
 	listener         net.Listener
 	pendingApprovals map[string]chan bool // domain → result channel (dedup concurrent approvals)
+	mitmFailed       map[string]bool     // domains where MITM handshake failed (cert pinning)
 	mu               sync.RWMutex
 }
 
@@ -30,6 +31,7 @@ func NewTransparentListener(port int, server *Server) *TransparentListener {
 		port:             port,
 		server:           server,
 		pendingApprovals: make(map[string]chan bool),
+		mitmFailed:       make(map[string]bool),
 	}
 }
 
@@ -174,7 +176,10 @@ func (t *TransparentListener) handleTLS(
 
 	// MITM mode: intercept TLS (only for pre-allowed domains where CA cert is trusted)
 	// Freshly-approved connections use plain tunnel (CA cert may not be trusted yet)
-	if mitmCfg != nil && !justApproved {
+	t.mu.RLock()
+	mitmBlocked := t.mitmFailed[domain]
+	t.mu.RUnlock()
+	if mitmCfg != nil && !justApproved && !mitmBlocked {
 		t.handleMITMTransparent(bufferedConn, container, domain, mitmCfg, start)
 		return
 	}
@@ -220,12 +225,16 @@ func (t *TransparentListener) handleMITMTransparent(
 		Certificates: []tls.Certificate{*cert},
 	})
 	if err := tlsConn.Handshake(); err != nil {
+		// Remember this domain as cert-pinned — future connections skip MITM
+		t.mu.Lock()
+		t.mitmFailed[domain] = true
+		t.mu.Unlock()
 		t.server.audit.Add(AuditEntry{
 			Time: start, Container: container, Domain: domain,
-			Method: "MITM", Status: "error-handshake", TLS: true,
+			Method: "MITM", Status: "pinned-fallback", TLS: true,
 			Latency: time.Since(start),
 		})
-		return
+		return // client connection is broken, but next connection will tunnel
 	}
 	defer tlsConn.Close()
 
