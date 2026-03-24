@@ -2112,7 +2112,10 @@ func (a App) renderStatusBar() string {
 		if a.policyMode == "egress-del-confirm" {
 			return " POLICY │ y: confirm delete all egress rules │ any key: cancel"
 		}
-		return " POLICY │ 1/2/3: seccomp profile │ a: add egress │ d: del egress │ r: refresh │ Esc/q: back"
+		if a.policyMode == "import" {
+			return " POLICY │ type filename (.yaml/.json) → Enter │ Esc: cancel"
+		}
+		return " POLICY │ 1-3: seccomp │ 4-7: apparmor │ a/d: egress │ e: export │ i: import │ r: refresh │ Esc: back"
 	case panelDNS:
 		return " DNS │ ↑↓ select │ a: allow │ x: deny │ u: unset │ Esc/q: back"
 	case panelCreate:
@@ -2618,14 +2621,9 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 
 		// Read AppArmor profile
 		if rtName == "lxd" {
-			out, err := exec.Command("lxc", "config", "get", name, "raw.apparmor").CombinedOutput()
+			profileName, err := security.ReadAppArmorProfile(name)
 			if err == nil {
-				raw := strings.TrimSpace(string(out))
-				if raw != "" {
-					apparmorName = raw
-				} else {
-					apparmorName = "(default)"
-				}
+				apparmorName = profileName
 			} else {
 				apparmorName = "(unknown)"
 			}
@@ -2680,6 +2678,42 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.policyMode = "view"
 		}
 		return a, nil
+	}
+
+	if a.policyMode == "import" {
+		key := msg.String()
+		switch {
+		case key == "enter":
+			path := strings.TrimSpace(a.policyInput)
+			if path != "" && a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if err := security.ImportPolicy(c.Name, path); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ import: %v", err))
+				} else {
+					a.addEvent(fmt.Sprintf("📄 policy imported from %s for %s", path, c.Name))
+				}
+				a.policyMode = "view"
+				a.policyInput = ""
+				return a, a.fetchPolicyInfo(c)
+			}
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
+		case key == "esc":
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
+		case key == "backspace":
+			if len(a.policyInput) > 0 {
+				a.policyInput = a.policyInput[:len(a.policyInput)-1]
+			}
+			return a, nil
+		default:
+			if len(key) == 1 {
+				a.policyInput += key
+			}
+			return a, nil
+		}
 	}
 
 	if a.policyMode == "egress-add" {
@@ -2797,6 +2831,74 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			c := a.containers[a.selected]
 			return a, a.fetchPolicyInfo(c)
 		}
+	case "4":
+		// AppArmor: default
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			if err := security.ApplyAppArmorProfile(c.Name, security.AppArmorDefault); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 apparmor → default for %s", c.Name))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "5":
+		// AppArmor: hardened
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			if err := security.ApplyAppArmorProfile(c.Name, security.AppArmorHardened); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 apparmor → hardened for %s", c.Name))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "6":
+		// AppArmor: net-restricted
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			if err := security.ApplyAppArmorProfile(c.Name, security.AppArmorNetRestricted); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 apparmor → net-restricted for %s", c.Name))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "7":
+		// AppArmor: read-only
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			if err := security.ApplyAppArmorProfile(c.Name, security.AppArmorReadOnly); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 apparmor → read-only for %s", c.Name))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "e":
+		// Export policy YAML
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			path := fmt.Sprintf("%s-policy.yaml", c.Name)
+			if err := security.SavePolicyFile(c.Name, path); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ export failed: %v", err))
+			} else {
+				info, _ := os.Stat(path)
+				size := int64(0)
+				if info != nil {
+					size = info.Size()
+				}
+				a.addEvent(fmt.Sprintf("📄 exported %s (%d bytes)", path, size))
+				a.flashText = fmt.Sprintf("Policy exported: %s", path)
+				a.flashExpiry = time.Now().Add(3 * time.Second)
+			}
+			return a, nil
+		}
+	case "i":
+		// Import policy YAML — enter filename input mode
+		a.policyMode = "import"
+		a.policyInput = ""
+		return a, nil
 	}
 	return a, nil
 }
@@ -2867,10 +2969,28 @@ func (a App) renderPolicyPanel() string {
 
 	// AppArmor section
 	b.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
-	if a.policyAppArmor != "" {
-		b.WriteString(fmt.Sprintf("  %s\n\n", a.policyAppArmor))
-	} else {
-		b.WriteString("  (loading...)\n\n")
+	b.WriteString(fmt.Sprintf("  Current: %s\n", a.policyAppArmor))
+
+	// Show AppArmor profile options with indicator
+	aaProfiles := []struct{ key, name string }{
+		{"4", "default"},
+		{"5", "hardened"},
+		{"6", "net-restricted"},
+		{"7", "read-only"},
+	}
+	for _, p := range aaProfiles {
+		indicator := "  "
+		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) {
+			indicator = "▸ "
+		}
+		b.WriteString(fmt.Sprintf("  %s[%s] %s\n", indicator, p.key, p.name))
+	}
+	b.WriteString("\n")
+
+	// Import mode prompt
+	if a.policyMode == "import" {
+		b.WriteString(SectionHeaderStyle.Render("Import Policy") + "\n")
+		b.WriteString(fmt.Sprintf("  File: %s█\n\n", a.policyInput))
 	}
 
 	// Egress section
