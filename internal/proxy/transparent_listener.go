@@ -112,8 +112,7 @@ func (t *TransparentListener) handleTLS(
 	}
 
 	// Check allowlist (with dedup for concurrent connections)
-	justApproved := false
-	al := t.server.GetAllowlist(container)
+		al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
 		// Check if another goroutine is already requesting approval for this domain
 		approvalKey := container + ":" + domain
@@ -125,7 +124,6 @@ func (t *TransparentListener) handleTLS(
 			if !approved {
 				return
 			}
-			justApproved = true
 		} else {
 			// First request for this domain — we do the approval
 			resultCh := make(chan bool, 10)
@@ -159,7 +157,6 @@ func (t *TransparentListener) handleTLS(
 				})
 				return
 			}
-			justApproved = true
 		}
 	}
 
@@ -179,7 +176,7 @@ func (t *TransparentListener) handleTLS(
 	t.mu.RLock()
 	mitmBlocked := t.mitmFailed[domain]
 	t.mu.RUnlock()
-	if mitmCfg != nil && !justApproved && !mitmBlocked {
+	if mitmCfg != nil && !mitmBlocked {
 		t.handleMITMTransparent(bufferedConn, container, domain, mitmCfg, start)
 		return
 	}
