@@ -246,6 +246,11 @@ func (t *TransparentListener) handleMITMTransparent(
 	for {
 		req, err := http.ReadRequest(clientReader)
 		if err != nil {
+			t.server.audit.Add(AuditEntry{
+				Time: time.Now(), Container: container, Domain: domain,
+				Method: "MITM", Status: "error-read",
+				URL: err.Error(), TLS: true,
+			})
 			break
 		}
 
