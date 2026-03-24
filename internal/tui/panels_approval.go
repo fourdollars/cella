@@ -190,18 +190,34 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.auditScroll = 0
 		return a, nil
 	case "p":
-		// Auto-setup interception on selected container (lazy-starts listener)
+		// Auto-setup interception on selected container
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
 			if c.Runtime != "lxd" {
-				a.addEvent(fmt.Sprintf("⚠ auto-setup only supports LXD containers (got %s)", c.Runtime))
 				return a, a.setFlash("❌ Auto-setup only for LXD containers")
 			}
 			if c.Status != "Running" {
-				a.addEvent(fmt.Sprintf("⚠ container %s is not running", c.Name))
 				return a, a.setFlash("❌ Container must be running")
 			}
-			a.addEvent(fmt.Sprintf("🔧 setting up proxy on %s...", c.Name))
+			// Lazy-start: create Server + MITM + Listener SYNCHRONOUSLY (in Update)
+			if a.proxyServer == nil {
+				approvalCh := make(chan proxy.ApprovalRequest, 10)
+				srv := proxy.NewServer(9081, approvalCh)
+				dataDir := os.ExpandEnv("$HOME/.cella")
+				mitmCfg, err := proxy.NewMITMConfig(dataDir)
+				if err != nil {
+					return a, a.setFlash(fmt.Sprintf("❌ CA gen: %v", err))
+				}
+				srv.EnableMITM(mitmCfg)
+				tl := proxy.NewTransparentListener(9081, srv)
+				if err := tl.Start(); err != nil {
+					return a, a.setFlash(fmt.Sprintf("❌ listener: %v", err))
+				}
+				a.proxyServer = srv
+				a.approvalCh = approvalCh
+				a.tproxyListener = tl
+			}
+			a.addEvent(fmt.Sprintf("🔧 setting up interception on %s...", c.Name))
 			return a, a.autoSetupProxy(c.Name)
 		}
 		return a, nil
@@ -510,27 +526,9 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 			return asyncResultMsg{err: fmt.Errorf("LXD client not available")}
 		}
 
-		// Lazy-start: create Server + MITM + TransparentListener on first use
+		// Server/MITM/Listener already initialized by p key handler in Update()
 		if a.proxyServer == nil {
-			approvalCh := make(chan proxy.ApprovalRequest, 10)
-			srv := proxy.NewServer(9081, approvalCh)
-			a.proxyServer = srv
-			a.approvalCh = approvalCh
-
-			// Always enable MITM (CA cert will be injected into container)
-			dataDir := os.ExpandEnv("$HOME/.cella")
-			mitmCfg, err := proxy.NewMITMConfig(dataDir)
-			if err != nil {
-				return asyncResultMsg{err: fmt.Errorf("generate CA: %w", err)}
-			}
-			srv.EnableMITM(mitmCfg)
-
-			// Start transparent listener
-			tl := proxy.NewTransparentListener(9081, srv)
-			if err := tl.Start(); err != nil {
-				return asyncResultMsg{err: fmt.Errorf("start listener :9081: %w", err)}
-			}
-			a.tproxyListener = tl
+			return asyncResultMsg{err: fmt.Errorf("proxy not initialized")}
 		}
 
 		// Find container IP
