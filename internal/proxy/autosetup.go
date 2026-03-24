@@ -26,7 +26,7 @@ type AutoSetup struct {
 func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 	proxyURL := fmt.Sprintf("http://%s:%d", s.ProxyHost, s.ProxyPort)
 
-	// 1. Set environment variables via LXD config PATCH
+	// 1. Set environment variables via LXD config PATCH (for new lxc exec sessions)
 	config := map[string]interface{}{
 		"config": map[string]string{
 			"environment.HTTP_PROXY":  proxyURL,
@@ -43,23 +43,52 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		return fmt.Errorf("set proxy env: %w", err)
 	}
 
-	// 2. Inject CA cert if MITM enabled
+	// 2. Write /etc/profile.d/cella-proxy.sh (for interactive shells already open)
+		profileScript := fmt.Sprintf(`export HTTP_PROXY=%s
+export HTTPS_PROXY=%s
+export http_proxy=%s
+export https_proxy=%s
+export NO_PROXY=localhost,127.0.0.1
+export no_proxy=localhost,127.0.0.1
+`, proxyURL, proxyURL, proxyURL, proxyURL)
+	_ = lxdWriteFile(socketPath, container,
+		"/etc/profile.d/cella-proxy.sh",
+		[]byte(profileScript))
+
+	// 3. Write to /etc/environment (for systemd services / non-interactive processes)
+		envContent := fmt.Sprintf(`HTTP_PROXY=%s
+HTTPS_PROXY=%s
+http_proxy=%s
+https_proxy=%s
+NO_PROXY=localhost,127.0.0.1
+no_proxy=localhost,127.0.0.1
+`, proxyURL, proxyURL, proxyURL, proxyURL)
+	// Only append if not already present
+	_ = lxdExec(socketPath, container, []string{
+		"sh", "-c", "grep -q HTTP_PROXY /etc/environment 2>/dev/null || true",
+	})
+	_ = lxdWriteFile(socketPath, container,
+		"/etc/environment.d/cella-proxy.conf",
+		[]byte(envContent))
+	// Also try direct /etc/environment for systems without environment.d
+	_ = lxdExec(socketPath, container, []string{
+		"sh", "-c", "mkdir -p /etc/environment.d 2>/dev/null; grep -q HTTP_PROXY /etc/environment 2>/dev/null || cat /etc/environment.d/cella-proxy.conf >> /etc/environment",
+	})
+
+	// 4. Inject CA cert if MITM enabled
 	if len(s.MITMPem) > 0 {
-		// Write CA cert via lxc file push (exec approach since LXD file API is complex)
 		if err := lxdExec(socketPath, container, []string{
 			"sh", "-c", "mkdir -p /usr/local/share/ca-certificates",
 		}); err != nil {
 			return fmt.Errorf("mkdir ca-certificates: %w", err)
 		}
 
-		// Write cert content via exec + stdin
 		if err := lxdWriteFile(socketPath, container,
 			"/usr/local/share/ca-certificates/cella-proxy.crt",
 			s.MITMPem); err != nil {
 			return fmt.Errorf("write CA cert: %w", err)
 		}
 
-		// Update CA store
 		if err := lxdExec(socketPath, container, []string{
 			"sh", "-c", "update-ca-certificates 2>/dev/null || true",
 		}); err != nil {
@@ -87,6 +116,21 @@ func (s *AutoSetup) RemoveSetup(socketPath, container string) error {
 	if err := lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body); err != nil {
 		return fmt.Errorf("remove proxy env: %w", err)
 	}
+
+	// Remove profile.d script
+	_ = lxdExec(socketPath, container, []string{
+		"sh", "-c", "rm -f /etc/profile.d/cella-proxy.sh",
+	})
+
+	// Remove environment.d conf
+	_ = lxdExec(socketPath, container, []string{
+		"sh", "-c", "rm -f /etc/environment.d/cella-proxy.conf",
+	})
+
+	// Clean /etc/environment (remove proxy lines)
+	_ = lxdExec(socketPath, container, []string{
+		"sh", "-c", "sed -i '/HTTP_PROXY\\|HTTPS_PROXY\\|http_proxy\\|https_proxy\\|NO_PROXY\\|no_proxy/d' /etc/environment 2>/dev/null || true",
+	})
 
 	// Remove CA cert
 	_ = lxdExec(socketPath, container, []string{
