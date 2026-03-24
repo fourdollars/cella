@@ -236,7 +236,11 @@ type App struct {
 	proxyServer     *proxy.Server
 	approvalCh      chan proxy.ApprovalRequest
 	pendingApproval *proxy.ApprovalRequest
-	auditScroll     int
+	auditScroll       int
+	auditFilterMode   bool
+	auditFilterInput  string
+	auditFilterText   string
+	auditStatusFilter string
 
 	// Search / filter by name
 	searchMode   bool
@@ -1665,7 +1669,10 @@ func (a App) renderStatusBar() string {
 	case panelEvents:
 		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
 	case panelAudit:
-		return " API AUDIT │ ↑↓ scroll │ c: clear │ Esc/q: back"
+		if a.auditFilterMode {
+			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)
+		}
+		return " API AUDIT │ ↑↓ scroll │ /: filter │ f: status │ S: export │ c: clear │ Ctrl+L: reset │ Esc: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
 	case panelExport:
