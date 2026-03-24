@@ -195,23 +195,10 @@ func (t *TransparentListener) handleMITMTransparent(
 	}
 	defer tlsConn.Close()
 
-	// Connect to real upstream
-	upstream, err := tls.DialWithDialer(
-		&net.Dialer{Timeout: 10 * time.Second},
-		"tcp", domain+":443",
-		&tls.Config{ServerName: domain},
-	)
-	if err != nil {
-		t.server.audit.Add(AuditEntry{
-			Time: start, Container: container, Domain: domain,
-			Method: "MITM", Status: "error-upstream", TLS: true,
-			Latency: time.Since(start),
-		})
-		return
-	}
-	defer upstream.Close()
+	// Use http.Client for upstream (handles HTTP/2, connection pooling)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 
-	// Read HTTP requests from decrypted stream
+	// Read HTTP requests from decrypted client stream
 	clientReader := bufio.NewReader(tlsConn)
 	for {
 		req, err := http.ReadRequest(clientReader)
@@ -225,12 +212,14 @@ func (t *TransparentListener) handleMITMTransparent(
 		req.RequestURI = ""
 		removeHopByHopHeaders(req.Header)
 
-		if err := req.Write(upstream); err != nil {
-			break
-		}
-
-		resp, err := http.ReadResponse(bufio.NewReader(upstream), req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
+			t.server.audit.Add(AuditEntry{
+				Time: reqStart, Container: container, Domain: domain,
+				Method: req.Method, URL: req.URL.String(), Path: req.URL.Path,
+				Status: "error-upstream", TLS: true,
+				Latency: time.Since(reqStart),
+			})
 			break
 		}
 
