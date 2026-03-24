@@ -2920,6 +2920,11 @@ func (a App) renderPolicyPanel() string {
 
 func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	entries := a.getDNSEntriesForSelected()
+	maxIdx := len(entries) - 1
+	if maxIdx < 0 {
+		maxIdx = 0
+	}
 
 	switch key {
 	case "esc", "q":
@@ -2931,7 +2936,9 @@ func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case "down", "j":
-		a.dnsScroll++
+		if a.dnsScroll < maxIdx {
+			a.dnsScroll++
+		}
 		return a, nil
 	case "a":
 		// Allow selected domain for the current container
@@ -3070,10 +3077,14 @@ func (a App) renderDNSPanel() string {
 	b.WriteString(dim.Render("  " + strings.Repeat("─", 78)))
 	b.WriteString("\n")
 
-	// Clamp scroll
+	// Clamp scroll for display
 	maxScroll := len(entries) - 1
 	if maxScroll < 0 {
 		maxScroll = 0
+	}
+	scroll := a.dnsScroll
+	if scroll > maxScroll {
+		scroll = maxScroll
 	}
 
 	visibleRows := a.height - 16
@@ -3082,8 +3093,8 @@ func (a App) renderDNSPanel() string {
 	}
 
 	startIdx := 0
-	if a.dnsScroll > visibleRows/2 {
-		startIdx = a.dnsScroll - visibleRows/2
+	if scroll > visibleRows/2 {
+		startIdx = scroll - visibleRows/2
 	}
 	if startIdx+visibleRows > len(entries) {
 		startIdx = len(entries) - visibleRows
@@ -3125,7 +3136,7 @@ func (a App) renderDNSPanel() string {
 
 		// Cursor
 		cursor := "  "
-		if i == a.dnsScroll {
+		if i == scroll {
 			cursor = "▸ "
 		}
 
