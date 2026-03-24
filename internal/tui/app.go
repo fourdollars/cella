@@ -25,6 +25,11 @@ import (
 // Panel focus
 type panel int
 
+type timedEvent struct {
+	Time time.Time
+	Text string
+}
+
 const (
 	panelSidebar panel = iota
 	panelDashboard
@@ -41,6 +46,7 @@ const (
 	panelExport
 	panelPolicy
 	panelDNS
+	panelEvents
 )
 
 const tickInterval = 2 * time.Second
@@ -121,7 +127,7 @@ type App struct {
 	height     int
 	ready      bool
 	err        error
-	events     []string
+	events     []timedEvent
 	lastUpdate time.Time
 	sortBy     string
 	eventCh    chan string
@@ -220,6 +226,9 @@ type App struct {
 	dnsScroll  int
 	dnsMode    string // "view", "allow", "deny"
 
+	// Events panel
+	eventScroll int
+
 	// Quit confirmation
 	confirmQuit bool
 }
@@ -248,7 +257,7 @@ func NewApp() App {
 		runtimes: runtimes,
 		metrics:  make(map[string]*ContainerMetrics),
 		prev:     make(map[string]*prevState),
-		events:   []string{},
+		events:   []timedEvent{},
 		sortBy:   "name",
 		eventCh:  make(chan string, 100),
 		tracers:  make(map[string]*trace.Tracer),
@@ -594,6 +603,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelDNS {
 			return a.handleDNSPanel(msg)
 		}
+		if a.focus == panelEvents {
+			return a.handleEventsPanel(msg)
+		}
 		if a.focus == panelResources {
 			return a.handleResourcesPanel(msg)
 		}
@@ -823,6 +835,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.dnsMode = "view"
 			a.prevFocus = a.focus
 			a.focus = panelDNS
+			return a, nil
+		case "V":
+			// Events panel
+			a.eventScroll = len(a.events) - 1 // start at bottom (latest)
+			if a.eventScroll < 0 {
+				a.eventScroll = 0
+			}
+			a.prevFocus = a.focus
+			a.focus = panelEvents
 			return a, nil
 		case "T":
 			// Stop tracing for selected container (from any normal panel)
@@ -1945,9 +1966,9 @@ func (a *App) getMetric(name string) *ContainerMetrics {
 }
 
 func (a *App) addEvent(msg string) {
-	a.events = append(a.events, msg)
-	if len(a.events) > 100 {
-		a.events = a.events[len(a.events)-100:]
+	a.events = append(a.events, timedEvent{Time: time.Now(), Text: msg})
+	if len(a.events) > 200 {
+		a.events = a.events[len(a.events)-200:]
 	}
 }
 
@@ -2033,6 +2054,8 @@ func (a App) View() string {
 		dashboard = a.renderPolicyPanel()
 	case panelDNS:
 		dashboard = a.renderDNSPanel()
+	case panelEvents:
+		dashboard = a.renderEventsPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -2118,6 +2141,8 @@ func (a App) renderStatusBar() string {
 		return " POLICY │ 1-3: seccomp │ 4-7: apparmor │ a/d: egress │ e: export │ i: import │ r: refresh │ Esc: back"
 	case panelDNS:
 		return " DNS │ ↑↓ select │ a: allow │ x: deny │ u: unset │ Esc/q: back"
+	case panelEvents:
+		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
 	case panelExport:
@@ -3039,7 +3064,111 @@ func (a App) renderPolicyPanel() string {
 	return b.String()
 }
 
-// ── DNS Monitor panel (H) ──
+// ── Events panel (V) ──
+
+func (a App) handleEventsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.focus = panelSidebar
+		return a, nil
+	case "up", "k":
+		if a.eventScroll > 0 {
+			a.eventScroll--
+		}
+		return a, nil
+	case "down", "j":
+		maxIdx := len(a.events) - 1
+		if maxIdx < 0 {
+			maxIdx = 0
+		}
+		if a.eventScroll < maxIdx {
+			a.eventScroll++
+		}
+		return a, nil
+	case "G":
+		// Jump to latest
+		a.eventScroll = len(a.events) - 1
+		if a.eventScroll < 0 {
+			a.eventScroll = 0
+		}
+		return a, nil
+	case "g":
+		// Jump to top
+		a.eventScroll = 0
+		return a, nil
+	case "c":
+		// Clear events
+		a.events = nil
+		a.eventScroll = 0
+		return a, nil
+	}
+	return a, nil
+}
+
+func (a App) renderEventsPanel() string {
+	title := lipgloss.NewStyle().Bold(true)
+	dim := lipgloss.NewStyle().Faint(true)
+	warn := lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+
+	var b strings.Builder
+
+	b.WriteString(title.Render("📋 Recent Events"))
+	b.WriteString(fmt.Sprintf("  %s", dim.Render(fmt.Sprintf("(%d total)", len(a.events)))))
+	b.WriteString("\n\n")
+
+	if len(a.events) == 0 {
+		b.WriteString(dim.Render("  No events recorded yet."))
+		b.WriteString("\n")
+		b.WriteString(dim.Render("  Events from container operations, policy changes,"))
+		b.WriteString("\n")
+		b.WriteString(dim.Render("  and system notifications will appear here."))
+		return b.String()
+	}
+
+	visibleRows := a.height - 10
+	if visibleRows < 5 {
+		visibleRows = 5
+	}
+
+	// Show events around eventScroll, latest at bottom
+	endIdx := a.eventScroll + 1
+	startIdx := endIdx - visibleRows
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	if endIdx > len(a.events) {
+		endIdx = len(a.events)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		e := a.events[i]
+		ts := e.Time.Format("15:04:05")
+
+		// Color based on content
+		var line string
+		if strings.Contains(e.Text, "⚠") || strings.Contains(e.Text, "error") || strings.Contains(e.Text, "fail") {
+			line = fmt.Sprintf("  %s %s", dim.Render(ts), warn.Render(e.Text))
+		} else {
+			line = fmt.Sprintf("  %s %s", dim.Render(ts), e.Text)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	// Scroll indicators
+	if startIdx > 0 {
+		b.WriteString(dim.Render(fmt.Sprintf("\n  ▲ %d more above", startIdx)))
+		b.WriteString("\n")
+	}
+	if endIdx < len(a.events) {
+		b.WriteString(dim.Render(fmt.Sprintf("\n  ▼ %d more below", len(a.events)-endIdx)))
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// ── DNS Monitor panel (D) ──
 
 func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
@@ -3877,6 +4006,19 @@ func (a App) handleMouseWheel(delta int) (tea.Model, tea.Cmd) {
 			a.policyScroll = 0
 		}
 
+	case panelEvents:
+		a.eventScroll += delta
+		if a.eventScroll < 0 {
+			a.eventScroll = 0
+		}
+		maxIdx := len(a.events) - 1
+		if maxIdx < 0 {
+			maxIdx = 0
+		}
+		if a.eventScroll > maxIdx {
+			a.eventScroll = maxIdx
+		}
+
 	case panelSyscall:
 		// Scroll syscall output if applicable
 	}
@@ -3934,6 +4076,7 @@ func (a App) renderHelpOverlay() string {
 		{"n", "Snapshots & clone"},
 		{"P", "Security policy (seccomp/egress)"},
 		{"D", "DNS monitor (traffic/allow/deny)"},
+		{"V", "Recent events log"},
 		{"t", "Start syscall trace"},
 		{"T", "Stop syscall trace"},
 		{"G", "Generate seccomp profile"},
@@ -4059,14 +4202,15 @@ func (a App) renderDashboard() string {
 		}
 		for _, ev := range a.events[start:] {
 			style := EventNormalStyle
-			if strings.Contains(ev, "■") || strings.Contains(ev, "✖") {
+			if strings.Contains(ev.Text, "■") || strings.Contains(ev.Text, "✖") {
 				style = EventErrorStyle
-			} else if strings.Contains(ev, "⚠") || strings.Contains(ev, "⏸") {
+			} else if strings.Contains(ev.Text, "⚠") || strings.Contains(ev.Text, "⏸") {
 				style = EventWarnStyle
-			} else if strings.Contains(ev, "▶") || strings.Contains(ev, "✚") || strings.Contains(ev, "🔬") {
+			} else if strings.Contains(ev.Text, "▶") || strings.Contains(ev.Text, "✚") || strings.Contains(ev.Text, "🔬") {
 				style = lipgloss.NewStyle().Foreground(ColorGreen)
 			}
-			b.WriteString("  " + style.Render(ev) + "\n")
+			ts := ev.Time.Format("15:04:05")
+			b.WriteString("  " + lipgloss.NewStyle().Faint(true).Render(ts) + " " + style.Render(ev.Text) + "\n")
 		}
 	}
 
