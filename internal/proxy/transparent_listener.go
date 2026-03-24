@@ -17,17 +17,19 @@ import (
 // 2. Check allowlist / request approval
 // 3. Forward to upstream or MITM-intercept
 type TransparentListener struct {
-	port       int
-	server     *Server   // parent proxy server (for allowlist, approval, audit)
-	listener   net.Listener
-	mu         sync.RWMutex
+	port             int
+	server           *Server
+	listener         net.Listener
+	pendingApprovals map[string]chan bool // domain → result channel (dedup concurrent approvals)
+	mu               sync.RWMutex
 }
 
 // NewTransparentListener creates a transparent proxy listener
 func NewTransparentListener(port int, server *Server) *TransparentListener {
 	return &TransparentListener{
-		port:   port,
-		server: server,
+		port:             port,
+		server:           server,
+		pendingApprovals: make(map[string]chan bool),
 	}
 }
 
@@ -107,23 +109,55 @@ func (t *TransparentListener) handleTLS(
 		domain = "unknown"
 	}
 
-	// Check allowlist
+	// Check allowlist (with dedup for concurrent connections)
 	justApproved := false
 	al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
-		status := t.server.requestApproval(container, domain, "CONNECT", domain+":443", "")
-		if status == "approved-permanent" {
-			al.Add(domain)
-			justApproved = true
-		} else if status == "approved" {
+		// Check if another goroutine is already requesting approval for this domain
+		approvalKey := container + ":" + domain
+		t.mu.Lock()
+		if ch, pending := t.pendingApprovals[approvalKey]; pending {
+			t.mu.Unlock()
+			// Wait for the other goroutine's result
+			approved := <-ch
+			if !approved {
+				return
+			}
 			justApproved = true
 		} else {
-			t.server.audit.Add(AuditEntry{
-				Time: start, Container: container, Domain: domain,
-				Method: "TPROXY", Status: status, TLS: true,
-				Latency: time.Since(start),
-			})
-			return // drop connection
+			// First request for this domain — we do the approval
+			resultCh := make(chan bool, 10)
+			t.pendingApprovals[approvalKey] = resultCh
+			t.mu.Unlock()
+
+			status := t.server.requestApproval(container, domain, "CONNECT", domain+":443", "")
+			approved := status == "approved-permanent" || status == "approved"
+
+			if status == "approved-permanent" {
+				al.Add(domain)
+			}
+
+			// Notify all waiting goroutines
+			t.mu.Lock()
+			delete(t.pendingApprovals, approvalKey)
+			t.mu.Unlock()
+			// Send result to all waiters (buffered channel, non-blocking)
+			for i := 0; i < 10; i++ {
+				select {
+				case resultCh <- approved:
+				default:
+				}
+			}
+
+			if !approved {
+				t.server.audit.Add(AuditEntry{
+					Time: start, Container: container, Domain: domain,
+					Method: "TPROXY", Status: status, TLS: true,
+					Latency: time.Since(start),
+				})
+				return
+			}
+			justApproved = true
 		}
 	}
 
