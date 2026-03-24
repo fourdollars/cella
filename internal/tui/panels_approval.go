@@ -37,26 +37,24 @@ func (a *App) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "y": // allow this time
+	case "y":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: false}
 		a.addEvent(fmt.Sprintf("👤 approved (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
-
-	case "Y": // allow permanently
+	case "Y":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: true}
 		a.addEvent(fmt.Sprintf("👤+ approved (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
-
-	case "n", "N": // deny
+	case "n", "N":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false}
 		a.addEvent(fmt.Sprintf("⛔ denied: %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	}
 
-	return a, nil // ignore other keys while approval pending
+	return a, nil
 }
 
 // listenApprovalsContinue continues listening for approvals
@@ -102,12 +100,14 @@ func (a App) renderApprovalOverlay() string {
 		Foreground(lipgloss.Color("#27ae60"))
 
 	line1 := titleStyle.Render(fmt.Sprintf("%s APPROVAL REQUIRED", icon))
-	line2 := fmt.Sprintf("  %s is trying to connect to %s",
+
+	connInfo := fmt.Sprintf("  %s is trying to connect to %s",
 		containerStyle.Render(req.Container),
 		domainStyle.Render(req.Domain))
 	if req.URL != "" && req.URL != req.Domain {
-		line2 += fmt.Sprintf(" (%s %s)", req.Method, req.URL)
+		connInfo += fmt.Sprintf(" (%s %s)", req.Method, req.URL)
 	}
+
 	line3 := fmt.Sprintf("  %s %s  %s %s  %s %s",
 		keyStyle.Render("[y]"), optStyle.Render("allow once"),
 		keyStyle.Render("[Y]"), optStyle.Render("allow always"),
@@ -118,12 +118,12 @@ func (a App) renderApprovalOverlay() string {
 		BorderForeground(lipgloss.Color("#e74c3c")).
 		Padding(0, 1).
 		Width(a.width - 4).
-		Render(strings.Join([]string{line1, line2, line3}, "\n"))
+		Render(line1 + "\n" + connInfo + "\n" + line3)
 
 	return box
 }
 
-// ── Audit Panel (Phase 7b: filter + scroll + export) ──
+// ── Audit Panel (Phase 7b+7c: filter + scroll + export + MITM) ──
 
 // handleAuditPanel handles keypresses in the audit panel
 func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -159,29 +159,22 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		a.focus = panelSidebar
 		return a, nil
-
 	case "c":
-		// Clear audit log
 		if a.proxyServer != nil {
 			a.proxyServer.Audit().Clear()
 			a.addEvent("📋 audit log cleared")
 		}
 		return a, nil
-
 	case "/":
-		// Enter filter mode
 		a.auditFilterMode = true
 		a.auditFilterInput = ""
 		return a, nil
-
 	case "ctrl+l":
-		// Clear filter
 		a.auditFilterText = ""
+		a.auditStatusFilter = ""
 		a.auditScroll = 0
 		return a, nil
-
 	case "f":
-		// Cycle status filter: all → allowed → denied → approved → timeout → all
 		switch a.auditStatusFilter {
 		case "":
 			a.auditStatusFilter = "allowed"
@@ -196,15 +189,12 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		a.auditScroll = 0
 		return a, nil
-
 	case "S":
-		// Export audit log to JSON file
 		if a.proxyServer != nil {
 			entries := a.filterAuditEntries(a.proxyServer.Audit().All())
 			return a, a.exportAuditJSON(entries)
 		}
 		return a, nil
-
 	case "up", "k":
 		if a.auditScroll > 0 {
 			a.auditScroll--
@@ -214,7 +204,6 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		a.auditScroll = 0
 	case "G":
-		// Jump to bottom — handled in render (set to max)
 		a.auditScroll = 99999
 	}
 	return a, nil
@@ -228,7 +217,6 @@ func (a App) filterAuditEntries(entries []proxy.AuditEntry) []proxy.AuditEntry {
 	filterLower := strings.ToLower(a.auditFilterText)
 	var result []proxy.AuditEntry
 	for _, e := range entries {
-		// Status filter
 		if a.auditStatusFilter != "" {
 			if a.auditStatusFilter == "denied" {
 				if !strings.HasPrefix(e.Status, "denied") {
@@ -242,9 +230,8 @@ func (a App) filterAuditEntries(entries []proxy.AuditEntry) []proxy.AuditEntry {
 				continue
 			}
 		}
-		// Text filter (matches container, domain, URL, method)
 		if filterLower != "" {
-			text := strings.ToLower(e.Container + " " + e.Domain + " " + e.URL + " " + e.Method)
+			text := strings.ToLower(e.Container + " " + e.Domain + " " + e.URL + " " + e.Method + " " + e.Path)
 			if !strings.Contains(text, filterLower) {
 				continue
 			}
@@ -263,7 +250,10 @@ func (a *App) exportAuditJSON(entries []proxy.AuditEntry) tea.Cmd {
 			Domain    string `json:"domain"`
 			Method    string `json:"method"`
 			URL       string `json:"url"`
+			Path      string `json:"path,omitempty"`
 			Status    string `json:"status"`
+			RespCode  int    `json:"resp_code,omitempty"`
+			TLS       bool   `json:"tls"`
 			LatencyMs int64  `json:"latency_ms"`
 		}
 
@@ -275,7 +265,10 @@ func (a *App) exportAuditJSON(entries []proxy.AuditEntry) tea.Cmd {
 				Domain:    e.Domain,
 				Method:    e.Method,
 				URL:       e.URL,
+				Path:      e.Path,
 				Status:    e.Status,
+				RespCode:  e.RespCode,
+				TLS:       e.TLS,
 				LatencyMs: e.Latency.Milliseconds(),
 			}
 		}
@@ -294,44 +287,59 @@ func (a *App) exportAuditJSON(entries []proxy.AuditEntry) tea.Cmd {
 	}
 }
 
-// renderAuditPanel renders the API audit log panel with filters
+// renderAuditPanel renders the API audit log panel
 func (a App) renderAuditPanel() string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22"))
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
+
 	if a.proxyServer == nil {
-		noProxyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
-		hintStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e67e22"))
-		return noProxyStyle.Render(" Proxy not running.\n\n") +
-			noProxyStyle.Render(" Start cella with ") +
-			hintStyle.Render("--proxy 9080") +
-			noProxyStyle.Render(" to enable API interception.\n\n") +
-			noProxyStyle.Render(" Then configure containers:\n") +
-			hintStyle.Render("   lxc config set <name> environment.HTTP_PROXY=http://<host>:9080\n") +
-			hintStyle.Render("   lxc config set <name> environment.HTTPS_PROXY=http://<host>:9080\n")
+		// Plain-text instructions — each line independent for correct layout
+		var b strings.Builder
+		b.WriteString("\n")
+		b.WriteString(dim.Render("  Proxy not running.") + "\n\n")
+		b.WriteString(dim.Render("  Start cella with ") + bright.Render("--proxy 9080") + dim.Render(" to enable.") + "\n\n")
+		b.WriteString(dim.Render("  Setup commands (copy-paste these):") + "\n\n")
+		b.WriteString("  " + bright.Render("sudo ./cella --proxy 9080") + "\n\n")
+		b.WriteString(dim.Render("  Then set proxy env on containers:") + "\n\n")
+		b.WriteString("  lxc config set <name> environment.HTTP_PROXY=http://<host>:9080\n")
+		b.WriteString("  lxc config set <name> environment.HTTPS_PROXY=http://<host>:9080\n\n")
+		b.WriteString(dim.Render("  For MITM HTTPS inspection, add ") + bright.Render("--mitm") + dim.Render(":") + "\n\n")
+		b.WriteString("  sudo ./cella --proxy 9080 --mitm\n\n")
+		b.WriteString(dim.Render("  Then inject CA cert into container:") + "\n\n")
+		b.WriteString("  lxc file push ~/.cella/cella-ca.pem <name>/usr/local/share/ca-certificates/cella.crt\n")
+		b.WriteString("  lxc exec <name> -- update-ca-certificates\n")
+		return b.String()
 	}
 
 	var b strings.Builder
 
-	// Title
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff")).
-		Render("📋 API Audit Log ◆")
-	portBadge := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#27ae60")).
-		Render(fmt.Sprintf(" (proxy :%d)", a.proxyServer.Port()))
-	b.WriteString(title + portBadge + "\n")
+	// Title line
+	b.WriteString(blue.Render("📋 API Audit Log ◆"))
+	b.WriteString(green.Render(fmt.Sprintf(" (proxy :%d", a.proxyServer.Port())))
+	if a.proxyServer.MITMEnabled() {
+		b.WriteString(bright.Render(" +MITM🔓"))
+	}
+	b.WriteString(green.Render(")"))
+	b.WriteString("\n")
 
-	// Stats bar
+	// Stats
 	stats := a.proxyServer.Audit().Stats()
 	allowed := stats.ByStatus["allowed"]
 	denied := stats.ByStatus["denied"] + stats.ByStatus["denied-queue-full"]
 	approved := stats.ByStatus["approved"] + stats.ByStatus["approved-permanent"]
 	timeouts := stats.ByStatus["timeout"]
 
-	statStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
-	b.WriteString(statStyle.Render(fmt.Sprintf(
-		"  Total: %d │ ✅ %d │ 👤 %d │ ⛔ %d │ ⏱ %d │ Domains: %d │ Containers: %d",
-		stats.Total, allowed, approved, denied, timeouts,
-		len(stats.ByDomain), len(stats.ByContainer))) + "\n")
+	statsLine := fmt.Sprintf("  Total: %d │ ✅ %d │ 👤 %d │ ⛔ %d │ ⏱ %d",
+		stats.Total, allowed, approved, denied, timeouts)
+	if stats.TLSCount > 0 {
+		statsLine += fmt.Sprintf(" │ 🔓 %d", stats.TLSCount)
+	}
+	statsLine += fmt.Sprintf(" │ Domains: %d", len(stats.ByDomain))
+	b.WriteString(dim.Render(statsLine) + "\n")
 
-	// Active filters indicator
+	// Filters
 	var filters []string
 	if a.auditStatusFilter != "" {
 		icon := "🔵"
@@ -351,70 +359,62 @@ func (a App) renderAuditPanel() string {
 		filters = append(filters, fmt.Sprintf("🔍 \"%s\"", a.auditFilterText))
 	}
 	if len(filters) > 0 {
-		filterLine := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true).
-			Render("  Filters: " + strings.Join(filters, " │ "))
-		b.WriteString(filterLine + "\n")
+		b.WriteString(bright.Render("  Filters: "+strings.Join(filters, " │ ")) + "\n")
 	}
 
-	b.WriteString(strings.Repeat("─", 70) + "\n")
+	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
-	// Top domains breakdown (compact)
+	// Top domains
 	if len(stats.ByDomain) > 0 {
-		type domCount struct {
-			domain string
-			count  int
+		type dc struct {
+			d string
+			c int
 		}
-		var sorted []domCount
+		var sorted []dc
 		for d, c := range stats.ByDomain {
-			sorted = append(sorted, domCount{d, c})
+			sorted = append(sorted, dc{d, c})
 		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].count > sorted[j].count })
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].c > sorted[j].c })
 
-		domLine := "  Top: "
+		parts := make([]string, 0, 5)
 		max := 5
 		if len(sorted) < max {
 			max = len(sorted)
 		}
 		for i := 0; i < max; i++ {
-			if i > 0 {
-				domLine += " │ "
-			}
-			domLine += fmt.Sprintf("%s(%d)", sorted[i].domain, sorted[i].count)
+			parts = append(parts, fmt.Sprintf("%s(%d)", sorted[i].d, sorted[i].c))
 		}
+		domLine := "  Top: " + strings.Join(parts, " │ ")
 		if len(sorted) > max {
 			domLine += fmt.Sprintf(" +%d more", len(sorted)-max)
 		}
-		b.WriteString(statStyle.Render(domLine) + "\n")
-		b.WriteString(strings.Repeat("─", 70) + "\n")
+		b.WriteString(dim.Render(domLine) + "\n")
+		b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 	}
 
-	// Get filtered entries
+	// Entries
 	allEntries := a.proxyServer.Audit().All()
 	entries := a.filterAuditEntries(allEntries)
 
 	if len(entries) == 0 {
 		if len(allEntries) > 0 {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).
-				Render("  No entries match current filters. Press Ctrl+L to clear.\n"))
+			b.WriteString(bright.Render("  No entries match current filters.") + dim.Render(" Press Ctrl+L to clear.") + "\n")
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e")).
-				Render("  No requests recorded yet. Waiting for container traffic...\n"))
+			b.WriteString(dim.Render("  Waiting for container traffic...") + "\n")
 		}
 		return b.String()
 	}
 
-	// Filtered count
 	if len(entries) != len(allEntries) {
-		b.WriteString(statStyle.Render(fmt.Sprintf("  Showing %d / %d entries", len(entries), len(allEntries))) + "\n")
+		b.WriteString(dim.Render(fmt.Sprintf("  Showing %d / %d entries", len(entries), len(allEntries))) + "\n")
 	}
 
-	// Calculate visible area
-	visibleH := a.height - 14 // header + stats + filters + separators
+	// Scroll calculation
+	visibleH := a.height - 14
 	if visibleH < 5 {
 		visibleH = 5
 	}
 
-	// Clamp scroll
 	maxScroll := len(entries) - visibleH
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -424,7 +424,7 @@ func (a App) renderAuditPanel() string {
 		scroll = maxScroll
 	}
 
-	// Render entries (newest first, with scroll)
+	// Reverse entries (newest first)
 	reversed := make([]proxy.AuditEntry, len(entries))
 	for i, e := range entries {
 		reversed[len(entries)-1-i] = e
@@ -436,9 +436,8 @@ func (a App) renderAuditPanel() string {
 		end = len(reversed)
 	}
 
-	// Scroll indicators
 	if scroll > 0 {
-		b.WriteString(statStyle.Render("  ▲ more") + "\n")
+		b.WriteString(dim.Render("  ▲ more") + "\n")
 	}
 
 	for i := start; i < end; i++ {
@@ -451,20 +450,17 @@ func (a App) renderAuditPanel() string {
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
 		case strings.HasPrefix(e.Status, "approved"):
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22"))
+		case strings.Contains(e.Status, "error"):
+			style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
 		default:
 			style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e6edf3"))
-		}
-
-		// Highlight search match
-		if a.auditFilterText != "" {
-			// Just render normally — highlight is expensive for TUI
 		}
 
 		b.WriteString("  " + style.Render(line) + "\n")
 	}
 
 	if end < len(reversed) {
-		b.WriteString(statStyle.Render(fmt.Sprintf("  ▼ %d more", len(reversed)-end)) + "\n")
+		b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", len(reversed)-end)) + "\n")
 	}
 
 	return b.String()
