@@ -547,10 +547,7 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 			}
 		}
 
-		msg := fmt.Sprintf("🔧 proxy configured on %s (→ %s:%d)", container, bridgeIP, a.proxyServer.Port())
-		if a.proxyServer.MITMEnabled() {
-			msg += " +CA cert injected"
-		}
+		msg := fmt.Sprintf("🔧 nftables REDIRECT + CA cert on %s (→ :%d)", container, a.proxyServer.Port()+1)
 		return asyncResultMsg{text: msg}
 	}
 }

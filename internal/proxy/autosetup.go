@@ -24,64 +24,11 @@ type AutoSetup struct {
 // SetupContainer configures proxy env + CA cert for a single LXC container.
 // Uses the LXD API via unix socket (same as cella's lxd.Client).
 func (s *AutoSetup) SetupContainer(socketPath, container string) error {
-	proxyURL := fmt.Sprintf("http://%s:%d", s.ProxyHost, s.ProxyPort)
-
-	// 1. Set environment variables via LXD config PATCH (for new lxc exec sessions)
-	config := map[string]interface{}{
-		"config": map[string]string{
-			"environment.HTTP_PROXY":  proxyURL,
-			"environment.HTTPS_PROXY": proxyURL,
-			"environment.http_proxy":  proxyURL,
-			"environment.https_proxy": proxyURL,
-			"environment.NO_PROXY":    "localhost,127.0.0.1",
-			"environment.no_proxy":    "localhost,127.0.0.1",
-		},
-	}
-
-	body, _ := json.Marshal(config)
-	if err := lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body); err != nil {
-		return fmt.Errorf("set proxy env: %w", err)
-	}
-
-	// 2. Write /etc/profile.d/cella-proxy.sh (for interactive shells already open)
-		profileScript := fmt.Sprintf(`export HTTP_PROXY=%s
-export HTTPS_PROXY=%s
-export http_proxy=%s
-export https_proxy=%s
-export NO_PROXY=localhost,127.0.0.1
-export no_proxy=localhost,127.0.0.1
-`, proxyURL, proxyURL, proxyURL, proxyURL)
-	_ = lxdWriteFile(socketPath, container,
-		"/etc/profile.d/cella-proxy.sh",
-		[]byte(profileScript))
-
-	// 3. Write to /etc/environment (for systemd services / non-interactive processes)
-		envContent := fmt.Sprintf(`HTTP_PROXY=%s
-HTTPS_PROXY=%s
-http_proxy=%s
-https_proxy=%s
-NO_PROXY=localhost,127.0.0.1
-no_proxy=localhost,127.0.0.1
-`, proxyURL, proxyURL, proxyURL, proxyURL)
-	// Only append if not already present
-	_ = lxdExec(socketPath, container, []string{
-		"sh", "-c", "grep -q HTTP_PROXY /etc/environment 2>/dev/null || true",
-	})
-	_ = lxdWriteFile(socketPath, container,
-		"/etc/environment.d/cella-proxy.conf",
-		[]byte(envContent))
-	// Also try direct /etc/environment for systems without environment.d
-	_ = lxdExec(socketPath, container, []string{
-		"sh", "-c", "mkdir -p /etc/environment.d 2>/dev/null; grep -q HTTP_PROXY /etc/environment 2>/dev/null || cat /etc/environment.d/cella-proxy.conf >> /etc/environment",
-	})
-
-	// 4. Inject CA cert if MITM enabled
+	// 1. Inject CA cert (for MITM TLS interception + inference routing)
 	if len(s.MITMPem) > 0 {
-		if err := lxdExec(socketPath, container, []string{
+		_ = lxdExec(socketPath, container, []string{
 			"sh", "-c", "mkdir -p /usr/local/share/ca-certificates",
-		}); err != nil {
-			return fmt.Errorf("mkdir ca-certificates: %w", err)
-		}
+		})
 
 		if err := lxdWriteFile(socketPath, container,
 			"/usr/local/share/ca-certificates/cella-proxy.crt",
@@ -89,53 +36,25 @@ no_proxy=localhost,127.0.0.1
 			return fmt.Errorf("write CA cert: %w", err)
 		}
 
-		if err := lxdExec(socketPath, container, []string{
+		_ = lxdExec(socketPath, container, []string{
 			"sh", "-c", "update-ca-certificates 2>/dev/null || true",
-		}); err != nil {
-			return fmt.Errorf("update-ca-certificates: %w", err)
-		}
+		})
 	}
+
+	// 2. nftables REDIRECT is handled by the caller (transparent.go)
+	// No env vars, no profile.d, no /etc/environment — zero config pollution
 
 	return nil
 }
 
 // RemoveSetup removes proxy configuration from a container
 func (s *AutoSetup) RemoveSetup(socketPath, container string) error {
-	config := map[string]interface{}{
-		"config": map[string]string{
-			"environment.HTTP_PROXY":  "",
-			"environment.HTTPS_PROXY": "",
-			"environment.http_proxy":  "",
-			"environment.https_proxy": "",
-			"environment.NO_PROXY":    "",
-			"environment.no_proxy":    "",
-		},
-	}
-
-	body, _ := json.Marshal(config)
-	if err := lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body); err != nil {
-		return fmt.Errorf("remove proxy env: %w", err)
-	}
-
-	// Remove profile.d script
-	_ = lxdExec(socketPath, container, []string{
-		"sh", "-c", "rm -f /etc/profile.d/cella-proxy.sh",
-	})
-
-	// Remove environment.d conf
-	_ = lxdExec(socketPath, container, []string{
-		"sh", "-c", "rm -f /etc/environment.d/cella-proxy.conf",
-	})
-
-	// Clean /etc/environment (remove proxy lines)
-	_ = lxdExec(socketPath, container, []string{
-		"sh", "-c", "sed -i '/HTTP_PROXY\\|HTTPS_PROXY\\|http_proxy\\|https_proxy\\|NO_PROXY\\|no_proxy/d' /etc/environment 2>/dev/null || true",
-	})
-
 	// Remove CA cert
 	_ = lxdExec(socketPath, container, []string{
 		"sh", "-c", "rm -f /usr/local/share/ca-certificates/cella-proxy.crt && update-ca-certificates 2>/dev/null || true",
 	})
+
+	// nftables REDIRECT removal is handled by the caller (transparent.go)
 
 	return nil
 }
