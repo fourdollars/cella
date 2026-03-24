@@ -322,21 +322,22 @@ func (a App) renderAuditPanel() string {
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
 
 	if a.proxyServer == nil {
-		// Plain-text instructions — each line independent for correct layout
 		var b strings.Builder
 		b.WriteString("\n")
-		b.WriteString(dim.Render("  Proxy not running.") + "\n\n")
-		b.WriteString(dim.Render("  Start cella with ") + bright.Render("--proxy 9080") + dim.Render(" to enable.") + "\n\n")
-		b.WriteString(dim.Render("  Setup commands (copy-paste these):") + "\n\n")
-		b.WriteString("  " + bright.Render("sudo ./cella --proxy 9080") + "\n\n")
-		b.WriteString(dim.Render("  Then set proxy env on containers:") + "\n\n")
-		b.WriteString("  lxc config set <name> environment.HTTP_PROXY=http://<host>:9080\n")
-		b.WriteString("  lxc config set <name> environment.HTTPS_PROXY=http://<host>:9080\n\n")
-		b.WriteString(dim.Render("  For MITM HTTPS inspection, add ") + bright.Render("--mitm") + dim.Render(":") + "\n\n")
-		b.WriteString("  sudo ./cella --proxy 9080 --mitm\n\n")
-		b.WriteString(dim.Render("  Then inject CA cert into container:") + "\n\n")
-		b.WriteString("  lxc file push ~/.cella/cella-ca.pem <name>/usr/local/share/ca-certificates/cella.crt\n")
-		b.WriteString("  lxc exec <name> -- update-ca-certificates\n")
+		b.WriteString(dim.Render("  Interception not active.") + "\n\n")
+		selectedName := ""
+		if a.selected < len(a.containers) {
+			selectedName = a.containers[a.selected].Name
+		}
+		if selectedName != "" {
+			b.WriteString(dim.Render("  Selected: ") + bright.Render(selectedName) + "\n\n")
+		}
+		b.WriteString(dim.Render("  Press ") + bright.Render("p") + dim.Render(" to start intercepting this container.") + "\n\n")
+		b.WriteString(dim.Render("  What p does:") + "\n")
+		b.WriteString(dim.Render("  1. nftables REDIRECT -- all port 80/443 traffic to cella") + "\n")
+		b.WriteString(dim.Render("  2. CA cert inject -- enables HTTPS decryption") + "\n")
+		b.WriteString(dim.Render("  3. Full audit -- domain + path + method + response code") + "\n\n")
+		b.WriteString(dim.Render("  Press ") + bright.Render("u") + dim.Render(" to undo.") + "\n")
 		return b.String()
 	}
 
