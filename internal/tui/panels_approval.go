@@ -191,20 +191,36 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case "p":
 		// Auto-setup proxy on selected container
-		if a.proxyServer != nil && a.selected < len(a.containers) {
+		if a.proxyServer == nil {
+			a.addEvent("⚠ proxy not running — start cella with --proxy <port>")
+			return a, a.setFlash("❌ Start cella with --proxy to use auto-setup")
+		}
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime == "lxd" && c.Status == "Running" {
-				return a, a.autoSetupProxy(c.Name)
+			if c.Runtime != "lxd" {
+				a.addEvent(fmt.Sprintf("⚠ auto-setup only supports LXD containers (got %s)", c.Runtime))
+				return a, a.setFlash("❌ Auto-setup only for LXD containers")
 			}
+			if c.Status != "Running" {
+				a.addEvent(fmt.Sprintf("⚠ container %s is not running", c.Name))
+				return a, a.setFlash("❌ Container must be running")
+			}
+			a.addEvent(fmt.Sprintf("🔧 setting up proxy on %s...", c.Name))
+			return a, a.autoSetupProxy(c.Name)
 		}
 		return a, nil
 	case "u":
 		// Remove proxy setup from selected container
-		if a.proxyServer != nil && a.selected < len(a.containers) {
+		if a.proxyServer == nil {
+			return a, a.setFlash("❌ Proxy not running")
+		}
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
 			if c.Runtime == "lxd" {
+				a.addEvent(fmt.Sprintf("🔧 removing proxy from %s...", c.Name))
 				return a, a.removeProxySetup(c.Name)
 			}
+			return a, a.setFlash("❌ Only LXD containers supported")
 		}
 		return a, nil
 		case "S":
@@ -418,7 +434,16 @@ func (a App) renderAuditPanel() string {
 		if len(allEntries) > 0 {
 			b.WriteString(bright.Render("  No entries match current filters.") + dim.Render(" Press Ctrl+L to clear.") + "\n")
 		} else {
-			b.WriteString(dim.Render("  Waiting for container traffic...") + "\n")
+			selectedName := ""
+		if a.selected < len(a.containers) {
+			selectedName = a.containers[a.selected].Name
+		}
+		b.WriteString(dim.Render("  No requests recorded yet.") + "\n\n")
+		if selectedName != "" {
+			b.WriteString(dim.Render("  Selected: ") + bright.Render(selectedName) + "\n")
+			b.WriteString(dim.Render("  Press ") + bright.Render("p") + dim.Render(" to auto-configure proxy on this container") + "\n")
+			b.WriteString(dim.Render("  Press ") + bright.Render("u") + dim.Render(" to remove proxy configuration") + "\n")
+		}
 		}
 		return b.String()
 	}
