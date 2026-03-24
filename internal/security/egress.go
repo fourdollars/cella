@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -21,6 +22,9 @@ type EgressRule struct {
 
 // nftCmd returns an *exec.Cmd that runs nft via "sudo -n" (non-interactive).
 func nftCmd(args ...string) *exec.Cmd {
+	if os.Getuid() == 0 {
+		return exec.Command("nft", args...)
+	}
 	full := append([]string{"-n", "nft"}, args...)
 	return exec.Command("sudo", full...)
 }

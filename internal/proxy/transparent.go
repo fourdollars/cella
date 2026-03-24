@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -91,6 +92,9 @@ func removeTransparentRules(table, chain, tag string) error {
 }
 
 func nftCmd2(args ...string) *exec.Cmd {
+	if os.Getuid() == 0 {
+		return exec.Command("nft", args...)
+	}
 	full := append([]string{"-n", "nft"}, args...)
 	return exec.Command("sudo", full...)
 }
