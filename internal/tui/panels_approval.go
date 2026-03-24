@@ -218,7 +218,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.tproxyListener = tl
 			}
 			a.addEvent(fmt.Sprintf("🔧 setting up interception on %s...", c.Name))
-			return a, a.autoSetupProxy(c.Name)
+			return a, a.autoSetupProxy(c.Name, a.proxyServer, a.client.SocketPath())
 		}
 		return a, nil
 	case "u":
@@ -520,14 +520,14 @@ func (a App) renderAuditPanel() string {
 }
 
 // autoSetupProxy configures proxy env + CA cert on a container via LXD API
-func (a *App) autoSetupProxy(container string) tea.Cmd {
+func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket string) tea.Cmd {
 	return func() tea.Msg {
 		if a.client == nil {
 			return asyncResultMsg{err: fmt.Errorf("LXD client not available")}
 		}
 
 		// Server/MITM/Listener already initialized by p key handler in Update()
-		if a.proxyServer == nil {
+		if srv == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not initialized")}
 		}
 
@@ -549,9 +549,9 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 		}
 
 		// 2. CA cert inject + update-ca-certificates
-		socketPath := a.client.SocketPath()
+		socketPath := lxdSocket
 		setup := &proxy.AutoSetup{
-			MITMPem: a.proxyServer.MITMCAPem(),
+			MITMPem: srv.MITMCAPem(),
 		}
 		if err := setup.SetupContainer(socketPath, container); err != nil {
 			return asyncResultMsg{err: fmt.Errorf("CA cert: %w", err)}
@@ -564,7 +564,7 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 				ipMap[c.IP] = c.Name
 			}
 		}
-		a.proxyServer.UpdateContainerMap(ipMap)
+		srv.UpdateContainerMap(ipMap)
 
 		return asyncResultMsg{text: fmt.Sprintf("🔧 intercepting %s (%s) — REDIRECT :9081 + CA cert", container, containerIP)}
 	}
