@@ -13,3 +13,4 @@ cella-linux-*
 # Container config exports
 juju-*.json
 tmp.yaml
+.orig

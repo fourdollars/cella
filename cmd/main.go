@@ -26,10 +26,12 @@ monitoring LXD and Docker containers with real-time metrics, syscall
 tracing, disk I/O, network monitoring, and security policy management.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTUI()
+			proxyPort, _ := cmd.Flags().GetInt("proxy")
+			return runTUI(proxyPort)
 		},
 	}
 
+	rootCmd.Flags().Int("proxy", 0, "Start HTTP proxy on this port for operator approval (e.g. --proxy 9080)")
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(execCmd())
 
@@ -38,9 +40,9 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 	}
 }
 
-func runTUI() error {
+func runTUI(proxyPort int) error {
 	p := tea.NewProgram(
-		tui.NewApp(),
+		tui.NewApp(proxyPort),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

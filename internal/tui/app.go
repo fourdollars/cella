@@ -18,6 +18,7 @@ import (
 	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/security"
 	"github.com/fourdoors/cella/internal/trace"
+	"github.com/fourdoors/cella/internal/proxy"
 )
 
 // Panel focus
@@ -45,6 +46,7 @@ const (
 	panelPolicy
 	panelDNS
 	panelEvents
+	panelAudit
 )
 
 const tickInterval = 2 * time.Second
@@ -230,6 +232,12 @@ type App struct {
 	// Quit confirmation
 	confirmQuit bool
 
+	// Proxy + Operator Approval
+	proxyServer     *proxy.Server
+	approvalCh      chan proxy.ApprovalRequest
+	pendingApproval *proxy.ApprovalRequest
+	auditScroll     int
+
 	// Search / filter by name
 	searchMode   bool
 	searchInput  string
@@ -238,7 +246,7 @@ type App struct {
 
 type flashExpireMsg struct{}
 
-func NewApp() App {
+func NewApp(proxyPort int) App {
 	var runtimes []runtime.Runtime
 	var lxdClient *lxd.Client
 
@@ -255,7 +263,7 @@ func NewApp() App {
 		runtimes = append(runtimes, dockerClient)
 	}
 
-	return App{
+	app := App{
 		client:   lxdClient,
 		runtimes: runtimes,
 		metrics:  make(map[string]*ContainerMetrics),
@@ -265,6 +273,18 @@ func NewApp() App {
 		eventCh:  make(chan string, 100),
 		tracers:  make(map[string]*trace.Tracer),
 	}
+
+	if proxyPort > 0 {
+		approvalCh := make(chan proxy.ApprovalRequest, 10)
+		srv := proxy.NewServer(proxyPort, approvalCh)
+		app.proxyServer = srv
+		app.approvalCh = approvalCh
+		go func() {
+			_ = srv.Start(context.Background())
+		}()
+	}
+
+	return app
 }
 
 func (a App) Init() tea.Cmd {
@@ -276,6 +296,10 @@ func (a App) Init() tea.Cmd {
 	// LXD event monitor only if LXD is available
 	if a.client != nil {
 		cmds = append(cmds, a.startEventMonitor(), a.listenEvents())
+	}
+	// Start listening for proxy approval requests
+	if a.approvalCh != nil {
+		cmds = append(cmds, listenApprovals(a.approvalCh))
 	}
 	return tea.Batch(cmds...)
 }
@@ -582,6 +606,10 @@ func fetchSnapshots(rt runtime.Runtime, name string) tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Operator approval overlay takes priority over everything
+		if a.pendingApproval != nil {
+			return a.handleApprovalKey(msg)
+		}
 		if a.focus == panelExecInput {
 			return a.handleExecInput(msg)
 		}
@@ -608,6 +636,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.focus == panelEvents {
 			return a.handleEventsPanel(msg)
+		}
+		if a.focus == panelAudit {
+			return a.handleAuditPanel(msg)
 		}
 		if a.focus == panelResources {
 			return a.handleResourcesPanel(msg)
@@ -879,6 +910,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.dnsMode = "view"
 			a.prevFocus = a.focus
 			a.focus = panelDNS
+			return a, nil
+		case "A":
+			// API Audit panel
+			a.auditScroll = 0
+			a.prevFocus = a.focus
+			a.focus = panelAudit
 			return a, nil
 		case "V":
 			// Events panel
@@ -1299,6 +1336,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		a.allContainers = newContainers
+		// Update proxy container IP mapping
+		if a.proxyServer != nil {
+			ipMap := make(map[string]string)
+			for _, c := range newContainers {
+				if c.IP != "" {
+					ipMap[c.IP] = c.Name
+				}
+			}
+			a.proxyServer.UpdateContainerMap(ipMap)
+		}
 		a.sortContainers()
 		a.applyFilter()
 		a.lastUpdate = now
@@ -1309,6 +1356,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.selected < 0 {
 			a.selected = 0
 		}
+		return a, nil
+
+	case approvalMsg:
+		req := proxy.ApprovalRequest(msg)
+		a.pendingApproval = &req
+		a.addEvent(fmt.Sprintf("🔒 approval needed: %s → %s", req.Container, req.Domain))
 		return a, nil
 
 	case errMsg:
@@ -1515,6 +1568,8 @@ func (a App) View() string {
 		dashboard = a.renderDNSPanel()
 	case panelEvents:
 		dashboard = a.renderEventsPanel()
+	case panelAudit:
+		dashboard = a.renderAuditPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -1553,6 +1608,10 @@ func (a App) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, dashboardStyled)
 
+	approvalOverlay := a.renderApprovalOverlay()
+	if approvalOverlay != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, header, body, approvalOverlay)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, statusBar)
 }
 
@@ -1605,6 +1664,8 @@ func (a App) renderStatusBar() string {
 		return " DNS │ ↑↓ select │ a: allow │ x: deny │ u: unset │ Esc/q: back"
 	case panelEvents:
 		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
+	case panelAudit:
+		return " API AUDIT │ ↑↓ scroll │ c: clear │ Esc/q: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
 	case panelExport:
