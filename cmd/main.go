@@ -26,14 +26,14 @@ monitoring LXD and Docker containers with real-time metrics, syscall
 tracing, disk I/O, network monitoring, and security policy management.`,
 		Version: version,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			proxyPort, _ := cmd.Flags().GetInt("proxy")
+			interceptEnabled, _ := cmd.Flags().GetBool("intercept")
 			mitmEnabled, _ := cmd.Flags().GetBool("mitm")
-			return runTUI(proxyPort, mitmEnabled)
+			return runTUI(interceptEnabled || mitmEnabled, mitmEnabled)
 		},
 	}
 
-	rootCmd.Flags().Int("proxy", 0, "Start HTTP proxy on this port for operator approval (e.g. --proxy 9080)")
-	rootCmd.Flags().Bool("mitm", false, "Enable HTTPS MITM interception (requires --proxy; injects CA into containers)")
+	rootCmd.Flags().Bool("intercept", false, "Enable transparent traffic interception via nftables REDIRECT")
+	rootCmd.Flags().Bool("mitm", false, "Enable HTTPS MITM decryption (implies --intercept; requires CA cert in container)")
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(execCmd())
 
@@ -42,9 +42,9 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 	}
 }
 
-func runTUI(proxyPort int, mitmEnabled bool) error {
+func runTUI(interceptEnabled bool, mitmEnabled bool) error {
 	p := tea.NewProgram(
-		tui.NewApp(proxyPort, mitmEnabled),
+		tui.NewApp(interceptEnabled, mitmEnabled),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

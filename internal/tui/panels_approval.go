@@ -351,7 +351,7 @@ func (a App) renderAuditPanel() string {
 
 	// Title line
 	b.WriteString(blue.Render("📋 API Audit Log ◆"))
-	b.WriteString(green.Render(fmt.Sprintf(" (proxy :%d", a.proxyServer.Port())))
+	b.WriteString(green.Render(fmt.Sprintf(" (intercept :%d", 9081)))
 	if a.proxyServer.MITMEnabled() {
 		b.WriteString(bright.Render(" +MITM🔓"))
 	}
@@ -523,7 +523,7 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 
 		setup := &proxy.AutoSetup{
 			ProxyHost: bridgeIP,
-			ProxyPort: a.proxyServer.Port(),
+			ProxyPort: 9081,
 			MITMPem:   a.proxyServer.MITMCAPem(), // nil if MITM disabled
 		}
 
@@ -541,13 +541,13 @@ func (a *App) autoSetupProxy(container string) tea.Cmd {
 			}
 		}
 		if containerIP != "" {
-			if err := proxy.SetupTransparentRedirect(containerIP, a.proxyServer.Port()+1); err != nil {
+			if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
 				// Non-fatal: env-based proxy still works for curl etc.
 				_ = err
 			}
 		}
 
-		msg := fmt.Sprintf("🔧 nftables REDIRECT + CA cert on %s (→ :%d)", container, a.proxyServer.Port()+1)
+		msg := fmt.Sprintf("🔧 nftables REDIRECT + CA cert on %s (→ :%d)", container, 9081)
 		return asyncResultMsg{text: msg}
 	}
 }

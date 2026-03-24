@@ -251,7 +251,7 @@ type App struct {
 
 type flashExpireMsg struct{}
 
-func NewApp(proxyPort int, mitmEnabled bool) App {
+func NewApp(interceptEnabled bool, mitmEnabled bool) App {
 	var runtimes []runtime.Runtime
 	var lxdClient *lxd.Client
 
@@ -279,9 +279,9 @@ func NewApp(proxyPort int, mitmEnabled bool) App {
 		tracers:  make(map[string]*trace.Tracer),
 	}
 
-	if proxyPort > 0 {
+	if interceptEnabled {
 		approvalCh := make(chan proxy.ApprovalRequest, 10)
-		srv := proxy.NewServer(proxyPort, approvalCh)
+		srv := proxy.NewServer(9081, approvalCh)
 		app.proxyServer = srv
 		app.approvalCh = approvalCh
 		if mitmEnabled {
@@ -291,11 +291,8 @@ func NewApp(proxyPort int, mitmEnabled bool) App {
 				srv.EnableMITM(mitmCfg)
 			}
 		}
-		go func() {
-			_ = srv.Start(context.Background())
-		}()
 		// Start transparent listener on proxyPort+1 for nftables REDIRECT
-		tl := proxy.NewTransparentListener(proxyPort+1, srv)
+		tl := proxy.NewTransparentListener(9081, srv)
 		if err := tl.Start(); err == nil {
 			app.tproxyListener = tl
 		}
