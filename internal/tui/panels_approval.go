@@ -189,7 +189,25 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		a.auditScroll = 0
 		return a, nil
-	case "S":
+	case "p":
+		// Auto-setup proxy on selected container
+		if a.proxyServer != nil && a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime == "lxd" && c.Status == "Running" {
+				return a, a.autoSetupProxy(c.Name)
+			}
+		}
+		return a, nil
+	case "u":
+		// Remove proxy setup from selected container
+		if a.proxyServer != nil && a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime == "lxd" {
+				return a, a.removeProxySetup(c.Name)
+			}
+		}
+		return a, nil
+		case "S":
 		if a.proxyServer != nil {
 			entries := a.filterAuditEntries(a.proxyServer.Audit().All())
 			return a, a.exportAuditJSON(entries)
@@ -464,4 +482,52 @@ func (a App) renderAuditPanel() string {
 	}
 
 	return b.String()
+}
+
+// autoSetupProxy configures proxy env + CA cert on a container via LXD API
+func (a *App) autoSetupProxy(container string) tea.Cmd {
+	return func() tea.Msg {
+		if a.proxyServer == nil || a.client == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy or LXD client not available")}
+		}
+
+		bridgeIP := proxy.DetectBridgeIP()
+		if bridgeIP == "" {
+			return asyncResultMsg{err: fmt.Errorf("cannot detect lxdbr0 bridge IP")}
+		}
+
+		setup := &proxy.AutoSetup{
+			ProxyHost: bridgeIP,
+			ProxyPort: a.proxyServer.Port(),
+			MITMPem:   a.proxyServer.MITMCAPem(), // nil if MITM disabled
+		}
+
+		socketPath := a.client.SocketPath()
+		if err := setup.SetupContainer(socketPath, container); err != nil {
+			return asyncResultMsg{err: fmt.Errorf("auto-setup %s: %w", container, err)}
+		}
+
+		msg := fmt.Sprintf("🔧 proxy configured on %s (→ %s:%d)", container, bridgeIP, a.proxyServer.Port())
+		if a.proxyServer.MITMEnabled() {
+			msg += " +CA cert injected"
+		}
+		return asyncResultMsg{text: msg}
+	}
+}
+
+// removeProxySetup removes proxy configuration from a container
+func (a *App) removeProxySetup(container string) tea.Cmd {
+	return func() tea.Msg {
+		if a.proxyServer == nil || a.client == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy or LXD client not available")}
+		}
+
+		setup := &proxy.AutoSetup{}
+		socketPath := a.client.SocketPath()
+		if err := setup.RemoveSetup(socketPath, container); err != nil {
+			return asyncResultMsg{err: fmt.Errorf("remove proxy %s: %w", container, err)}
+		}
+
+		return asyncResultMsg{text: fmt.Sprintf("🔧 proxy removed from %s", container)}
+	}
 }

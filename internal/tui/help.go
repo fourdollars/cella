@@ -95,6 +95,8 @@ func (a App) renderHelpOverlay() string {
 		{"f", "Filter status"},
 		{"S", "Export JSON"},
 		{"c", "Clear log"},
+		{"p", "Setup proxy on container"},
+		{"u", "Undo proxy setup"},
 	})
 
 	// Render columns side by side

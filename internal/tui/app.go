@@ -1679,7 +1679,7 @@ func (a App) renderStatusBar() string {
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)
 		}
-		return " API AUDIT │ ↑↓ scroll │ /: filter │ f: status │ S: export │ c: clear │ Ctrl+L: reset │ Esc: back"
+		return " API AUDIT │ p: setup proxy │ u: undo │ /: filter │ f: status │ S: export │ c: clear │ Esc: back"
 	case panelCreate:
 		return " CREATE │ follow prompts │ Esc: back"
 	case panelExport:
