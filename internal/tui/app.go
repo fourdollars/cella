@@ -1604,6 +1604,8 @@ func (a App) View() string {
 		dashboard = a.renderInferencePanel()
 	case panelRouting:
 		dashboard = a.renderRoutingPanel()
+	case panelAudit:
+		dashboard = a.renderAuditPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
