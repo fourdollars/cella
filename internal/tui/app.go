@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"os/exec"
 	goruntime "runtime"
 	"sort"
@@ -1423,7 +1424,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // ── Helpers ──
 
+// cellaConfigDir returns ~/.config/cella/<subdir> and ensures it exists.
+func cellaConfigDir(subdir string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".config", "cella", subdir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create dir %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
 func saveToFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
 	return os.WriteFile(path, []byte(content), 0644)
 }
 

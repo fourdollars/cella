@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -57,7 +58,11 @@ func (a *App) exportInferenceJSON() tea.Cmd {
 			"requests":     reqs,
 		}
 		data, _ := json.MarshalIndent(export, "", "  ")
-		filename := fmt.Sprintf("cella-inference-%s.json", time.Now().Format("20060102-150405"))
+		dir, dirErr := cellaConfigDir("exports")
+		if dirErr != nil {
+			return asyncResultMsg{err: fmt.Errorf("dir: %w", dirErr)}
+		}
+		filename := filepath.Join(dir, fmt.Sprintf("inference-%s.json", time.Now().Format("20060102-150405")))
 		if err := os.WriteFile(filename, data, 0644); err != nil {
 			return asyncResultMsg{err: fmt.Errorf("write: %w", err)}
 		}

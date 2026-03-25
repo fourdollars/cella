@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -257,13 +258,18 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Save profile to file
 		if a.seccompJSON != "" && a.selected < len(a.containers) {
 			name := a.containers[a.selected].Name
-			filename := fmt.Sprintf("/tmp/cella-seccomp-%s.json", name)
+			dir, err := cellaConfigDir("profiles")
+			if err != nil {
+				a.addEvent(fmt.Sprintf("⚠ save failed: %v", err))
+				return a, a.setFlash(fmt.Sprintf("❌ Save failed: %v", err))
+			}
+			filename := filepath.Join(dir, fmt.Sprintf("seccomp-%s.json", name))
 			if err := saveToFile(filename, a.seccompJSON); err != nil {
 				a.addEvent(fmt.Sprintf("⚠ save failed: %v", err))
 				return a, a.setFlash(fmt.Sprintf("❌ Save failed: %v", err))
 			}
 			a.addEvent(fmt.Sprintf("💾 saved to %s", filename))
-			return a, a.setFlash(fmt.Sprintf("✅ Saved to %s", filename))
+			return a, a.setFlash(fmt.Sprintf("✅ Saved → %s", filename))
 		}
 	}
 	return a, nil
