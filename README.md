@@ -80,10 +80,16 @@ Feedback, bug reports, and contributions welcome.
 ### Pre-built binary (Linux amd64/arm64)
 
 ```bash
-curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_amd64
+# Auto-detect architecture
+ARCH=$(uname -m); [ "$ARCH" = "aarch64" ] && ARCH=arm64 || ARCH=amd64
+curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_${ARCH}
 chmod +x cella
 sudo ./cella
 ```
+
+Or download manually for your architecture:
+- **amd64** (x86_64): `curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_amd64`
+- **arm64** (aarch64/Raspberry Pi 4+): `curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_arm64`
 
 ### Build from source
 
