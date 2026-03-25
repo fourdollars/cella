@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="cella — LXC/LXD & Docker container management TUI with real-time metrics, syscall tracing, HTTP interception, and inference monitoring">
+    <meta name="keywords" content="cella, LXD, LXC, Docker, container management, TUI, terminal, Go, syscall tracing, MITM, inference monitoring">
+    <meta name="author" content="Shih-Yuan Lee">
+    <title>cella — Container Management TUI</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #e67e22;
+            --primary-dark: #d35400;
+            --secondary: #27ae60;
+            --accent: #3498db;
+            --dark: #0d1117;
+            --dark-light: #161b22;
+            --gray: #8b949e;
+            --gray-light: #c9d1d9;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+            --purple: #8e44ad;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            line-height: 1.6;
+            color: #e2e8f0;
+            background: var(--dark);
+            overflow-x: hidden;
+        }
+        .bg-gradient {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: -1;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
+        }
+        .bg-gradient::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background:
+                radial-gradient(circle at 20% 50%, rgba(230,126,34,0.12) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(52,152,219,0.10) 0%, transparent 50%),
+                radial-gradient(circle at 60% 80%, rgba(39,174,96,0.08) 0%, transparent 50%);
+            animation: float 25s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%,100% { transform: translate(0,0) rotate(0deg); }
+            33% { transform: translate(30px,-30px) rotate(120deg); }
+            66% { transform: translate(-20px,20px) rotate(240deg); }
+        }
+        @keyframes gradientShift {
+            0%,100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+
+        /* NAV */
+        header { padding: 1.5rem 0; }
+        nav { display: flex; justify-content: space-between; align-items: center; }
+        .logo {
+            font-size: 1.75rem; font-weight: 900;
+            background: linear-gradient(135deg, #e67e22, #f39c12, #e67e22);
+            background-size: 300%; -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent; background-clip: text;
+            animation: gradientShift 4s ease infinite;
+        }
+        .nav-links { display: flex; gap: 2rem; list-style: none; }
+        .nav-links a { color: var(--gray-light); text-decoration: none; font-weight: 500; transition: color 0.3s; }
+        .nav-links a:hover { color: white; }
+
+        /* HERO */
+        .hero { padding: 5rem 0 2rem; text-align: center; }
+        .hero h1 { font-size: 3.8rem; font-weight: 900; line-height: 1.1; margin-bottom: 1rem; }
+        .hero h1 .gradient-text {
+            background: linear-gradient(135deg, var(--primary), var(--warning), var(--secondary));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .tagline { font-size: 1.3rem; color: var(--gray); margin-bottom: 0.75rem; }
+        .hero-sub { font-size: 1rem; color: var(--gray); margin-bottom: 2.5rem; max-width: 600px; margin-left: auto; margin-right: auto; }
+        .badges { display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 2.5rem; }
+        .badge {
+            padding: 0.3rem 0.9rem; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 600; color: #fff;
+        }
+        .badge-go { background: #00add8; }
+        .badge-lxd { background: var(--primary); }
+        .badge-sec { background: var(--danger); }
+        .badge-obs { background: var(--purple); }
+        .badge-mit { background: var(--secondary); }
+        .cta-buttons { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+        .btn {
+            padding: 0.9rem 2rem; font-size: 1rem; font-weight: 600;
+            border-radius: 0.75rem; text-decoration: none;
+            transition: all 0.3s; display: inline-flex; align-items: center; gap: 0.5rem;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--warning));
+            color: white; box-shadow: 0 10px 30px rgba(230,126,34,0.3);
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 15px 40px rgba(230,126,34,0.4); }
+        .btn-secondary {
+            background: rgba(255,255,255,0.08); color: white;
+            border: 1px solid rgba(255,255,255,0.15); backdrop-filter: blur(10px);
+        }
+        .btn-secondary:hover { background: rgba(255,255,255,0.13); border-color: rgba(255,255,255,0.25); }
+
+        /* TUI DEMO */
+        .tui-section { padding: 3rem 0 1rem; }
+        .tui-window {
+            background: #0c0c0c; border: 1px solid #333;
+            border-radius: 12px; overflow: hidden;
+            max-width: 900px; margin: 0 auto;
+            box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+        }
+        .tui-titlebar {
+            background: #1a1a2e; padding: 0.5rem 1rem;
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .tui-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .tui-dot.red { background: #e74c3c; }
+        .tui-dot.yellow { background: #f39c12; }
+        .tui-dot.green { background: #27ae60; }
+        .tui-title { color: #666; font-size: 0.8rem; margin-left: 0.5rem; font-family: 'JetBrains Mono', monospace; }
+        .tui-body {
+            padding: 0.8rem 1rem; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78rem; line-height: 1.5; color: #c9d1d9;
+            white-space: pre; overflow-x: auto;
+        }
+        .tg { color: #27ae60; }
+        .tr { color: #e74c3c; }
+        .to { color: #e67e22; }
+        .tb { color: #58a6ff; }
+        .tm { color: #6e7681; }
+        .tw { color: #f0f6fc; font-weight: bold; }
+        .tp { color: #8e44ad; }
+
+        /* FEATURES */
+        .features { padding: 4rem 0; }
+        .section-title { text-align: center; font-size: 2.2rem; font-weight: 900; margin-bottom: 0.75rem; }
+        .section-subtitle { text-align: center; color: var(--gray); margin-bottom: 3rem; font-size: 1.05rem; }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        .feature-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1rem; padding: 1.75rem;
+            transition: all 0.3s; backdrop-filter: blur(10px);
+        }
+        .feature-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+            box-shadow: 0 20px 40px rgba(230,126,34,0.15);
+        }
+        .feature-icon {
+            width: 2.75rem; height: 2.75rem;
+            border-radius: 0.65rem; display: flex;
+            align-items: center; justify-content: center;
+            font-size: 1.4rem; margin-bottom: 1rem;
+        }
+        .fi-orange { background: linear-gradient(135deg,#e67e22,#f39c12); }
+        .fi-blue   { background: linear-gradient(135deg,#2980b9,#3498db); }
+        .fi-green  { background: linear-gradient(135deg,#1e8449,#27ae60); }
+        .fi-red    { background: linear-gradient(135deg,#c0392b,#e74c3c); }
+        .fi-purple { background: linear-gradient(135deg,#7d3c98,#8e44ad); }
+        .fi-gold   { background: linear-gradient(135deg,#b7950b,#f39c12); }
+        .feature-card h3 { font-size: 1.1rem; margin-bottom: 0.6rem; color: white; }
+        .feature-card p { color: var(--gray); font-size: 0.9rem; }
+
+        /* INSTALL */
+        .installation { padding: 4rem 0; background: rgba(0,0,0,0.15); }
+        .install-steps { display: grid; gap: 1.5rem; max-width: 860px; margin: 0 auto; }
+        .install-step {
+            display: flex; gap: 1.25rem;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1rem; padding: 1.5rem;
+        }
+        .step-number {
+            flex-shrink: 0; width: 2.75rem; height: 2.75rem;
+            background: linear-gradient(135deg, var(--primary), var(--warning));
+            border-radius: 50%; display: flex; align-items: center;
+            justify-content: center; font-weight: 900; font-size: 1.2rem;
+        }
+        .step-content h3 { margin-bottom: 0.4rem; color: white; }
+        .step-content p { color: var(--gray); margin-bottom: 0.75rem; font-size: 0.9rem; }
+        .code-wrapper { position: relative; }
+        .step-content code {
+            display: block; background: #0d1117;
+            padding: 1rem 1rem 1rem 1rem;
+            border-radius: 0.6rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem; overflow-x: auto;
+            white-space: pre; line-height: 1.55;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .copy-btn {
+            position: absolute; top: 0.6rem; right: 0.6rem;
+            padding: 0.3rem 0.7rem;
+            background: rgba(230,126,34,0.8); border: 1px solid rgba(230,126,34,1);
+            border-radius: 0.4rem; color: white; font-size: 0.72rem; font-weight: 600;
+            cursor: pointer; transition: all 0.25s; font-family: 'Inter', sans-serif;
+        }
+        .copy-btn:hover { background: rgba(249,115,22,0.9); transform: translateY(-1px); }
+        .copy-btn.copied { background: var(--success); border-color: var(--success); }
+
+        /* PANELS */
+        .panels { padding: 4rem 0; }
+        .panel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem; margin-top: 2rem;
+        }
+        .panel-item {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 0.75rem; padding: 1rem 1.25rem;
+        }
+        .panel-key {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary); font-weight: 700;
+            font-size: 0.9rem; margin-bottom: 0.3rem;
+        }
+        .panel-name { color: white; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.2rem; }
+        .panel-desc { color: var(--gray); font-size: 0.78rem; }
+
+        /* STATS */
+        .stats { padding: 3rem 0; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem; text-align: center;
+        }
+        .stat-value { font-size: 2.5rem; font-weight: 900; color: var(--primary); }
+        .stat-label { color: var(--gray); font-size: 0.9rem; margin-top: 0.2rem; }
+
+        /* FOOTER */
+        footer {
+            padding: 2.5rem 0; border-top: 1px solid rgba(255,255,255,0.08);
+            text-align: center; color: var(--gray);
+        }
+        footer a { color: var(--primary); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        .footer-links { display: flex; gap: 2rem; justify-content: center; margin-bottom: 1rem; flex-wrap: wrap; }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.4rem; }
+            .section-title { font-size: 1.7rem; }
+            .nav-links { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="bg-gradient"></div>
+
+<!-- NAV -->
+<header>
+    <div class="container">
+        <nav>
+            <div class="logo">cella</div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#install">Install</a></li>
+                <li><a href="#panels">Panels</a></li>
+                <li><a href="https://github.com/fourdollars/cella">GitHub</a></li>
+            </ul>
+        </nav>
+    </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="container">
+        <h1>
+            <span class="gradient-text">cella</span>
+        </h1>
+        <p class="tagline">Container Management TUI for LXD & Docker</p>
+        <p class="hero-sub">
+            A terminal UI for managing and monitoring LXC/LXD and Docker containers — real-time metrics,
+            syscall tracing, HTTPS interception, and AI inference monitoring. Single binary, SSH-ready.
+        </p>
+        <div class="badges">
+            <span class="badge badge-go">Go 12,400+ lines</span>
+            <span class="badge badge-lxd">LXD + Docker</span>
+            <span class="badge badge-sec">18 TUI Panels</span>
+            <span class="badge badge-obs">MITM Interception</span>
+            <span class="badge badge-mit">Inference Stats</span>
+        </div>
+        <div class="cta-buttons">
+            <a href="#install" class="btn btn-primary">⚡ Quick Install</a>
+            <a href="https://github.com/fourdollars/cella" class="btn btn-secondary">⭐ GitHub</a>
+        </div>
+    </div>
+</section>
+
+<!-- TUI DEMO -->
+<section class="tui-section">
+    <div class="container">
+        <div class="tui-window">
+            <div class="tui-titlebar">
+                <div class="tui-dot red"></div>
+                <div class="tui-dot yellow"></div>
+                <div class="tui-dot green"></div>
+                <span class="tui-title">cella — bolan (ssh)</span>
+            </div>
+            <div class="tui-body"><span class="tw">📡 cella  5/6 running  CPU Σ12.3%  MEM Σ4.1GB  🕐 15:04:05  sort:[name]  🔬 tracing:1</span>
+<span class="tw">┌─ Containers ◆──────────────────┬─ 📋 API Audit Log ◆ (intercept :9081 +MITM🔓) ──────────────────────────────┐</span>
+│                                │   Total: 8 │ ✅ 6 │ 👤 1 │ ⛔ 0 │ 🔓 8 │ Domains: 2                          │
+│ <span class="tg">0 ● juju-634dd5-0    1%  1.2G</span>  │   Top: api.business.githubcopilot.com(6) │ api.github.com(2)         │
+│ <span class="tg">1 ● juju-76edad-0    0%  964M</span>  │                                                                           │
+│ <span class="tg">2 ● juju-1923fb-2    0%  297M</span>  │   <span class="tg">15:04:02 ✅🔓</span> <span class="tm">juju-76edad-0</span> <span class="to">POST</span> → <span class="tb">api.business.githubcopilot.com</span> <span class="tp">/responses</span> [<span class="tg">200</span>] (5.3s) │
+│ <span class="tg">3 ● oc-agent-test    0%  128M</span>  │   <span class="tg">15:03:58 ✅🔓</span> <span class="tm">juju-76edad-0</span> <span class="to">POST</span> → <span class="tb">api.business.githubcopilot.com</span> <span class="tp">/responses</span> [<span class="tg">200</span>] (4.9s) │
+│ <span class="tr">4 ○ oc-policy-test  stopped</span>     │   <span class="tg">15:03:41 ✅🔓</span> <span class="tm">juju-76edad-0</span> <span class="tg">GET</span>  → <span class="tb">api.github.com</span>                    <span class="tp">/zen</span>        [<span class="tg">200</span>] (146ms) │
+│                                │                                                                           │
+│  <span class="tm">[?] help</span>                       │                                                                           │
+<span class="tw">└────────────────────────────────┴───────────────────────────────────────────────────────────────────────────┘</span>
+<span class="to"> API AUDIT │ p: setup proxy │ u: undo │ /: filter │ f: status │ S: export │ c: clear │ Esc: back</span></div>
+        </div>
+    </div>
+</section>
+
+<!-- STATS -->
+<section class="stats">
+    <div class="container">
+        <div class="stats-grid">
+            <div>
+                <div class="stat-value">12K+</div>
+                <div class="stat-label">Lines of Go</div>
+            </div>
+            <div>
+                <div class="stat-value">18</div>
+                <div class="stat-label">TUI Panels</div>
+            </div>
+            <div>
+                <div class="stat-value">~13MB</div>
+                <div class="stat-label">Single Binary</div>
+            </div>
+            <div>
+                <div class="stat-value">2</div>
+                <div class="stat-label">Runtimes (LXD+Docker)</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+    <div class="container">
+        <h2 class="section-title">Everything you need</h2>
+        <p class="section-subtitle">From container lifecycle to AI inference monitoring, all in one terminal window</p>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon fi-orange">📊</div>
+                <h3>Real-time Metrics</h3>
+                <p>CPU%, memory, network RX/TX, disk I/O — all with sparkline history. Per-CPU bars when CPU is pinned to specific cores.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon fi-blue">🔬</div>
+                <h3>Syscall Tracing</h3>
+                <p>bpftrace-powered syscall monitoring per container. 7 family categories, top-12 table, activity sparkline, and auto-generate minimal OCI seccomp JSON.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon fi-red">🔐</div>
+                <h3>HTTPS Interception</h3>
+                <p>Transparent MITM proxy via nftables REDIRECT. HTTP/2 aware. One key to set up: auto-injects CA cert, configures NODE_EXTRA_CA_CERTS. Works with Node.js, Python, curl.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon fi-gold">💰</div>
+                <h3>Inference Stats</h3>
+                <p>Track AI model API usage: RPM, RPH, TPM, tokens in/out, and cost estimation for 27+ models (GPT/Claude/Gemini). Per-minute sparklines and session breakdown.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon fi-purple">🔀</div>
+                <h3>Inference Routing</h3>
+                <p>Redirect AI API calls to alternative backends. Route OpenAI → local Ollama, Copilot → NVIDIA Endpoint — transparent to the application.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon fi-green">🛡️</div>
+                <h3>Security Policy Engine</h3>
+                <p>Seccomp profile management, AppArmor, nftables egress control, DNS monitor. Generate seccomp profiles from observed syscall data. YAML export/import.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- INSTALL -->
+<section class="installation" id="install">
+    <div class="container">
+        <h2 class="section-title">Get started in seconds</h2>
+        <p class="section-subtitle">Single binary — copy to any Linux host and run</p>
+        <div class="install-steps">
+            <div class="install-step">
+                <div class="step-number">1</div>
+                <div class="step-content">
+                    <h3>Download the binary</h3>
+                    <p>Grab the latest release for your architecture from GitHub Releases.</p>
+                    <div class="code-wrapper">
+                        <code id="code-download">curl -Lo cella https://github.com/fourdollars/cella/releases/latest/download/cella_linux_amd64
+chmod +x cella</code>
+                        <button class="copy-btn" onclick="copyCode('code-download', this)">copy</button>
+                    </div>
+                </div>
+            </div>
+            <div class="install-step">
+                <div class="step-number">2</div>
+                <div class="step-content">
+                    <h3>Run (requires LXD or Docker)</h3>
+                    <p>Add yourself to the <code style="display:inline;background:#0d1117;padding:0.1rem 0.4rem;border-radius:4px;">lxd</code> group, or run with sudo.</p>
+                    <div class="code-wrapper">
+                        <code id="code-run">sudo ./cella</code>
+                        <button class="copy-btn" onclick="copyCode('code-run', this)">copy</button>
+                    </div>
+                </div>
+            </div>
+            <div class="install-step">
+                <div class="step-number">3</div>
+                <div class="step-content">
+                    <h3>Enable HTTPS interception (optional)</h3>
+                    <p>Press <kbd style="background:#1a2332;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid #30363d;">A</kbd> for Audit panel, then <kbd style="background:#1a2332;padding:0.1rem 0.4rem;border-radius:4px;border:1px solid #30363d;">p</kbd> on any container to intercept its traffic.</p>
+                    <div class="code-wrapper">
+                        <code id="code-intercept"># In cella TUI:
+# A → opens Audit panel
+# p → sets up nftables REDIRECT + injects CA cert into container
+# Y/y/n → approve/deny each domain as it appears</code>
+                        <button class="copy-btn" onclick="copyCode('code-intercept', this)">copy</button>
+                    </div>
+                </div>
+            </div>
+            <div class="install-step">
+                <div class="step-number">4</div>
+                <div class="step-content">
+                    <h3>Build from source</h3>
+                    <p>Requires Go 1.20+</p>
+                    <div class="code-wrapper">
+                        <code id="code-build">git clone https://github.com/fourdollars/cella
+cd cella
+go build -o cella ./cmd/main.go</code>
+                        <button class="copy-btn" onclick="copyCode('code-build', this)">copy</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- PANELS -->
+<section class="panels" id="panels">
+    <div class="container">
+        <h2 class="section-title">18 TUI Panels</h2>
+        <p class="section-subtitle">Keyboard-driven, zero mouse required</p>
+        <div class="panel-grid">
+            <div class="panel-item">
+                <div class="panel-key">default</div>
+                <div class="panel-name">📈 Dashboard</div>
+                <div class="panel-desc">CPU/MEM/NET/DISK sparklines</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">e</div>
+                <div class="panel-name">⚡ Exec</div>
+                <div class="panel-desc">Run commands / interactive shell</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">l</div>
+                <div class="panel-name">📜 Logs</div>
+                <div class="panel-desc">Streaming logs + follow mode</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">w</div>
+                <div class="panel-name">🌐 Network</div>
+                <div class="panel-desc">RX/TX + ports + connections</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">r</div>
+                <div class="panel-name">⚙️ Resources</div>
+                <div class="panel-desc">CPU/MEM limits + per-CPU bars</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">n</div>
+                <div class="panel-name">📸 Snapshots</div>
+                <div class="panel-desc">Create / restore / clone</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">t / G</div>
+                <div class="panel-name">🔬 Syscall Trace</div>
+                <div class="panel-desc">bpftrace + seccomp generator</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">P</div>
+                <div class="panel-name">🛡️ Policy</div>
+                <div class="panel-desc">Seccomp + AppArmor + egress</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">D</div>
+                <div class="panel-name">🔍 DNS Monitor</div>
+                <div class="panel-desc">DNS traffic + allow/deny</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">A</div>
+                <div class="panel-name">📋 Audit</div>
+                <div class="panel-desc">HTTP proxy audit + approvals</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">M</div>
+                <div class="panel-name">📊 Inference Stats</div>
+                <div class="panel-desc">RPM/TPM/cost per AI model</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">R</div>
+                <div class="panel-name">🔀 Routing</div>
+                <div class="panel-desc">Redirect AI APIs to backends</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">V</div>
+                <div class="panel-name">📡 Events</div>
+                <div class="panel-desc">LXD event log</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">+</div>
+                <div class="panel-name">➕ Create</div>
+                <div class="panel-desc">Container creation wizard</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">E / I</div>
+                <div class="panel-name">📦 Export/Import</div>
+                <div class="panel-desc">Container config JSON</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+    <div class="container">
+        <div class="footer-links">
+            <a href="https://github.com/fourdollars/cella">GitHub</a>
+            <a href="https://github.com/fourdollars/cella/releases">Releases</a>
+            <a href="https://github.com/fourdollars/cella/issues">Issues</a>
+            <a href="https://github.com/sponsors/fourdollars">Sponsor</a>
+        </div>
+        <p>Built by <a href="https://github.com/fourdollars">Shih-Yuan Lee (@fourdollars)</a> · Licensed under MIT</p>
+        <p style="margin-top:0.5rem;color:#484f58;">cella — Latin for "small room" · the original meaning of container</p>
+    </div>
+</footer>
+
+<script>
+function copyCode(id, btn) {
+    const code = document.getElementById(id).textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = '✓ copied';
+        btn.classList.add('copied');
+        setTimeout(() => {
+            btn.textContent = 'copy';
+            btn.classList.remove('copied');
+        }, 2000);
+    });
+}
+</script>
+</body>
+</html>
