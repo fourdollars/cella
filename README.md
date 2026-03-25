@@ -1,251 +1,195 @@
 # cella
 
+> **⚠️ Work In Progress** — actively developed, interfaces may change
+
 > Latin: *cella* — a small room. The original container.
 
-A terminal UI and CLI for managing and monitoring LXD + Docker containers with real-time metrics, syscall tracing, DNS traffic monitoring, and security policy enforcement.
+A terminal UI and CLI for managing and monitoring LXD + Docker containers — real-time metrics, syscall tracing, HTTPS interception with operator approval, and AI inference monitoring.
 
 ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
+![Status](https://img.shields.io/badge/Status-WIP-orange)
+[![GitHub Pages](https://img.shields.io/badge/Docs-GitHub%20Pages-blue)](https://fourdollars.github.io/cella/)
+
+---
+
+## ⚠️ Work In Progress
+
+cella is under active development. Core features work well, but:
+- APIs and key bindings may change between versions
+- Some features require root / `sudo` (bpftrace, nftables)
+- The HTTPS interception and inference routing features are experimental
+
+Feedback, bug reports, and contributions welcome.
 
 ---
 
 ## Features
 
 ### 📊 Real-time Monitoring
-- **CPU** — per-container usage via cgroup v2, with sparkline history graphs
-- **Memory** — current/limit with progress bars showing host utilization
-- **Network** — RX/TX rates with sparkline trends (↓ blue / ↑ green)
-- **Disk I/O** — read/write rates via cgroup `io.stat` (LXD) or `blkio_stats` (Docker)
-- **Per-CPU** — individual CPU core usage bars for pinned containers (`limits.cpu`)
-- **Host resources** — total CPU threads, memory, load average as reference baseline
+- **CPU** — per-container usage via cgroup v2, with sparkline history
+- **Memory** — current/limit with color-coded progress bars
+- **Network** — RX/TX rates with sparklines
+- **Disk I/O** — read/write rates via cgroup `io.stat` / `blkio_stats`
+- **Per-CPU** — individual CPU core bars for pinned containers
+- **Host resources** — total CPU, memory, load average as reference
 
 ### 🔬 Syscall Tracing
 - Live per-container syscall activity via **bpftrace** (eBPF)
-- Top syscalls table with family grouping (file, network, process, memory, etc.)
-- Seccomp profile generator — creates strict/moderate/permissive JSON profiles from observed syscalls
-- Sidebar trace indicator (🔬) for actively traced containers
+- Family breakdown: file, network, process, memory, signal, ipc
+- Top-12 syscall table with activity sparkline
+- **Seccomp profile generator** — observe syscalls, generate OCI seccomp JSON with one key
+
+### 🔐 HTTPS Interception + Operator Approval *(WIP)*
+- Transparent MITM proxy via **nftables REDIRECT** — no proxy env vars needed
+- Works with Node.js (via `NODE_EXTRA_CA_CERTS`), Python, curl, and more
+- **One key setup** (`A` → `p`): auto-generates CA cert, sets up nftables REDIRECT, injects CA into container
+- Operator approval TUI: each new domain triggers `[y] allow once / [Y] always / [n] deny`
+- **HTTP/2 aware** — intercepts modern APIs including GitHub Copilot
+- Audit log with filtering, text search, and JSON export
+
+### 📊 AI Inference Monitoring *(WIP)*
+- Tracks API calls to OpenAI, Anthropic, GitHub Copilot, Gemini, and more
+- Per-model stats: requests, tokens in/out, RPM, RPH, TPM
+- **Cost estimation** for 27+ models with per-minute sparklines
+- Session breakdown by container
+- `M` key for inference stats panel, `S` to export JSON
+
+### 🔀 Inference Routing *(WIP)*
+- Redirect AI API calls to alternative backends transparently
+- Presets: OpenAI/Anthropic/Copilot/Gemini → local Ollama or NVIDIA Endpoint
+- Custom route wizard, enable/disable per-domain, save to file
 
 ### 🛡️ Security Policy Engine
-- **Seccomp profiles** — apply strict/moderate/permissive profiles with one keypress
-- **AppArmor** — display current profile status
-- **Egress control** — per-container nftables rules on the FORWARD chain
-- **DNS Monitor** — live DNS traffic observatory with allow/deny controls
-- **Security flags** — display privileged mode and nesting status
+- **Seccomp profiles** — apply strict/moderate/permissive with one keypress
+- **AppArmor** — display and manage profiles
+- **Egress control** — nftables per-container allow/block rules
+- **DNS monitor** — live DNS traffic with allow/deny list
+- YAML policy export/import
 
-### 🔍 DNS Monitor (NEW)
-- Captures live DNS queries from containers via `tcpdump` on the bridge interface
-- Displays domain names, resolved IPs, query counts, and timestamps
-- Interactive allow/deny — mark domains and automatically generate nftables rules
-- Per-container view with egress restriction status indicator
+### 📦 Container Lifecycle
+- LXD + Docker unified management
+- start / stop / pause / exec / logs / snapshot / clone / create / delete
+- Resource limits editing (CPU, memory) via LXD API
+- Config export/import (JSON)
 
-### 🐳 Multi-Runtime
-- **LXD** containers via unix socket API
-- **Docker** containers via Docker Engine API
-- Unified sidebar with runtime indicators (🔷 LXD / 🐳 Docker)
-- Runtime filter cycling (`f` key) — show All / LXD only / Docker only
-- Parallel fetch for responsive UI with many containers
+---
 
-### 📋 Container Management
-- Start / Stop / Pause / Unpause
-- Exec commands inside containers (with interactive shell support)
-- Log streaming (follow mode with `journalctl` or `docker logs`)
-- Snapshot & Clone
-- Resource limits editing (CPU, memory)
-- Config export (JSON) / import
-- Container create & destroy
+## Installation
+
+### Pre-built binary (Linux amd64/arm64)
+
+```bash
+curl -Lo cella https://github.com/fourdollars/cella/releases/latest/download/cella_linux_amd64
+chmod +x cella
+sudo ./cella
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/fourdollars/cella
+cd cella
+go build -o cella ./cmd/main.go
+```
+
+Requires Go 1.20+, Linux kernel 5.8+ (for bpftrace / eBPF features).
 
 ---
 
 ## Quick Start
 
 ```bash
-# Build
-make build
-
 # Run the TUI
-./cella
+sudo ./cella
 
 # List all containers (LXD + Docker)
 ./cella list
-
-# List with runtime filter
-./cella list --runtime lxd
-./cella list --runtime docker
+./cella list --watch --sort cpu
 
 # Execute a command in a container
-./cella exec <container-name> -- <command>
+./cella exec mycontainer -- bash
 ```
 
 ---
 
-## Keyboard Shortcuts
+## Key Bindings
 
-### Navigation
 | Key | Action |
 |-----|--------|
-| `↑` `k` / `↓` `j` | Navigate container list |
-| `g` | Go to container by number |
-| `1` `2` `3` | Sort by name / CPU% / memory |
+| `↑/↓` or `j/k` | Navigate containers |
+| `1/2/3` | Sort by name / CPU / memory |
 | `f` | Cycle runtime filter (All → LXD → Docker) |
-| `?` | Toggle help overlay |
-| `q` | Quit (with confirmation) |
-| `Ctrl+C` | Quit (with confirmation) |
-
-### Container Actions
-| Key | Action |
-|-----|--------|
-| `s` | Start / `x` Stop / `p` Pause |
-| `e` | Exec command inside container |
-| `l` | Stream logs (follow mode) |
-| `+` | Create new container |
-| `d` | Destroy container (with confirmation) |
-
-### Panels
-| Key | Panel |
-|-----|-------|
-| `r` | Resources (CPU/memory limits, host stats) |
+| `/` | Search by name |
+| `s/x/p` | Start / Stop / Pause container |
+| `e` | Exec command / shell |
+| `l` | Logs (streaming) |
+| `+` / `d` | Create / Delete container |
+| `w` | Network panel |
+| `r` | Resource limits panel |
 | `n` | Snapshots & clone |
-| `t` | Syscall tracing (start bpftrace) |
-| `T` | Stop tracing |
-| `G` | Generate seccomp profile from trace |
-| `w` | Network connections |
-| `P` | Security policy (seccomp / egress) |
-| `H` | DNS monitor (traffic / allow / deny) |
-| `E` | Export container config (JSON) |
-| `I` | Import container config |
-
-### DNS Monitor (`H` panel)
-| Key | Action |
-|-----|--------|
-| `↑` `↓` | Select domain |
-| `a` | Allow domain (add nftables accept rule) |
-| `x` | Deny domain (enable egress restriction) |
-| `u` | Unset allow/deny marking |
-
-### Policy Panel (`P`)
-| Key | Action |
-|-----|--------|
-| `1` `2` `3` | Apply seccomp profile (strict/moderate/permissive) |
-| `a` | Add egress allow rule (resolves domain → IPv4) |
-| `d` | Delete all egress rules (with confirmation) |
-| `r` | Refresh policy info |
-
----
-
-## Architecture
-
-```
-cella
-├── cmd/                    # CLI entry point (cobra)
-│   └── main.go
-├── internal/
-│   ├── tui/                # Terminal UI (Bubbletea + Lipgloss)
-│   │   └── app.go          # Main TUI application (~4000 lines)
-│   ├── lxd/                # LXD client (unix socket REST API)
-│   │   └── client.go
-│   ├── runtime/             # Multi-runtime abstraction
-│   │   ├── types.go         # Runtime interface
-│   │   ├── lxd_adapter.go   # LXD runtime adapter
-│   │   └── docker.go        # Docker runtime adapter
-│   ├── metrics/             # Metrics collection
-│   │   ├── cgroup.go        # cgroup v2 CPU/memory/IO
-│   │   └── ring.go          # Ring buffer for sparklines
-│   ├── security/            # Security & network control
-│   │   ├── egress.go        # nftables egress rules (FORWARD chain)
-│   │   ├── dns_monitor.go   # DNS traffic capture & analysis
-│   │   ├── seccomp.go       # Seccomp profile management
-│   │   └── profiles.go      # Built-in seccomp profiles
-│   └── trace/               # Syscall tracing
-│       └── tracer.go        # bpftrace integration
-├── Makefile
-├── go.mod
-└── go.sum
-```
-
-### Key Design Decisions
-
-- **`ip` family nftables** — egress rules use `ip` family FORWARD chain (not `inet`), matching bridge traffic via `iifname "lxdbr0"` + container source IP. Priority -5 ensures rules evaluate before Docker's filter chain.
-- **Docker + LXD coexistence** — Docker sets iptables FORWARD policy to DROP; cella's rules in `ip cella` table run at a higher priority to avoid conflicts.
-- **`sudo -n`** — all privileged operations (nft, bpftrace, tcpdump) use `sudo -n` (non-interactive) to prevent TUI from blocking on password prompts.
-- **Parallel runtime fetch** — container data from LXD and Docker is fetched concurrently, merged into a unified view.
-- **DNS ↔ nftables integration** — DNS monitor captures domain→IP mappings; allow/deny actions translate to concrete nftables rules using resolved IPv4 addresses.
+| `t` / `T` | Start / stop syscall trace |
+| `G` / `S` | Generate / save seccomp profile |
+| `P` | Security policy panel |
+| `D` | DNS monitor panel |
+| `A` | **API audit panel** (HTTPS interception) |
+| `M` | **Inference stats panel** |
+| `R` | **Inference routing panel** |
+| `V` | Events log |
+| `E` / `I` | Export / Import config |
+| `?` | Help overlay |
+| `q` | Quit |
 
 ---
 
 ## Requirements
 
-- **Linux** with LXD and/or Docker installed
-- **Go 1.24+** (build only)
-- **bpftrace** (optional, for syscall tracing)
-- **tcpdump** (optional, for DNS monitoring)
-- **nftables** (optional, for egress control)
-- **sudo** with `NOPASSWD` for the running user (for nft, bpftrace, tcpdump)
-- Single binary deployment — no runtime dependencies beyond the Go standard library
-
-### Tested On
-- Ubuntu 24.04 LTS (Noble) with kernel 6.17
-- LXD 5.x (snap) + Docker 27.x
-- Go 1.26.1
+- Linux (Ubuntu 22.04+ recommended)
+- LXD and/or Docker daemon running
+- `lxd` group membership (or run with `sudo`) for LXD management
+- `bpftrace` + `sudo` for syscall tracing
+- `nftables` + `sudo` for egress control and HTTPS interception
 
 ---
 
-## CLI
+## Architecture
+
+cella is written in Go using [Bubbletea](https://github.com/charmbracelet/bubbletea) for the TUI. It communicates with LXD via its Unix socket REST API, and with Docker via the Docker socket.
 
 ```
-Usage:
-  cella [command]
-
-Available Commands:
-  completion  Generate the autocompletion script for the specified shell
-  exec        Execute a command in a container
-  help        Help about any command
-  list        List containers from all runtimes
-
-Flags:
-  -h, --help   help for cella
-
-Use "cella [command] --help" for more information about a command.
+cella (~13MB binary)
+├── cmd/            CLI entry point (cobra)
+├── internal/
+│   ├── proxy/      HTTP interception, MITM, audit, inference routing
+│   ├── tui/        Bubbletea TUI (18 panels)
+│   ├── security/   Seccomp, AppArmor, egress, DNS monitor
+│   ├── trace/      bpftrace-based syscall tracing + seccomp generator
+│   ├── runtime/    LXD + Docker runtime abstraction
+│   ├── lxd/        LXD REST API client
+│   └── metrics/    cgroup v2 metrics
+└── docs/           GitHub Pages site
 ```
-
-### `cella list`
-
-```
-$ cella list
-  #  RT     NAME                   STATE    IP               CPU%    MEM
-───────────────────────────────────────────────────────────────────────────
-  0  🔷lxd  juju-1923fb-2          RUNNING  10.25.54.145     0.3%   162MB
-  1  🔷lxd  juju-634dd5-0          RUNNING  10.25.54.220     1.1%   591MB
-  2  🔷lxd  juju-76edad-0          RUNNING  10.25.54.235     0.5%   705MB
-  3  🔷lxd  juju-fa5703-0          RUNNING  10.25.54.133     0.8%   219MB
-
-  Summary: 4 running (lxd: 4)
-```
-
-Flags:
-- `-r`, `--runtime` — filter by runtime (`lxd` or `docker`)
-- `-s`, `--sort` — sort by `name`, `cpu`, or `mem`
-- `-w`, `--watch` — continuous monitoring mode (refreshes every 2s)
 
 ---
 
-## Design Inspiration
+## Status
 
-- **[NemoClaw](https://github.com/openclaw/openclaw)** — per-agent container isolation, policy engine, egress control concepts
-- **[kbox Web Observatory](https://github.com/sysprog21/kbox)** — real-time syscall activity monitoring, kernel metrics, event streaming
-
----
-
-## Stats
-
-- **52 commits** on main
-- **~7,800 lines** of Go
-- **6 internal packages**: tui, lxd, runtime, metrics, security, trace
-- **5 metric collectors**: CPU, Memory, Network, Disk I/O, Syscall
-- **2 runtime backends**: LXD, Docker
-- **12 TUI panels**: Dashboard, Exec, Logs, Syscall, Seccomp Gen, Resources, Snapshots, Network, Policy, DNS Monitor, Create, Help
+| Feature | Status |
+|---------|--------|
+| Container management | ✅ Stable |
+| Real-time metrics | ✅ Stable |
+| Syscall tracing | ✅ Stable |
+| Security policy | ✅ Stable |
+| HTTPS interception | 🚧 WIP |
+| Inference stats | 🚧 WIP |
+| Inference routing | 🚧 WIP |
+| Inference request body capture | 📋 Planned |
+| Multi-host support | 📋 Planned |
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE)
+
+Built by [Shih-Yuan Lee (@fourdollars)](https://github.com/fourdollars)
