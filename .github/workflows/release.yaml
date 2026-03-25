@@ -7,9 +7,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   release:
     permissions:
@@ -20,7 +17,7 @@ jobs:
     name: release linux/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
     - uses: fourdollars/go-release-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
