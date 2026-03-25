@@ -1,0 +1,28 @@
+name: Release prebuilt binary
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    name: release linux/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: fourdollars/go-release-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        goos: linux
+        goarch: ${{ matrix.goarch }}
+        md5sum: false
+        sha256sum: true
+        overwrite: true
