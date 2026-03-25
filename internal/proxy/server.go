@@ -49,6 +49,7 @@ type Server struct {
 	approvalCh    chan ApprovalRequest   // → TUI for approval
 	audit          *AuditLog
 	inferenceStats *InferenceStats
+	routes         *RouteTable
 	mitm          *MITMConfig           // nil = tunnel mode, non-nil = MITM mode
 	mu            sync.RWMutex
 	nextID        int
@@ -64,6 +65,7 @@ func NewServer(port int, approvalCh chan ApprovalRequest) *Server {
 		approvalCh:    approvalCh,
 		audit:          NewAuditLog(500),
 		inferenceStats: NewInferenceStats(),
+		routes:         NewRouteTable(),
 		timeout:       30 * time.Second,
 	}
 }
@@ -119,6 +121,8 @@ func (s *Server) GetAllowlist(container string) *Allowlist {
 func (s *Server) Audit() *AuditLog { return s.audit }
 
 func (s *Server) InferenceStats() *InferenceStats { return s.inferenceStats }
+
+func (s *Server) Routes() *RouteTable { return s.routes }
 
 
 

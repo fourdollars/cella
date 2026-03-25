@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"strings"
 	"crypto/tls"
 	"io"
 	"net"
@@ -57,6 +58,7 @@ func (t *TransparentListener) handleMITMTransparent(
 		container: container,
 		server:    t.server,
 		stats:     t.server.inferenceStats,
+		routes:    t.server.routes,
 	}
 
 	// Detect protocol from ALPN negotiation
@@ -85,14 +87,31 @@ type mitmHandler struct {
 	container string
 	server    *Server
 	stats     *InferenceStats
+	routes    *RouteTable
 }
 
 func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 
-	// Build upstream URL
-	r.URL.Scheme = "https"
-	r.URL.Host = h.domain
+	// Check route table for inference routing
+	routed := false
+	if h.routes != nil {
+		if route := h.routes.Get(h.domain); route != nil {
+			// Redirect to alternative backend
+			scheme := route.BackendScheme
+			if scheme == "" { scheme = "https" }
+			r.URL.Scheme = scheme
+			r.URL.Host = route.BackendHost
+			if route.PathPrefix != "" && !strings.HasPrefix(r.URL.Path, route.PathPrefix) {
+				r.URL.Path = route.PathPrefix + r.URL.Path
+			}
+			routed = true
+		}
+	}
+	if !routed {
+		r.URL.Scheme = "https"
+		r.URL.Host = h.domain
+	}
 	r.RequestURI = ""
 	removeHopByHopHeaders(r.Header)
 

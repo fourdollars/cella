@@ -48,6 +48,7 @@ const (
 	panelEvents
 	panelAudit
 	panelInference
+	panelRouting
 )
 
 const tickInterval = 2 * time.Second
@@ -249,6 +250,11 @@ type App struct {
 	auditFilterText   string
 	auditStatusFilter string
 	inferenceScroll   int
+	routingCursor    int
+	routingInputMode bool
+	routingInputStep int
+	routingInputBuf  string
+	routingNewRoute  proxy.InferenceRoute
 
 	// Search / filter by name
 	searchMode   bool
@@ -639,6 +645,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelEvents {
 			return a.handleEventsPanel(msg)
 		}
+		if a.focus == panelRouting {
+			return a.handleRoutingPanel(msg)
+		}
 		if a.focus == panelInference {
 			return a.handleInferencePanel(msg)
 		}
@@ -921,6 +930,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.auditScroll = 0
 			a.prevFocus = a.focus
 			a.focus = panelAudit
+			return a, nil
+		case "R":
+			// Inference routing panel
+			a.routingCursor = 0
+			a.prevFocus = a.focus
+			a.focus = panelRouting
 			return a, nil
 		case "M":
 			// Inference stats panel
@@ -1587,6 +1602,8 @@ func (a App) View() string {
 		dashboard = a.renderEventsPanel()
 	case panelInference:
 		dashboard = a.renderInferencePanel()
+	case panelRouting:
+		dashboard = a.renderRoutingPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -1686,7 +1703,12 @@ func (a App) renderStatusBar() string {
 	case panelEvents:
 		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
 	case panelInference:
-		return " INFERENCE STATS │ ↑↓ scroll │ M: refresh │ Esc: back"
+		return " INFERENCE STATS │ ↑↓ scroll │ S: export │ Esc: back"
+	case panelRouting:
+		if a.routingInputMode {
+			return " ROUTING │ type value → Enter │ Esc: cancel"
+		}
+		return " ROUTING │ ↑↓ select │ Enter: toggle │ a: add │ d: delete │ p: presets │ S: save │ Esc: back"
 	case panelAudit:
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)
