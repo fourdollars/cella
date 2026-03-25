@@ -80,7 +80,7 @@ Feedback, bug reports, and contributions welcome.
 ### Pre-built binary (Linux amd64/arm64)
 
 ```bash
-curl -Lo cella https://github.com/fourdollars/cella/releases/latest/download/cella_linux_amd64
+curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_amd64
 chmod +x cella
 sudo ./cella
 ```
