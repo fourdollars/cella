@@ -5,12 +5,10 @@ on:
     types: [created]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   release:
-    permissions:
-      contents: write
     strategy:
       matrix:
         goarch: [amd64, arm64]
@@ -18,11 +16,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
-    - uses: fourdollars/go-release-action@master
+
+    - uses: actions/setup-go@v5
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        goos: linux
-        goarch: ${{ matrix.goarch }}
-        md5sum: false
-        sha256sum: true
-        overwrite: true
+        go-version-file: go.mod
+
+    - name: Build
+      env:
+        GOOS: linux
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: "0"
+      run: |
+        go build -trimpath -ldflags="-s -w" -o cella_linux_${{ matrix.goarch }} ./cmd/main.go
+
+    - name: SHA256
+      run: sha256sum cella_linux_${{ matrix.goarch }} > cella_linux_${{ matrix.goarch }}.sha256
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          cella_linux_${{ matrix.goarch }}
+          cella_linux_${{ matrix.goarch }}.sha256
