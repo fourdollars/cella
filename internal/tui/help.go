@@ -85,7 +85,7 @@ func (a App) renderHelpOverlay() string {
 	col3 += "\n"
 	col3 += renderSection("Proxy (--proxy)", [][]string{
 		{"A", "Audit panel"},
-		{"M", "Inference stats (RPM/TPM)"},
+		{"M", "Inference stats (RPM/TPM/cost)"},
 		{"y", "Approve once"},
 		{"Y", "Approve always"},
 		{"n", "Deny request"},

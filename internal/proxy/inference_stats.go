@@ -3,6 +3,8 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -13,20 +15,35 @@ type InferenceStats struct {
 	models   map[string]*ModelStats
 	requests []InferenceRequest // ring buffer
 	maxReqs  int
+	// Budget alert threshold (0 = disabled)
+	DailyTokenBudget int64
+	DailyCostBudget  float64 // USD
 }
 
 // ModelStats holds per-model usage data
 type ModelStats struct {
-	Model         string
-	TotalRequests int64
-	TotalTokensIn int64  // prompt tokens
-	TotalTokensOut int64 // completion tokens
-	FirstSeen     time.Time
-	LastSeen      time.Time
-	Errors        int64
-	// RPM/TPM windows
-	minuteRequests []time.Time // timestamps for RPM calculation
-	dayRequests    []time.Time // timestamps for RPD calculation
+	Model          string
+	TotalRequests  int64
+	TotalTokensIn  int64
+	TotalTokensOut int64
+	FirstSeen      time.Time
+	LastSeen       time.Time
+	Errors         int64
+	// History for sparklines (60 one-minute buckets = 1 hour)
+	tpmHistory    []int64     // tokens per minute, last 60 mins
+	rpmHistory    []int64     // requests per minute, last 60 mins
+	historyTime   time.Time   // when the current minute bucket started
+	curBucketTok  int64       // tokens in current minute bucket
+	curBucketReqs int64       // requests in current minute bucket
+	// Rolling windows
+	minuteRequests []timeToken // for RPM/TPM
+	dayRequests    []timeToken // for RPD
+}
+
+type timeToken struct {
+	t        time.Time
+	tokensIn int64
+	tokensOut int64
 }
 
 // InferenceRequest records a single API call
@@ -42,6 +59,68 @@ type InferenceRequest struct {
 	Latency    time.Duration
 	StatusCode int
 	Error      string
+}
+
+// ModelPricing holds cost per 1M tokens for a model
+type ModelPricing struct {
+	InputPer1M  float64 // USD per 1M input tokens
+	OutputPer1M float64 // USD per 1M output tokens
+}
+
+// knownPricing contains known model prices (USD per 1M tokens, as of 2026)
+var knownPricing = map[string]ModelPricing{
+	// GitHub Copilot (approximate)
+	"gpt-5-mini":              {InputPer1M: 0.15, OutputPer1M: 0.60},
+	"gpt-4o":                  {InputPer1M: 2.50, OutputPer1M: 10.00},
+	"gpt-4o-mini":             {InputPer1M: 0.15, OutputPer1M: 0.60},
+	"gpt-4.1":                 {InputPer1M: 2.00, OutputPer1M: 8.00},
+	"gpt-4.1-mini":            {InputPer1M: 0.40, OutputPer1M: 1.60},
+	// Claude
+	"claude-sonnet-4-5":       {InputPer1M: 3.00, OutputPer1M: 15.00},
+	"claude-sonnet-3-5":       {InputPer1M: 3.00, OutputPer1M: 15.00},
+	"claude-opus-4-6":         {InputPer1M: 15.00, OutputPer1M: 75.00},
+	"claude-haiku-3-5":        {InputPer1M: 0.80, OutputPer1M: 4.00},
+	// Gemini
+	"gemini-3.1-pro-preview":  {InputPer1M: 1.25, OutputPer1M: 5.00},
+	"gemini-2.5-pro":          {InputPer1M: 1.25, OutputPer1M: 10.00},
+	"gemini-3-flash-preview":  {InputPer1M: 0.075, OutputPer1M: 0.30},
+	"gemini-2.5-flash":        {InputPer1M: 0.075, OutputPer1M: 0.30},
+}
+
+// GetPricing returns pricing for a model (fuzzy match)
+func GetPricing(model string) (ModelPricing, bool) {
+	// Exact match
+	if p, ok := knownPricing[model]; ok {
+		return p, true
+	}
+	// Fuzzy: check if model name contains a known key
+	modelLower := strings.ToLower(model)
+	for k, p := range knownPricing {
+		if strings.Contains(modelLower, strings.ToLower(k)) {
+			return p, true
+		}
+	}
+	return ModelPricing{}, false
+}
+
+// CalcCost returns the estimated USD cost for given token counts
+func CalcCost(model string, tokIn, tokOut int64) float64 {
+	p, ok := GetPricing(model)
+	if !ok {
+		return 0
+	}
+	return float64(tokIn)/1_000_000*p.InputPer1M + float64(tokOut)/1_000_000*p.OutputPer1M
+}
+
+// FormatCost formats cost as USD string
+func FormatCost(usd float64) string {
+	if usd < 0.001 {
+		return fmt.Sprintf("$%.4f", usd)
+	}
+	if usd < 0.10 {
+		return fmt.Sprintf("$%.3f", usd)
+	}
+	return fmt.Sprintf("$%.2f", usd)
 }
 
 // NewInferenceStats creates a stats tracker
@@ -67,8 +146,11 @@ func (s *InferenceStats) Record(req InferenceRequest) {
 	ms, ok := s.models[req.Model]
 	if !ok {
 		ms = &ModelStats{
-			Model:     req.Model,
-			FirstSeen: req.Time,
+			Model:       req.Model,
+			FirstSeen:   req.Time,
+			tpmHistory:  make([]int64, 0, 60),
+			rpmHistory:  make([]int64, 0, 60),
+			historyTime: req.Time.Truncate(time.Minute),
 		}
 		s.models[req.Model] = ms
 	}
@@ -81,11 +163,39 @@ func (s *InferenceStats) Record(req InferenceRequest) {
 		ms.Errors++
 	}
 
-	ms.minuteRequests = append(ms.minuteRequests, req.Time)
-	ms.dayRequests = append(ms.dayRequests, req.Time)
+	tt := timeToken{t: req.Time, tokensIn: req.TokensIn, tokensOut: req.TokensOut}
+	ms.minuteRequests = append(ms.minuteRequests, tt)
+	ms.dayRequests = append(ms.dayRequests, tt)
+
+	// Update sparkline buckets
+	bucket := req.Time.Truncate(time.Minute)
+	if bucket.After(ms.historyTime) {
+		// New minute — flush current bucket to history
+		ms.tpmHistory = appendBucket(ms.tpmHistory, ms.curBucketTok, 60)
+		ms.rpmHistory = appendBucket(ms.rpmHistory, ms.curBucketReqs, 60)
+		// Fill gaps
+		gap := int(bucket.Sub(ms.historyTime).Minutes()) - 1
+		for i := 0; i < gap && i < 60; i++ {
+			ms.tpmHistory = appendBucket(ms.tpmHistory, 0, 60)
+			ms.rpmHistory = appendBucket(ms.rpmHistory, 0, 60)
+		}
+		ms.curBucketTok = 0
+		ms.curBucketReqs = 0
+		ms.historyTime = bucket
+	}
+	ms.curBucketTok += req.TokensIn + req.TokensOut
+	ms.curBucketReqs++
 }
 
-// GetModelStats returns stats for all models
+func appendBucket(hist []int64, val int64, maxLen int) []int64 {
+	hist = append(hist, val)
+	if len(hist) > maxLen {
+		hist = hist[len(hist)-maxLen:]
+	}
+	return hist
+}
+
+// GetModelStats returns stats for all models, sorted by total requests desc
 func (s *InferenceStats) GetModelStats() []ModelStatsSummary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -98,50 +208,68 @@ func (s *InferenceStats) GetModelStats() []ModelStatsSummary {
 	var result []ModelStatsSummary
 	for _, ms := range s.models {
 		summary := ModelStatsSummary{
-			Model:         ms.Model,
-			TotalRequests: ms.TotalRequests,
-			TotalTokensIn: ms.TotalTokensIn,
+			Model:          ms.Model,
+			TotalRequests:  ms.TotalRequests,
+			TotalTokensIn:  ms.TotalTokensIn,
 			TotalTokensOut: ms.TotalTokensOut,
-			TotalTokens:   ms.TotalTokensIn + ms.TotalTokensOut,
-			Errors:        ms.Errors,
-			FirstSeen:     ms.FirstSeen,
-			LastSeen:      ms.LastSeen,
+			TotalTokens:    ms.TotalTokensIn + ms.TotalTokensOut,
+			Errors:         ms.Errors,
+			FirstSeen:      ms.FirstSeen,
+			LastSeen:       ms.LastSeen,
+			Cost:           CalcCost(ms.Model, ms.TotalTokensIn, ms.TotalTokensOut),
+			// TPM/RPM sparklines — copy current history + current bucket
+			TPMHistory: append(append([]int64{}, ms.tpmHistory...), ms.curBucketTok),
+			RPMHistory: append(append([]int64{}, ms.rpmHistory...), ms.curBucketReqs),
 		}
 
-		// RPM: requests in last minute
-		for _, t := range ms.minuteRequests {
-			if t.After(oneMinAgo) {
-				summary.RPM++
+		// Prune stale window entries
+		var fresh1m, freshDay []timeToken
+		for _, tt := range ms.minuteRequests {
+			if tt.t.After(oneMinAgo) {
+				fresh1m = append(fresh1m, tt)
+			}
+		}
+		for _, tt := range ms.dayRequests {
+			if tt.t.After(oneDayAgo) {
+				freshDay = append(freshDay, tt)
 			}
 		}
 
-		// RPH: requests in last hour
-		for _, t := range ms.dayRequests {
-			if t.After(oneHourAgo) {
+		summary.RPM = int64(len(fresh1m))
+		summary.RPD = int64(len(freshDay))
+
+		// RPH
+		for _, tt := range ms.dayRequests {
+			if tt.t.After(oneHourAgo) {
 				summary.RPH++
 			}
 		}
 
-		// RPD: requests in last day
-		for _, t := range ms.dayRequests {
-			if t.After(oneDayAgo) {
-				summary.RPD++
-			}
+		// TPM
+		for _, tt := range fresh1m {
+			summary.TPM += tt.tokensIn + tt.tokensOut
 		}
 
-		// TPM: tokens in last minute
-		for _, r := range s.requests {
-			if r.Model == ms.Model && r.Time.After(oneMinAgo) {
-				summary.TPM += r.TokensIn + r.TokensOut
-			}
+		// Today's tokens (for budget)
+		for _, tt := range freshDay {
+			summary.TodayTokens += tt.tokensIn + tt.tokensOut
 		}
+		summary.TodayCost = CalcCost(ms.Model, summary.TodayTokens/2, summary.TodayTokens/2) // approximate split
+
+		_, summary.HasPricing = GetPricing(ms.Model)
 
 		result = append(result, summary)
 	}
+
+	// Sort by total requests descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TotalRequests > result[j].TotalRequests
+	})
+
 	return result
 }
 
-// GetRecentRequests returns the last n requests
+// GetRecentRequests returns the last n requests (newest first)
 func (s *InferenceStats) GetRecentRequests(n int) []InferenceRequest {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -149,45 +277,111 @@ func (s *InferenceStats) GetRecentRequests(n int) []InferenceRequest {
 		n = len(s.requests)
 	}
 	result := make([]InferenceRequest, n)
-	copy(result, s.requests[len(s.requests)-n:])
+	// Reverse (newest first)
+	for i, r := range s.requests[len(s.requests)-n:] {
+		result[n-1-i] = r
+	}
 	return result
+}
+
+// TotalCostToday returns the total estimated cost across all models today
+func (s *InferenceStats) TotalCostToday() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	oneDayAgo := time.Now().Add(-24 * time.Hour)
+	var total float64
+	for _, req := range s.requests {
+		if req.Time.After(oneDayAgo) {
+			total += CalcCost(req.Model, req.TokensIn, req.TokensOut)
+		}
+	}
+	return total
 }
 
 // ModelStatsSummary is the display-friendly version
 type ModelStatsSummary struct {
-	Model         string
-	TotalRequests int64
-	TotalTokensIn int64
+	Model          string
+	TotalRequests  int64
+	TotalTokensIn  int64
 	TotalTokensOut int64
-	TotalTokens   int64
-	Errors        int64
-	RPM           int64 // requests per minute
-	RPH           int64 // requests per hour
-	RPD           int64 // requests per day
-	TPM           int64 // tokens per minute
-	FirstSeen     time.Time
-	LastSeen      time.Time
+	TotalTokens    int64
+	TodayTokens    int64
+	Errors         int64
+	RPM            int64
+	RPH            int64
+	RPD            int64
+	TPM            int64
+	Cost           float64 // total estimated cost
+	TodayCost      float64 // today's estimated cost
+	HasPricing     bool
+	TPMHistory     []int64 // last 60 one-minute TPM buckets
+	RPMHistory     []int64 // last 60 one-minute RPM buckets
+	FirstSeen      time.Time
+	LastSeen       time.Time
 }
 
 // ParseInferenceResponse extracts model and token usage from API response body
+// Supports OpenAI /chat/completions, /responses, Anthropic /messages
 func ParseInferenceResponse(body []byte) (model string, tokensIn, tokensOut int64) {
-	var resp struct {
+	// Try OpenAI format first (chat/completions)
+	var openai struct {
 		Model string `json:"model"`
 		Usage struct {
 			PromptTokens     int64 `json:"prompt_tokens"`
 			CompletionTokens int64 `json:"completion_tokens"`
-			TotalTokens      int64 `json:"total_tokens"`
+			InputTokens      int64 `json:"input_tokens"`  // some APIs use this
+			OutputTokens     int64 `json:"output_tokens"` // some APIs use this
 		} `json:"usage"`
 	}
-	if err := json.Unmarshal(body, &resp); err == nil {
-		model = resp.Model
-		tokensIn = resp.Usage.PromptTokens
-		tokensOut = resp.Usage.CompletionTokens
+	if err := json.Unmarshal(body, &openai); err == nil && openai.Model != "" {
+		model = openai.Model
+		tokensIn = openai.Usage.PromptTokens + openai.Usage.InputTokens
+		tokensOut = openai.Usage.CompletionTokens + openai.Usage.OutputTokens
+		if tokensIn > 0 || tokensOut > 0 {
+			return
+		}
+	}
+
+	// Try Anthropic format (/v1/messages)
+	var anthropic struct {
+		Model string `json:"model"`
+		Usage struct {
+			InputTokens  int64 `json:"input_tokens"`
+			OutputTokens int64 `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &anthropic); err == nil && anthropic.Model != "" {
+		model = anthropic.Model
+		tokensIn = anthropic.Usage.InputTokens
+		tokensOut = anthropic.Usage.OutputTokens
+		if tokensIn > 0 || tokensOut > 0 {
+			return
+		}
+	}
+
+	// Try GitHub Copilot /responses format
+	var copilot struct {
+		Model string `json:"model"`
+		Usage struct {
+			InputTokens  int64 `json:"input_tokens"`
+			OutputTokens int64 `json:"output_tokens"`
+			TotalTokens  int64 `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &copilot); err == nil && copilot.Model != "" {
+		model = copilot.Model
+		tokensIn = copilot.Usage.InputTokens
+		tokensOut = copilot.Usage.OutputTokens
+		if tokensIn == 0 && tokensOut == 0 && copilot.Usage.TotalTokens > 0 {
+			// Split total evenly if no breakdown
+			tokensIn = copilot.Usage.TotalTokens / 2
+			tokensOut = copilot.Usage.TotalTokens - tokensIn
+		}
 	}
 	return
 }
 
-// FormatTokens formats token count
+// FormatTokens formats token count compactly
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {
 		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
