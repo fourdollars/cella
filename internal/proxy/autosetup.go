@@ -13,18 +13,30 @@ import (
 	"time"
 )
 
-// AutoSetup configures a container to use the cella proxy.
-// Sets HTTP_PROXY/HTTPS_PROXY env vars and optionally injects the MITM CA cert.
+// AutoSetup configures a container to use the cella transparent proxy.
+//
+// Architecture (Phase 7c onwards):
+//   - nftables REDIRECT on the host intercepts outbound HTTPS from containers
+//     and diverts it to the transparent listener (transparent.go / transparent_listener.go)
+//   - AutoSetup handles only the per-container CA cert injection so that
+//     containers trust the MITM CA for HTTPS interception
+//   - No HTTP_PROXY / HTTPS_PROXY env vars are set — traffic is captured
+//     transparently without changing container configuration (except the CA cert)
+//
+// Note: The struct comment previously said "Sets HTTP_PROXY/HTTPS_PROXY env vars"
+// which referred to a Phase 7a design that was superseded by the transparent
+// proxy in Phase 7c. That old mechanism has been removed.
 type AutoSetup struct {
 	ProxyHost string // host IP reachable from container (e.g., lxdbr0 gateway)
 	ProxyPort int
-	MITMPem   []byte // CA cert PEM (nil = skip MITM setup)
+	MITMPem   []byte // CA cert PEM (nil = skip MITM CA injection)
 }
 
-// SetupContainer configures proxy env + CA cert for a single LXC container.
-// Uses the LXD API via unix socket (same as cella's lxd.Client).
+// SetupContainer injects the MITM CA cert into a container so that it trusts
+// cella's transparent HTTPS proxy. The nftables REDIRECT rule is set up by
+// the caller (transparent.go) before or after this call.
 func (s *AutoSetup) SetupContainer(socketPath, container string) error {
-	// 1. Inject CA cert (for MITM TLS interception + inference routing)
+	// 1. Inject CA cert so the container trusts our MITM TLS interception
 	if len(s.MITMPem) > 0 {
 		_ = lxdExec(socketPath, container, []string{
 			"sh", "-c", "mkdir -p /usr/local/share/ca-certificates",
@@ -42,6 +54,7 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 	}
 
 	// 2. Set NODE_EXTRA_CA_CERTS so Node.js trusts our CA
+	//    (Node.js ignores the system CA store by default)
 	if len(s.MITMPem) > 0 {
 		certPath := "/usr/local/share/ca-certificates/cella-proxy.crt"
 		config := map[string]interface{}{
@@ -53,12 +66,12 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		_ = lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body)
 	}
 
-	// nftables REDIRECT is handled by the caller
-
+	// nftables REDIRECT is set up by the caller (transparent.go)
 	return nil
 }
 
-// RemoveSetup removes proxy configuration from a container
+// RemoveSetup removes the MITM CA cert from a container.
+// The nftables REDIRECT rule is torn down by the caller (transparent.go).
 func (s *AutoSetup) RemoveSetup(socketPath, container string) error {
 	// Remove CA cert
 	_ = lxdExec(socketPath, container, []string{
@@ -66,7 +79,6 @@ func (s *AutoSetup) RemoveSetup(socketPath, container string) error {
 	})
 
 	// nftables REDIRECT removal is handled by the caller (transparent.go)
-
 	return nil
 }
 
@@ -130,7 +142,7 @@ func lxdExec(socketPath, container string, command []string) error {
 	}
 
 	execReq := map[string]interface{}{
-		"command":      command,
+		"command":            command,
 		"wait-for-websocket": false,
 		"record-output":      true,
 	}
@@ -221,10 +233,13 @@ func DetectLXDSocket() string {
 	return ""
 }
 
-// IsContainerProxied checks if a container already has proxy env set
+// IsContainerProxied checks if a container already has cella's CA cert env var set.
+// Note: cella uses transparent proxy (nftables REDIRECT), not HTTP_PROXY env vars.
+// This check detects whether the CA cert has been injected by looking for
+// environment.NODE_EXTRA_CA_CERTS pointing to our cert.
 func IsContainerProxied(config map[string]string) bool {
-	return strings.Contains(config["environment.HTTP_PROXY"], "cella") ||
-		strings.Contains(config["environment.http_proxy"], "cella") ||
-		config["environment.HTTP_PROXY"] != "" ||
-		config["environment.http_proxy"] != ""
+	return strings.Contains(config["environment.NODE_EXTRA_CA_CERTS"], "cella") ||
+		// Legacy check: old Phase 7a used HTTP_PROXY env vars (now removed)
+		strings.Contains(config["environment.HTTP_PROXY"], "cella") ||
+		strings.Contains(config["environment.http_proxy"], "cella")
 }
