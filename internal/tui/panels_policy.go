@@ -349,6 +349,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.policyMode = "import"
 		a.policyInput = ""
 		return a, nil
+	case "Z":
+		// Toggle seccomp notify (live operator approval) for LXD containers
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			return a, a.toggleSeccompNotifyForContainer(c.Name)
+		}
 	}
 	return a, nil
 }

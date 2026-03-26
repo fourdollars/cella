@@ -72,6 +72,7 @@ func (a App) renderHelpOverlay() string {
 		{"T", "Stop trace"},
 		{"G", "Generate seccomp"},
 		{"S", "Save seccomp JSON"},
+		{"Z", "Toggle seccomp notify (live approval)"},
 	})
 
 	// Column 3: General + Proxy

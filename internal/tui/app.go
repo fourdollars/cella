@@ -257,6 +257,10 @@ type App struct {
 	routingInputBuf  string
 	routingNewRoute  proxy.InferenceRoute
 
+	// Seccomp Notify Operator Approval
+	pendingSeccompApproval *SeccompApprovalRequest
+	seccompAllowlist       map[string]map[string]bool // container → syscall → permanently allowed
+
 	// Search / filter by name
 	searchMode   bool
 	searchInput  string
@@ -309,6 +313,11 @@ func (a App) Init() tea.Cmd {
 	// Start listening for proxy approval requests
 	if globalApprovalCh != nil {
 		cmds = append(cmds, listenApprovals(globalApprovalCh))
+	}
+	// Start listening for seccomp syscall approval requests
+	if globalSeccompApprovalCh != nil {
+		cmds = append(cmds, listenSeccompApprovals(globalSeccompApprovalCh))
+		globalListeningSeccompApprovals = true
 	}
 	return tea.Batch(cmds...)
 }
@@ -615,7 +624,12 @@ func fetchSnapshots(rt runtime.Runtime, name string) tea.Cmd {
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Operator approval overlay takes priority over everything
+		// Operator approval overlays take priority over everything else
+		// Seccomp approval (syscall) checked first — container thread is frozen
+		if a.pendingSeccompApproval != nil {
+			return a.handleSeccompApprovalKey(msg)
+		}
+		// Network (proxy) approval checked second
 		if a.pendingApproval != nil {
 			return a.handleApprovalKey(msg)
 		}
@@ -1397,6 +1411,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.addEvent(fmt.Sprintf("🔒 approval needed: %s → %s", req.Container, req.Domain))
 		return a, nil
 
+	case seccompApprovalMsg:
+		req := SeccompApprovalRequest(msg)
+		a.pendingSeccompApproval = &req
+		a.addEvent(fmt.Sprintf("⚠ syscall approval: %s → %s (pid %d)", req.Container, req.Syscall, req.PID))
+		return a, nil
+
+	case seccompNotifyToggleMsg:
+		if msg.enabled {
+			a.addEvent(fmt.Sprintf("🔒 seccomp notify ENABLED: %s — dangerous syscalls require approval", msg.container))
+			a.flashText = fmt.Sprintf("🔒 seccomp notify ON for %s", msg.container)
+		} else {
+			a.addEvent(fmt.Sprintf("🔓 seccomp notify DISABLED: %s", msg.container))
+			a.flashText = fmt.Sprintf("🔓 seccomp notify OFF for %s", msg.container)
+		}
+		a.flashExpiry = time.Now().Add(3 * time.Second)
+		// Re-arm seccomp approval listener if it was just started
+		if msg.enabled && globalSeccompApprovalCh != nil && !globalListeningSeccompApprovals {
+			return a, listenSeccompApprovals(globalSeccompApprovalCh)
+		}
+		return a, nil
+
 	case errMsg:
 		a.fetching = false
 		a.err = msg
@@ -1661,6 +1696,12 @@ func (a App) View() string {
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebarStyled, dashboardStyled)
 
+	// Seccomp (syscall) overlay takes top priority — container thread is frozen
+	seccompOverlay := a.renderSeccompApprovalOverlay()
+	if seccompOverlay != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, header, body, seccompOverlay)
+	}
+	// Network (proxy) approval overlay
 	approvalOverlay := a.renderApprovalOverlay()
 	if approvalOverlay != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, header, body, approvalOverlay)
