@@ -144,7 +144,17 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var model string
 	var tokensIn, tokensOut int64
 	if isInferencePath(r.URL.Path) {
-		model, tokensIn, tokensOut = ParseInferenceResponse(respBody)
+		contentType := resp.Header.Get("Content-Type")
+		if IsStreamingResponse(contentType) {
+			// SSE streaming — scan event stream for usage chunks
+			model, tokensIn, tokensOut = ParseSSETokens(respBody)
+		} else {
+			model, tokensIn, tokensOut = ParseInferenceResponse(respBody)
+		}
+		// Fall back to request body for model name if response didn't include it
+		if model == "" && len(reqBody) > 0 {
+			model = ParseInferenceRequest(reqBody)
+		}
 	}
 
 	// Audit

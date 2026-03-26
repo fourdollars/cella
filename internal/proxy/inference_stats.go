@@ -381,6 +381,115 @@ func ParseInferenceResponse(body []byte) (model string, tokensIn, tokensOut int6
 	return
 }
 
+// ParseInferenceRequest extracts model name from a request body.
+// This ensures model tracking works even when the response body omits the model field.
+func ParseInferenceRequest(body []byte) (model string) {
+	var req struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &req); err == nil {
+		return req.Model
+	}
+	return ""
+}
+
+// ParseSSETokens extracts token usage from a Server-Sent Events (streaming) response.
+// Scans the event stream for the final [DONE] marker and the last usage chunk.
+// Supports OpenAI, Anthropic, and GitHub Copilot streaming formats.
+func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
+	lines := splitLines(body)
+	for _, line := range lines {
+		// SSE data lines start with "data: "
+		if !hasPrefix(line, "data: ") {
+			continue
+		}
+		data := line[6:]
+		if data == "[DONE]" {
+			continue
+		}
+		// Try to parse as a streaming chunk with usage
+		type usageFields struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			InputTokens      int64 `json:"input_tokens"`
+			OutputTokens     int64 `json:"output_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		}
+		var chunk struct {
+			Model   string      `json:"model"`
+			Usage   *usageFields `json:"usage"`
+			// Anthropic message_start: nested message object
+			Message *struct {
+				Model string      `json:"model"`
+				Usage *usageFields `json:"usage"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		// Extract model (top-level or nested in Anthropic message_start)
+		if chunk.Model != "" {
+			model = chunk.Model
+		} else if chunk.Message != nil && chunk.Message.Model != "" {
+			model = chunk.Message.Model
+		}
+		// Extract usage (top-level or nested)
+		usage := chunk.Usage
+		if usage == nil && chunk.Message != nil {
+			usage = chunk.Message.Usage
+		}
+		if usage != nil {
+			if usage.PromptTokens > 0 {
+				tokensIn = usage.PromptTokens
+			}
+			if usage.InputTokens > 0 {
+				tokensIn = usage.InputTokens
+			}
+			if usage.CompletionTokens > 0 {
+				tokensOut = usage.CompletionTokens
+			}
+			if usage.OutputTokens > 0 {
+				tokensOut = usage.OutputTokens
+			}
+			if usage.TotalTokens > 0 && tokensIn == 0 && tokensOut == 0 {
+				tokensIn = usage.TotalTokens / 2
+				tokensOut = usage.TotalTokens - tokensIn
+			}
+		}
+	}
+	return
+}
+
+// IsStreamingResponse returns true if the Content-Type indicates SSE streaming.
+func IsStreamingResponse(contentType string) bool {
+	return hasPrefix(strings.ToLower(contentType), "text/event-stream")
+}
+
+// splitLines splits a byte slice on \n or \r\n
+func splitLines(b []byte) []string {
+	var lines []string
+	start := 0
+	for i := 0; i < len(b); i++ {
+		if b[i] == '\n' {
+			line := string(b[start:i])
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+			lines = append(lines, line)
+			start = i + 1
+		}
+	}
+	if start < len(b) {
+		lines = append(lines, string(b[start:]))
+	}
+	return lines
+}
+
+// hasPrefix is a helper to avoid importing strings in test files
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
 // FormatTokens formats token count compactly
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {
