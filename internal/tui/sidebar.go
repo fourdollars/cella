@@ -152,6 +152,12 @@ func (a App) renderSidebar() string {
 			traceIcon = "🔬"
 		}
 
+		// Show syscall blocking indicator (⛔ = security.syscalls.deny active)
+		blockIcon := ""
+		if a.syscallBlocked != nil && a.syscallBlocked[c.Name] {
+			blockIcon = "⛔"
+		}
+
 		name := c.Name
 		nameMax := a.sidebarNameMax()
 		// 🔬 trace icon takes 2 terminal cells — shrink name to compensate
@@ -174,7 +180,7 @@ func (a App) renderSidebar() string {
 			rightInfo = fmt.Sprintf("%10s", strings.ToLower(c.Status))
 		}
 
-		line := fmt.Sprintf("%2d%s%s%s%-*s%s", i, indicator, rtIcon, traceIcon, nameMax, name, rightInfo)
+		line := fmt.Sprintf("%2d%s%s%s%s%-*s%s", i, indicator, rtIcon, traceIcon, blockIcon, nameMax, name, rightInfo)
 
 		if i == a.selected {
 			line = SelectedContainerStyle.Render("▸" + line)

@@ -231,6 +231,8 @@ type App struct {
 	policyAppArmor   string // current AppArmor profile
 	policyPrivileged bool
 	policyNesting    bool
+	policyDenyList   []string          // security.syscalls.deny active list
+	syscallBlocked   map[string]bool   // container name → syscall blocking active
 
 	// DNS monitor (H panel)
 	dnsMonitor *security.DNSMonitor
@@ -1228,6 +1230,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.policyAppArmor = msg.apparmor
 			a.policyPrivileged = msg.privileged
 			a.policyNesting = msg.nesting
+			a.policyDenyList = msg.syscallDeny
+			// Update per-container blocking state map
+			if a.selected < len(a.containers) {
+				name := a.containers[a.selected].Name
+				if a.syscallBlocked == nil {
+					a.syscallBlocked = make(map[string]bool)
+				}
+				a.syscallBlocked[name] = len(msg.syscallDeny) > 0
+			}
 		}
 		return a, nil
 
@@ -1435,6 +1446,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flashText = fmt.Sprintf("🔓 seccomp notify OFF for %s", msg.container)
 		}
 		a.flashExpiry = time.Now().Add(3 * time.Second)
+		// Keep sidebar icon in sync
+		if a.syscallBlocked == nil {
+			a.syscallBlocked = make(map[string]bool)
+		}
+		a.syscallBlocked[msg.container] = msg.enabled
 		// Re-arm seccomp approval listener if it was just started
 		if msg.enabled && globalSeccompApprovalCh != nil && !globalListeningSeccompApprovals {
 			return a, listenSeccompApprovals(globalSeccompApprovalCh)

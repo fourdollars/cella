@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/security"
 )
@@ -16,12 +17,13 @@ import (
 // ── Policy info message type ──
 
 type policyInfoMsg struct {
-	egress     string
-	seccomp    string
-	apparmor   string
-	privileged bool
-	nesting    bool
-	err        error
+	egress      string
+	seccomp     string
+	apparmor    string
+	privileged  bool
+	nesting     bool
+	syscallDeny []string // security.syscalls.deny list (empty = not set)
+	err         error
 }
 
 // ── Fetch policy info ──
@@ -87,12 +89,29 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				privileged = true
 			}
 
+			// Read syscall deny list (security.syscalls.deny)
+			var syscallDenyList []string
+			out4, err4 := exec.Command("lxc", "config", "get", name, "security.syscalls.deny").CombinedOutput()
+			if err4 == nil {
+				raw4 := strings.TrimSpace(string(out4))
+				if raw4 != "" {
+					for _, part := range strings.Fields(raw4) {
+						// strip :errno=N suffix
+						if idx := strings.Index(part, ":"); idx >= 0 {
+							part = part[:idx]
+						}
+						syscallDenyList = append(syscallDenyList, part)
+					}
+				}
+			}
+
 			return policyInfoMsg{
-				egress:     egress,
-				seccomp:    seccompName,
-				apparmor:   apparmorName,
-				privileged: privileged,
-				nesting:    nesting,
+				egress:      egress,
+				seccomp:     seccompName,
+				apparmor:    apparmorName,
+				privileged:  privileged,
+				nesting:     nesting,
+				syscallDeny: syscallDenyList,
 			}
 		} else {
 			apparmorName = "(docker default)"
@@ -424,6 +443,28 @@ func (a App) renderPolicyPanel() string {
 			indicator = "▸ "
 		}
 		b.WriteString(fmt.Sprintf("  %s[%s] %s\n", indicator, p.key, p.name))
+	}
+	b.WriteString("\n")
+
+	// Syscall Blocking section (security.syscalls.deny)
+	b.WriteString(SectionHeaderStyle.Render("Syscall Blocking (LXD BPF Deny)") + "\n")
+	if len(a.policyDenyList) > 0 {
+		activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c"))
+		b.WriteString(fmt.Sprintf("  Status: %s\n", activeStyle.Render("⛔ ACTIVE")))
+		// Show first 8 blocked syscalls to avoid overflow
+		shown := a.policyDenyList
+		if len(shown) > 8 {
+			shown = shown[:8]
+		}
+		b.WriteString(fmt.Sprintf("  Blocked: %s", strings.Join(shown, ", ")))
+		if len(a.policyDenyList) > 8 {
+			b.WriteString(fmt.Sprintf(" (+%d more)", len(a.policyDenyList)-8))
+		}
+		b.WriteString("\n")
+		b.WriteString("  [Z] Disable blocking\n")
+	} else {
+		b.WriteString("  Status: 🟢 off\n")
+		b.WriteString("  [Z] Enable (blocks ptrace/mount/bpf/kexec…)\n")
 	}
 	b.WriteString("\n")
 
