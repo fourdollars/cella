@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="cella — LXC/LXD & Docker container management TUI with real-time metrics, syscall tracing, HTTP interception, and inference monitoring">
+    <meta name="description" content="cella — LXC/LXD & Docker container management TUI with real-time metrics, dual-mode syscall monitoring (passive bpftrace + active LXD BPF blocking), HTTP interception, and inference monitoring">
     <meta name="keywords" content="cella, LXD, LXC, Docker, container management, TUI, terminal, Go, syscall tracing, MITM, inference monitoring">
     <meta name="author" content="Shih-Yuan Lee">
     <title>cella — Container Management TUI</title>
@@ -293,9 +293,9 @@
             syscall tracing, HTTPS interception, and AI inference monitoring. Single binary, SSH-ready.
         </p>
         <div class="badges">
-            <span class="badge badge-go">Go 12,400+ lines</span>
+            <span class="badge badge-go">Go 14,500+ lines</span>
             <span class="badge badge-lxd">LXD + Docker</span>
-            <span class="badge badge-sec">18 TUI Panels</span>
+            <span class="badge badge-sec">19 TUI Panels</span>
             <span class="badge badge-obs">MITM Interception</span>
             <span class="badge badge-mit">Inference Stats</span>
         </div>
@@ -341,7 +341,7 @@
                 <div class="stat-label">Lines of Go</div>
             </div>
             <div>
-                <div class="stat-value">18</div>
+                <div class="stat-value">19</div>
                 <div class="stat-label">TUI Panels</div>
             </div>
             <div>
@@ -386,8 +386,8 @@
             </div>
             <div class="feature-card">
                 <div class="feature-icon fi-blue">🔬</div>
-                <h3>Syscall Tracing</h3>
-                <p>bpftrace-powered syscall monitoring per container. 7 family categories, top-12 table, activity sparkline, and auto-generate minimal OCI seccomp JSON.</p>
+                <h3>🔬 Syscall Monitoring — Dual Mode</h3>
+                <p><strong>Passive (always-on):</strong> bpftrace samples all syscall activity — 7 family categories, top-12 table, sparkline, auto-generate OCI seccomp JSON.<br><strong>Active blocking (opt-in):</strong> <code>Z</code> key applies <code>security.syscalls.deny</code> via LXD API — blocks dangerous syscalls (<code>ptrace</code>, <code>mount</code>, <code>bpf</code>, <code>kexec_load</code>…) with EPERM. Operator approval overlay fires when bpftrace detects an attempt.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon fi-red">🔐</div>
@@ -476,7 +476,7 @@ go build -o cella ./cmd/main.go</code>
 <!-- PANELS -->
 <section class="panels" id="panels">
     <div class="container">
-        <h2 class="section-title">18 TUI Panels</h2>
+        <h2 class="section-title">19 TUI Panels</h2>
         <p class="section-subtitle">Keyboard-driven, zero mouse required</p>
         <div class="panel-grid">
             <div class="panel-item">
@@ -512,12 +512,17 @@ go build -o cella ./cmd/main.go</code>
             <div class="panel-item">
                 <div class="panel-key">t / G</div>
                 <div class="panel-name">🔬 Syscall Trace</div>
-                <div class="panel-desc">bpftrace + seccomp generator</div>
+                <div class="panel-desc">bpftrace passive monitoring + seccomp generator</div>
             </div>
             <div class="panel-item">
                 <div class="panel-key">P</div>
                 <div class="panel-name">🛡️ Policy</div>
                 <div class="panel-desc">Seccomp + AppArmor + egress</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">Z</div>
+                <div class="panel-name">⛔ Syscall Block</div>
+                <div class="panel-desc">Toggle LXD BPF syscall deny (per-container)</div>
             </div>
             <div class="panel-item">
                 <div class="panel-key">D</div>

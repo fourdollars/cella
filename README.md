@@ -34,11 +34,15 @@ Feedback, bug reports, and contributions welcome.
 - **Per-CPU** — individual CPU core bars for pinned containers
 - **Host resources** — total CPU, memory, load average as reference
 
-### 🔬 Syscall Tracing
-- Live per-container syscall activity via **bpftrace** (eBPF)
-- Family breakdown: file, network, process, memory, signal, ipc
-- Top-12 syscall table with activity sparkline
-- **Seccomp profile generator** — observe syscalls, generate OCI seccomp JSON with one key
+### 🔬 Syscall Monitoring — Dual Mode
+- **Passive monitoring** (always-on): bpftrace samples all syscall activity every 5s
+  - Family breakdown: file, network, process, memory, signal, ipc
+  - Top-12 syscall table with activity sparkline
+  - **Seccomp profile generator** — observe syscalls, generate OCI seccomp JSON (`G` key)
+- **Active blocking** (per-container, opt-in): `Z` key in Policy panel
+  - Applies `security.syscalls.deny` BPF filter via LXD API
+  - Blocks dangerous syscalls (`ptrace`, `mount`, `bpf`, `kexec_load`, etc.) with EPERM
+  - Operator approval overlay: bpftrace detects attempts → `[y]` unblock once / `[Y]` permanent / `[n]` keep blocked
 
 ### 🔐 HTTPS Interception + Operator Approval *(WIP)*
 - Transparent MITM proxy via **nftables REDIRECT** — no proxy env vars needed
@@ -136,6 +140,7 @@ sudo ./cella
 | `n` | Snapshots & clone |
 | `t` / `T` | Start / stop syscall trace |
 | `G` / `S` | Generate / save seccomp profile |
+| `Z` | Toggle syscall blocking (Policy panel — applies `security.syscalls.deny`) |
 | `P` | Security policy panel |
 | `D` | DNS monitor panel |
 | `A` | **API audit panel** (HTTPS interception) |
@@ -163,7 +168,7 @@ sudo ./cella
 cella is written in Go using [Bubbletea](https://github.com/charmbracelet/bubbletea) for the TUI. It communicates with LXD via its Unix socket REST API, and with Docker via the Docker socket.
 
 ```
-cella (~13MB binary)
+cella (~14MB binary, 14,500+ lines of Go)
 ├── cmd/            CLI entry point (cobra)
 ├── internal/
 │   ├── proxy/      HTTP interception, MITM, audit, inference routing
@@ -171,7 +176,7 @@ cella (~13MB binary)
 │   ├── security/   Seccomp, AppArmor, egress, DNS monitor
 │   ├── trace/      bpftrace-based syscall tracing + seccomp generator
 │   ├── runtime/    LXD + Docker runtime abstraction
-│   ├── lxd/        LXD REST API client
+│   ├── lxd/        LXD REST API client + seccomp syscall blocking
 │   └── metrics/    cgroup v2 metrics
 └── docs/           GitHub Pages site
 ```
@@ -184,7 +189,8 @@ cella (~13MB binary)
 |---------|--------|
 | Container management | ✅ Stable |
 | Real-time metrics | ✅ Stable |
-| Syscall tracing | ✅ Stable |
+| Syscall tracing (bpftrace) | ✅ Stable |
+| Syscall blocking (LXD BPF deny) | ✅ Stable |
 | Security policy | ✅ Stable |
 | HTTPS interception | 🚧 WIP |
 | Inference stats | 🚧 WIP |
