@@ -927,6 +927,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.focus = panelPolicy
 				return a, a.fetchPolicyInfo(c)
 			}
+		case "Z":
+			// Toggle syscall blocking (LXD BPF deny) for selected container — works from any panel
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				if c.Runtime != "lxd" {
+					return a, a.setFlash("❌ Syscall blocking only supported for LXD containers")
+				}
+				return a, a.toggleSeccompNotifyForContainer(c.Name)
+			}
 		case "D":
 			// DNS Monitor panel
 			if a.dnsMonitor == nil {
