@@ -62,44 +62,43 @@ func (a App) renderHelpOverlay() string {
 		{"r", "Resource limits"},
 		{"n", "Snapshots/Clone"},
 		{"V", "Recent events"},
-		{"A", "API audit log"},
+		{"M", "Inference stats (RPM/TPM/cost)"},
+		{"R", "Inference routing"},
 	})
 	col2 += "\n"
 	col2 += renderSection("Security Panels", [][]string{
-		{"P", "Policy (seccomp/egress)"},
+		{"P", "Policy (seccomp/egress/AppArmor)"},
+		{"Z", "Toggle syscall blocking (LXD BPF deny)"},
 		{"D", "DNS monitor"},
-		{"t", "Start syscall trace"},
-		{"T", "Stop trace"},
-		{"G", "Generate seccomp"},
+		{"t", "Start syscall trace (bpftrace)"},
+		{"T", "Stop syscall trace"},
+		{"G", "Generate seccomp profile from trace"},
 		{"S", "Save seccomp JSON"},
-		{"Z", "Toggle seccomp notify (live approval)"},
 	})
 
-	// Column 3: General + Proxy
-	col3 := renderSection("General", [][]string{
-		{"E", "Export config JSON"},
-		{"I", "Import config"},
-		{"?", "This help"},
-		{"q", "Quit"},
-		{"esc", "Back / close"},
-	})
-	col3 += "\n"
-	col3 += renderSection("Proxy (--proxy)", [][]string{
-		{"A", "Audit panel"},
-		{"M", "Inference stats (RPM/TPM/cost)"},
-		{"R", "Inference routing"},
-		{"y", "Approve once"},
-		{"Y", "Approve always"},
+	// Column 3: HTTPS Interception + General
+	col3 := renderSection("HTTPS Interception", [][]string{
+		{"A", "API audit log + interception setup"},
+		{"y", "Approve request (once)"},
+		{"Y", "Approve request (always)"},
 		{"n", "Deny request"},
 	})
 	col3 += "\n"
 	col3 += renderSection("In Audit Panel", [][]string{
 		{"/", "Filter text"},
-		{"f", "Filter status"},
-		{"S", "Export JSON"},
+		{"f", "Filter by status"},
+		{"S", "Export audit JSON"},
 		{"c", "Clear log"},
-		{"p", "Setup proxy on container"},
-		{"u", "Undo proxy setup"},
+		{"p", "Setup HTTPS interception (container)"},
+		{"u", "Remove interception setup"},
+	})
+	col3 += "\n"
+	col3 += renderSection("General", [][]string{
+		{"E", "Export config JSON"},
+		{"I", "Import config"},
+		{"?", "This help"},
+		{"q", "Quit"},
+		{"esc", "Back / close"},
 	})
 
 	// Render columns side by side
