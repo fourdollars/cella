@@ -220,44 +220,55 @@ func startSeccompApprovalListener(
 	}()
 }
 
-// ── Z key: toggle seccomp notify per container ──────────────────────────────
+// ── Z key: toggle dangerous syscall blocking per container ──────────────────
 
-// toggleSeccompNotifyForContainer enables or disables LXD seccomp notify for a
+// toggleSeccompNotifyForContainer toggles dangerous syscall blocking for a
 // container. Called from handlePolicyPanel when the operator presses "Z".
 //
-//   Enable:  sets security.seccomp.notify=true on the container via LXD API,
-//            initialises globalSeccompApprovalCh, and starts the listener goroutine.
-//            Subsequent dangerous syscalls will freeze the container and surface
-//            the approval overlay.
+// Implementation uses LXD's security.syscalls.deny BPF filter syntax to
+// block the DangerousSyscalls list at the container level. This is the
+// correct LXD v5.x API for syscall restrictions — the old seccomp notify
+// REST endpoint does not exist in LXD v5.x.
 //
-//   Disable: clears security.seccomp.notify; the listener goroutine keeps running
-//            but receives no new events from this container.
+//   Enable:  applies security.syscalls.deny with the DangerousSyscalls list,
+//            so dangerous syscalls return EPERM. bpftrace monitoring continues
+//            to show syscall activity. The TUI approval overlay fires when
+//            bpftrace detects a dangerous syscall attempt.
+//
+//   Disable: clears security.syscalls.deny, restoring unrestricted access.
+//
+// Note: LXD requires a container restart to apply seccomp filter changes.
+// cella applies the filter and warns the operator if the container is running.
 func (a *App) toggleSeccompNotifyForContainer(containerName string) tea.Cmd {
 	return func() tea.Msg {
 		if a.client == nil {
-			return errMsg(fmt.Errorf("seccomp notify requires LXD client"))
+			return errMsg(fmt.Errorf("syscall blocking requires LXD client"))
 		}
 		ctx := context.Background()
 
-		cfg, err := a.client.GetContainerConfig(ctx, containerName)
+		// Check current deny list to determine toggle direction
+		current, err := a.client.GetSyscallDenyList(ctx, containerName)
 		if err != nil {
-			return errMsg(fmt.Errorf("get container config: %w", err))
+			return errMsg(fmt.Errorf("get syscall deny list: %w", err))
 		}
 
-		currentlyEnabled := cfg.Config["security.seccomp.notify"] == "true"
+		currentlyEnabled := len(current) > 0
 
 		if currentlyEnabled {
-			if err := a.client.DisableSeccompNotify(ctx, containerName); err != nil {
-				return errMsg(fmt.Errorf("disable seccomp notify: %w", err))
+			// Disable: clear the deny list
+			if err := a.client.SetSyscallDenyList(ctx, containerName, nil); err != nil {
+				return errMsg(fmt.Errorf("clear syscall deny list: %w", err))
 			}
 			return seccompNotifyToggleMsg{container: containerName, enabled: false}
 		}
 
-		if err := a.client.EnableSeccompNotify(ctx, containerName); err != nil {
-			return errMsg(fmt.Errorf("enable seccomp notify: %w", err))
+		// Enable: apply DangerousSyscalls deny list
+		if err := a.client.SetSyscallDenyList(ctx, containerName, lxd.DangerousSyscalls); err != nil {
+			return errMsg(fmt.Errorf("set syscall deny list: %w", err))
 		}
 
-		// Initialise global channel and listener (idempotent — only once per process)
+		// Initialise bpftrace-based approval channel (idempotent — only once per process)
+		// The approval overlay fires when bpftrace detects a dangerous syscall attempt.
 		if globalSeccompApprovalCh == nil {
 			globalSeccompApprovalCh = make(chan SeccompApprovalRequest, 16)
 		}
