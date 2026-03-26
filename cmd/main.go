@@ -32,6 +32,16 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 
 	rootCmd.AddCommand(listCmd())
 	rootCmd.AddCommand(execCmd())
+	rootCmd.AddCommand(startCmd())
+	rootCmd.AddCommand(stopCmd())
+	rootCmd.AddCommand(pauseCmd())
+	rootCmd.AddCommand(unpauseCmd())
+	rootCmd.AddCommand(logsCmd())
+	rootCmd.AddCommand(snapshotCmd())
+	rootCmd.AddCommand(cloneCmd())
+	rootCmd.AddCommand(infoCmd())
+	rootCmd.AddCommand(createContainerCmd())
+	rootCmd.AddCommand(deleteContainerCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
