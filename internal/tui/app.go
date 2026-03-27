@@ -232,6 +232,8 @@ type App struct {
 	policyPrivileged bool
 	policyNesting    bool
 	policyDenyList   []string          // security.syscalls.deny active list
+	policyDevLXD     bool              // security.devlxd enabled
+	policyIdmapIso   bool              // security.idmap.isolated enabled
 	syscallBlocked   map[string]bool   // container name → syscall blocking active
 
 	// DNS monitor (H panel)
@@ -1231,6 +1233,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.policyPrivileged = msg.privileged
 			a.policyNesting = msg.nesting
 			a.policyDenyList = msg.syscallDeny
+			a.policyDevLXD = msg.devlxd
+			a.policyIdmapIso = msg.idmapIso
 			// Update per-container blocking state map
 			if a.selected < len(a.containers) {
 				name := a.containers[a.selected].Name

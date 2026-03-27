@@ -67,13 +67,23 @@ func (a App) renderHelpOverlay() string {
 	})
 	col2 += "\n"
 	col2 += renderSection("Security Panels", [][]string{
-		{"P", "Policy (seccomp/egress/AppArmor)"},
+		{"P", "Policy (seccomp/egress/AppArmor/flags)"},
 		{"Z", "Toggle syscall blocking (LXD BPF deny)"},
 		{"D", "DNS monitor"},
 		{"t", "Start syscall trace (bpftrace)"},
 		{"T", "Stop syscall trace"},
 		{"G", "Generate seccomp profile from trace"},
 		{"S", "Save seccomp JSON"},
+	})
+	col2 += "\n"
+	col2 += renderSection("In Policy Panel", [][]string{
+		{"[P]", "Toggle security.privileged"},
+		{"[N]", "Toggle security.nesting"},
+		{"[V]", "Toggle security.devlxd"},
+		{"[M]", "Toggle idmap.isolated"},
+		{"1-3", "Apply seccomp profile"},
+		{"4-7", "Apply AppArmor profile"},
+		{"a/d", "Add/remove egress rule"},
 	})
 
 	// Column 3: HTTPS Interception + General

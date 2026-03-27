@@ -22,6 +22,8 @@ type policyInfoMsg struct {
 	apparmor    string
 	privileged  bool
 	nesting     bool
+	devlxd      bool
+	idmapIso    bool
 	syscallDeny []string // security.syscalls.deny list (empty = not set)
 	err         error
 }
@@ -79,7 +81,7 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			}
 
 			// Check security flags
-			var privileged, nesting bool
+			var privileged, nesting, devlxd, idmapIso bool
 			out2, err2 := exec.Command("lxc", "config", "get", name, "security.nesting").CombinedOutput()
 			if err2 == nil && strings.TrimSpace(string(out2)) == "true" {
 				nesting = true
@@ -87,6 +89,16 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			out3, err3 := exec.Command("lxc", "config", "get", name, "security.privileged").CombinedOutput()
 			if err3 == nil && strings.TrimSpace(string(out3)) == "true" {
 				privileged = true
+			}
+			out5, err5 := exec.Command("lxc", "config", "get", name, "security.devlxd").CombinedOutput()
+			if err5 == nil && strings.TrimSpace(string(out5)) == "false" {
+				devlxd = false
+			} else {
+				devlxd = true // default is enabled
+			}
+			out6, err6 := exec.Command("lxc", "config", "get", name, "security.idmap.isolated").CombinedOutput()
+			if err6 == nil && strings.TrimSpace(string(out6)) == "true" {
+				idmapIso = true
 			}
 
 			// Read syscall deny list (security.syscalls.deny)
@@ -111,6 +123,8 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				apparmor:    apparmorName,
 				privileged:  privileged,
 				nesting:     nesting,
+				devlxd:      devlxd,
+				idmapIso:    idmapIso,
 				syscallDeny: syscallDenyList,
 			}
 		} else {
@@ -374,6 +388,66 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			c := a.containers[a.selected]
 			return a, a.toggleSeccompNotifyForContainer(c.Name)
 		}
+	case "P":
+		// Toggle security.privileged
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			newVal := "true"
+			if a.policyPrivileged {
+				newVal = "false"
+			}
+			if out, err := exec.Command("lxc", "config", "set", c.Name, "security.privileged", newVal).CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ privileged: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 %s security.privileged → %s", c.Name, newVal))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "N":
+		// Toggle security.nesting
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			newVal := "true"
+			if a.policyNesting {
+				newVal = "false"
+			}
+			if out, err := exec.Command("lxc", "config", "set", c.Name, "security.nesting", newVal).CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ nesting: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 %s security.nesting → %s", c.Name, newVal))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "V":
+		// Toggle security.devlxd
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			newVal := "false"
+			if !a.policyDevLXD {
+				newVal = "true"
+			}
+			if out, err := exec.Command("lxc", "config", "set", c.Name, "security.devlxd", newVal).CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ devlxd: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 %s security.devlxd → %s", c.Name, newVal))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
+	case "M":
+		// Toggle security.idmap.isolated
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			c := a.containers[a.selected]
+			newVal := "true"
+			if a.policyIdmapIso {
+				newVal = "false"
+			}
+			if out, err := exec.Command("lxc", "config", "set", c.Name, "security.idmap.isolated", newVal).CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ idmap.isolated: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 %s security.idmap.isolated → %s", c.Name, newVal))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
 	}
 	return a, nil
 }
@@ -534,8 +608,18 @@ func (a App) renderPolicyPanel() string {
 	if a.policyNesting {
 		nestIcon = "🟡 on"
 	}
-	b.WriteString(fmt.Sprintf("  Privileged:  %s\n", privIcon))
-	b.WriteString(fmt.Sprintf("  Nesting:     %s\n", nestIcon))
+	devlxdIcon := "🟢 on"
+	if !a.policyDevLXD {
+		devlxdIcon = "⚫ off"
+	}
+	idmapIcon := "⚫ off"
+	if a.policyIdmapIso {
+		idmapIcon = "🟡 on"
+	}
+	b.WriteString(fmt.Sprintf("  [P] Privileged:       %s\n", privIcon))
+	b.WriteString(fmt.Sprintf("  [N] Nesting:          %s\n", nestIcon))
+	b.WriteString(fmt.Sprintf("  [V] DevLXD:           %s\n", devlxdIcon))
+	b.WriteString(fmt.Sprintf("  [M] Idmap Isolated:   %s\n", idmapIcon))
 
 	return b.String()
 }
