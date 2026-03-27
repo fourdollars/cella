@@ -390,8 +390,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "P":
 		// Toggle security.privileged
-		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ security.privileged: LXD only")
+				return a, nil
+			}
 			newVal := "true"
 			if a.policyPrivileged {
 				newVal = "false"
@@ -405,8 +409,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "N":
 		// Toggle security.nesting
-		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ security.nesting: LXD only")
+				return a, nil
+			}
 			newVal := "true"
 			if a.policyNesting {
 				newVal = "false"
@@ -420,8 +428,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "V":
 		// Toggle security.devlxd
-		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ security.devlxd: LXD only")
+				return a, nil
+			}
 			newVal := "false"
 			if !a.policyDevLXD {
 				newVal = "true"
@@ -435,8 +447,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "M":
 		// Toggle security.idmap.isolated
-		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ security.idmap.isolated: LXD only")
+				return a, nil
+			}
 			newVal := "true"
 			if a.policyIdmapIso {
 				newVal = "false"
@@ -616,10 +632,16 @@ func (a App) renderPolicyPanel() string {
 	if a.policyIdmapIso {
 		idmapIcon = "🟡 on"
 	}
-	b.WriteString(fmt.Sprintf("  [P] Privileged:       %s\n", privIcon))
-	b.WriteString(fmt.Sprintf("  [N] Nesting:          %s\n", nestIcon))
-	b.WriteString(fmt.Sprintf("  [V] DevLXD:           %s\n", devlxdIcon))
-	b.WriteString(fmt.Sprintf("  [M] Idmap Isolated:   %s\n", idmapIcon))
+
+	keyHint := lipgloss.NewStyle().Foreground(lipgloss.Color("#f0a500")).Bold(true)
+	fmtFlag := func(short, label, value string) string {
+		return fmt.Sprintf("  (%s)%s: %s\n", keyHint.Render(short), label, value)
+	}
+	b.WriteString(fmtFlag("P", "rivileged", privIcon))
+	b.WriteString(fmtFlag("N", "esting", nestIcon))
+	b.WriteString(fmtFlag("V", "DevLXD", devlxdIcon))
+	b.WriteString(fmtFlag("M", "IdmapIsolated", idmapIcon))
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Press key to toggle · (r) refresh") + "\n")
 
 	return b.String()
 }
