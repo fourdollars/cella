@@ -398,6 +398,21 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "]":
 		a.policyScroll++
 		return a, nil
+	case "0":
+		// Reset seccomp to LXD default (unset raw.lxc)
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ seccomp reset: LXD only")
+				return a, nil
+			}
+			if out, err := exec.Command("lxc", "config", "unset", c.Name, "raw.lxc").CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ seccomp reset: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🛡 %s seccomp → default (raw.lxc unset)", c.Name))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
 	case "1":
 		// Apply strict seccomp
 		if a.selected < len(a.containers) {
@@ -750,7 +765,7 @@ func (a App) renderPolicyPanel() string {
 	seccomp := a.policySeccomp
 	if seccomp == "" { seccomp = "(loading...)" }
 	left.WriteString(fmt.Sprintf("  %s\n", seccomp))
-	for _, p := range []struct{ key, name string }{{"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}} {
+	for _, p := range []struct{ key, name string }{{"0", "default"}, {"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}} {
 		ind := "  "
 		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) { ind = "▸ " }
 		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
