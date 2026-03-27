@@ -234,6 +234,17 @@ type App struct {
 	policyDenyList   []string          // security.syscalls.deny active list
 	policyDevLXD     bool              // security.devlxd enabled
 	policyIdmapIso   bool              // security.idmap.isolated enabled
+	// security.syscalls.intercept.*
+	policyInterceptMknod     bool
+	policyInterceptBpf       bool
+	policyInterceptBpfDev    bool
+	policyInterceptSetxattr  bool
+	policyInterceptSched     bool
+	policyInterceptSysinfo   bool
+	policyInterceptMount     bool
+	policyInterceptMountShift bool
+	policyInterceptMountFuse  string // e.g. "ext4=fuse2fs"
+	policyInterceptMountAllow string // e.g. "ext4,btrfs"
 	syscallBlocked   map[string]bool   // container name → syscall blocking active
 
 	// DNS monitor (H panel)
@@ -1235,6 +1246,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.policyDenyList = msg.syscallDeny
 			a.policyDevLXD = msg.devlxd
 			a.policyIdmapIso = msg.idmapIso
+			a.policyInterceptMknod = msg.interceptMknod
+			a.policyInterceptBpf = msg.interceptBpf
+			a.policyInterceptBpfDev = msg.interceptBpfDev
+			a.policyInterceptSetxattr = msg.interceptSetxattr
+			a.policyInterceptSched = msg.interceptSched
+			a.policyInterceptSysinfo = msg.interceptSysinfo
+			a.policyInterceptMount = msg.interceptMount
+			a.policyInterceptMountShift = msg.interceptMountShift
+			a.policyInterceptMountFuse = msg.interceptMountFuse
+			a.policyInterceptMountAllow = msg.interceptMountAllow
 			// Update per-container blocking state map
 			if a.selected < len(a.containers) {
 				name := a.containers[a.selected].Name

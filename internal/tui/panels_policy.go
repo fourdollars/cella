@@ -25,6 +25,17 @@ type policyInfoMsg struct {
 	devlxd      bool
 	idmapIso    bool
 	syscallDeny []string // security.syscalls.deny list (empty = not set)
+	// security.syscalls.intercept.*
+	interceptMknod      bool
+	interceptBpf        bool
+	interceptBpfDev     bool
+	interceptSetxattr   bool
+	interceptSched      bool
+	interceptSysinfo    bool
+	interceptMount      bool
+	interceptMountShift bool
+	interceptMountFuse  string
+	interceptMountAllow string
 	err         error
 }
 
@@ -117,15 +128,38 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				}
 			}
 
+			// Read security.syscalls.intercept.*
+			lxcBool := func(key string) bool {
+				o, e := exec.Command("lxc", "config", "get", name, key).CombinedOutput()
+				return e == nil && strings.TrimSpace(string(o)) == "true"
+			}
+			lxcStr := func(key string) string {
+				o, e := exec.Command("lxc", "config", "get", name, key).CombinedOutput()
+				if e == nil {
+					return strings.TrimSpace(string(o))
+				}
+				return ""
+			}
+
 			return policyInfoMsg{
-				egress:      egress,
-				seccomp:     seccompName,
-				apparmor:    apparmorName,
-				privileged:  privileged,
-				nesting:     nesting,
-				devlxd:      devlxd,
-				idmapIso:    idmapIso,
-				syscallDeny: syscallDenyList,
+				egress:              egress,
+				seccomp:             seccompName,
+				apparmor:            apparmorName,
+				privileged:          privileged,
+				nesting:             nesting,
+				devlxd:              devlxd,
+				idmapIso:            idmapIso,
+				syscallDeny:         syscallDenyList,
+				interceptMknod:      lxcBool("security.syscalls.intercept.mknod"),
+				interceptBpf:        lxcBool("security.syscalls.intercept.bpf"),
+				interceptBpfDev:     lxcBool("security.syscalls.intercept.bpf.devices"),
+				interceptSetxattr:   lxcBool("security.syscalls.intercept.setxattr"),
+				interceptSched:      lxcBool("security.syscalls.intercept.sched_setscheduler"),
+				interceptSysinfo:    lxcBool("security.syscalls.intercept.sysinfo"),
+				interceptMount:      lxcBool("security.syscalls.intercept.mount"),
+				interceptMountShift: lxcBool("security.syscalls.intercept.mount.shift"),
+				interceptMountFuse:  lxcStr("security.syscalls.intercept.mount.fuse"),
+				interceptMountAllow: lxcStr("security.syscalls.intercept.mount.allowed"),
 			}
 		} else {
 			apparmorName = "(docker default)"
@@ -144,6 +178,76 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 // ── Policy panel handler ──
 
 func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// intercept-mount-fuse input mode
+	if a.policyMode == "intercept-mount-fuse" {
+		key := msg.String()
+		switch {
+		case key == "enter":
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				val := strings.TrimSpace(a.policyInput)
+				var cmd *exec.Cmd
+				if val == "" {
+					cmd = exec.Command("lxc", "config", "unset", c.Name, "security.syscalls.intercept.mount.fuse")
+				} else {
+					cmd = exec.Command("lxc", "config", "set", c.Name, "security.syscalls.intercept.mount.fuse", val)
+				}
+				if out, err := cmd.CombinedOutput(); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ mount.fuse: %s", strings.TrimSpace(string(out))))
+				} else {
+					a.addEvent(fmt.Sprintf("🛡 %s intercept.mount.fuse → %q", c.Name, val))
+				}
+				a.policyMode = "view"
+				a.policyInput = ""
+				return a, a.fetchPolicyInfo(c)
+			}
+			a.policyMode = "view"; a.policyInput = ""; return a, nil
+		case key == "esc":
+			a.policyMode = "view"; a.policyInput = ""; return a, nil
+		case key == "backspace":
+			if len(a.policyInput) > 0 { a.policyInput = a.policyInput[:len(a.policyInput)-1] }
+			return a, nil
+		default:
+			if len(key) == 1 { a.policyInput += key }
+			return a, nil
+		}
+	}
+
+	// intercept-mount-allowed input mode
+	if a.policyMode == "intercept-mount-allowed" {
+		key := msg.String()
+		switch {
+		case key == "enter":
+			if a.selected < len(a.containers) {
+				c := a.containers[a.selected]
+				val := strings.TrimSpace(a.policyInput)
+				var cmd *exec.Cmd
+				if val == "" {
+					cmd = exec.Command("lxc", "config", "unset", c.Name, "security.syscalls.intercept.mount.allowed")
+				} else {
+					cmd = exec.Command("lxc", "config", "set", c.Name, "security.syscalls.intercept.mount.allowed", val)
+				}
+				if out, err := cmd.CombinedOutput(); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ mount.allowed: %s", strings.TrimSpace(string(out))))
+				} else {
+					a.addEvent(fmt.Sprintf("🛡 %s intercept.mount.allowed → %q", c.Name, val))
+				}
+				a.policyMode = "view"
+				a.policyInput = ""
+				return a, a.fetchPolicyInfo(c)
+			}
+			a.policyMode = "view"; a.policyInput = ""; return a, nil
+		case key == "esc":
+			a.policyMode = "view"; a.policyInput = ""; return a, nil
+		case key == "backspace":
+			if len(a.policyInput) > 0 { a.policyInput = a.policyInput[:len(a.policyInput)-1] }
+			return a, nil
+		default:
+			if len(key) == 1 { a.policyInput += key }
+			return a, nil
+		}
+	}
+
 	if a.policyMode == "egress-del-confirm" {
 		switch msg.String() {
 		case "y", "Y":
@@ -484,9 +588,98 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
+
+	// ── syscalls.intercept toggles ──
+	case "I":
+		// Toggle security.syscalls.intercept.mknod
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mknod: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.mknod", a.policyInterceptMknod)
+		}
+	case "B":
+		// Toggle security.syscalls.intercept.bpf
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.bpf: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.bpf", a.policyInterceptBpf)
+		}
+	case "O":
+		// Toggle security.syscalls.intercept.bpf.devices
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.bpf.devices: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.bpf.devices", a.policyInterceptBpfDev)
+		}
+	case "X":
+		// Toggle security.syscalls.intercept.setxattr
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.setxattr: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.setxattr", a.policyInterceptSetxattr)
+		}
+	case "C":
+		// Toggle security.syscalls.intercept.sched_setscheduler
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.sched: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.sched_setscheduler", a.policyInterceptSched)
+		}
+	case "Y":
+		// Toggle security.syscalls.intercept.sysinfo
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.sysinfo: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.sysinfo", a.policyInterceptSysinfo)
+		}
+	case "U":
+		// Toggle security.syscalls.intercept.mount
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mount: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.mount", a.policyInterceptMount)
+		}
+	case "H":
+		// Toggle security.syscalls.intercept.mount.shift
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mount.shift: LXD only"); return a, nil }
+			return a.toggleInterceptBool(c, "security.syscalls.intercept.mount.shift", a.policyInterceptMountShift)
+		}
+	case "F":
+		// Edit security.syscalls.intercept.mount.fuse (string input)
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			a.policyMode = "intercept-mount-fuse"
+			a.policyInput = a.policyInterceptMountFuse
+			return a, nil
+		}
+	case "L":
+		// Edit security.syscalls.intercept.mount.allowed (string input)
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			a.policyMode = "intercept-mount-allowed"
+			a.policyInput = a.policyInterceptMountAllow
+			return a, nil
+		}
 	}
 	return a, nil
 }
+
+// ── toggleInterceptBool helper ──
+func (a App) toggleInterceptBool(c runtime.ContainerInfo, key string, current bool) (tea.Model, tea.Cmd) {
+	newVal := "true"
+	if current {
+		newVal = "false"
+	}
+	if out, err := exec.Command("lxc", "config", "set", c.Name, key, newVal).CombinedOutput(); err != nil {
+		a.addEvent(fmt.Sprintf("⚠ %s: %s", key, strings.TrimSpace(string(out))))
+	} else {
+		shortKey := key[len("security.syscalls.intercept."):]
+		a.addEvent(fmt.Sprintf("🛡 %s intercept.%s → %s", c.Name, shortKey, newVal))
+	}
+	return a, a.fetchPolicyInfo(c)
+}
+
+// Intercept string input modes are handled at the top of handlePolicyPanel.
 
 // ── Apply seccomp profile ──
 
@@ -662,6 +855,43 @@ func (a App) renderPolicyPanel() string {
 	b.WriteString(fmtFlag("V", "DevLXD", devlxdIcon))
 	b.WriteString(fmtFlag("M", "IdmapIsolated", idmapIcon))
 	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Toggle key · (r)efresh · ↑↓ switch container · [/] scroll egress") + "\n")
+
+	// Syscall Intercept section
+	b.WriteString("\n")
+	b.WriteString(SectionHeaderStyle.Render("Syscall Intercept (security.syscalls.intercept.*)") + "\n")
+
+	on := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60")).Render("🟢 on")
+	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("⚫ off")
+	boolIcon := func(v bool) string {
+		if v { return on }
+		return off
+	}
+	strVal := func(v, placeholder string) string {
+		if v == "" { return lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("(unset)") }
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7ec8e3")).Render(v)
+	}
+
+	b.WriteString(fmt.Sprintf("  (%s)mknod            %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod)))
+	b.WriteString(fmt.Sprintf("  (%s)pf               %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf)))
+	b.WriteString(fmt.Sprintf("  (%s)pf.devices       %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev)))
+	b.WriteString(fmt.Sprintf("  (%s)etxattr          %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr)))
+	b.WriteString(fmt.Sprintf("  s(%s)hed_setscheduler %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched)))
+	b.WriteString(fmt.Sprintf("  s(%s)sinfo           %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo)))
+	b.WriteString(fmt.Sprintf("  mo(%s)nt             %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount)))
+	b.WriteString(fmt.Sprintf("  mount.s(%s)ift       %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift)))
+
+	// String inputs
+	if a.policyMode == "intercept-mount-fuse" {
+		b.WriteString(fmt.Sprintf("  mount.(%s)use → edit: %s█\n", keyHint.Render("F"), a.policyInput))
+	} else {
+		b.WriteString(fmt.Sprintf("  mount.(%s)use         %s\n", keyHint.Render("F"), strVal(a.policyInterceptMountFuse, "")))
+	}
+	if a.policyMode == "intercept-mount-allowed" {
+		b.WriteString(fmt.Sprintf("  mount.a(%s)lowed → edit: %s█\n", keyHint.Render("L"), a.policyInput))
+	} else {
+		b.WriteString(fmt.Sprintf("  mount.a(%s)lowed      %s\n", keyHint.Render("L"), strVal(a.policyInterceptMountAllow, "")))
+	}
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Toggle/edit · F & L open text input (Enter confirm, Esc cancel)") + "\n")
 
 	return b.String()
 }
