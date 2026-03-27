@@ -790,25 +790,29 @@ func (a App) renderPolicyPanel() string {
 
 	// Security Flags
 	right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
-	privLabel := "off"
+	label := func(v bool) string {
+		if v { return "on" }
+		return dim.Render("off")
+	}
+	privLabel := label(a.policyPrivileged)
 	if a.policyPrivileged { privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!") }
 	right.WriteString(fmt.Sprintf("  (%s)rivileged  %s %s\n", keyHint.Render("P"), boolIcon(a.policyPrivileged), privLabel))
-	right.WriteString(fmt.Sprintf("  (%s)esting     %s\n", keyHint.Render("N"), boolIcon(a.policyNesting)))
-	right.WriteString(fmt.Sprintf("  (%s)evLXD      %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD)))
-	right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso)))
+	right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
+	right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
+	right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso), label(a.policyIdmapIso)))
 
 	right.WriteString("\n")
 
 	// Syscall Intercept
 	right.WriteString(SectionHeaderStyle.Render("Syscall Intercept") + "\n")
-	right.WriteString(fmt.Sprintf("  (%s) mknod         %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod)))
-	right.WriteString(fmt.Sprintf("  (%s) bpf           %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf)))
-	right.WriteString(fmt.Sprintf("  (%s) bpf.devices   %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev)))
-	right.WriteString(fmt.Sprintf("  (%s) setxattr      %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr)))
-	right.WriteString(fmt.Sprintf("  (%s) sched_set     %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched)))
-	right.WriteString(fmt.Sprintf("  (%s) sysinfo       %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo)))
-	right.WriteString(fmt.Sprintf("  (%s) mount         %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount)))
-	right.WriteString(fmt.Sprintf("  (%s) mount.shift   %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift)))
+	right.WriteString(fmt.Sprintf("  (%s) mknod         %s %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod), label(a.policyInterceptMknod)))
+	right.WriteString(fmt.Sprintf("  (%s) bpf           %s %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf), label(a.policyInterceptBpf)))
+	right.WriteString(fmt.Sprintf("  (%s) bpf.devices   %s %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev), label(a.policyInterceptBpfDev)))
+	right.WriteString(fmt.Sprintf("  (%s) setxattr      %s %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr), label(a.policyInterceptSetxattr)))
+	right.WriteString(fmt.Sprintf("  (%s) sched_set     %s %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched), label(a.policyInterceptSched)))
+	right.WriteString(fmt.Sprintf("  (%s) sysinfo       %s %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo), label(a.policyInterceptSysinfo)))
+	right.WriteString(fmt.Sprintf("  (%s) mount         %s %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount), label(a.policyInterceptMount)))
+	right.WriteString(fmt.Sprintf("  (%s) mount.shift   %s %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift), label(a.policyInterceptMountShift)))
 	if a.policyMode == "intercept-mount-fuse" {
 		right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s█\n", keyHint.Render("F"), a.policyInput))
 	} else {
