@@ -717,8 +717,6 @@ func (a *App) applySeccompProfile(name, rtName, profileName string) {
 // ── Policy panel render ──
 
 func (a App) renderPolicyPanel() string {
-	var b strings.Builder
-
 	if a.selected >= len(a.containers) {
 		return "No container selected"
 	}
@@ -729,169 +727,136 @@ func (a App) renderPolicyPanel() string {
 		rtIcon = "🐳"
 	}
 
-	b.WriteString(TitleStyle.Render(fmt.Sprintf("🛡 Policy — %s %s %s ◆", rtIcon, c.Name, strings.ToUpper(c.Runtime))) + "\n\n")
-
-	// Seccomp section
-	b.WriteString(SectionHeaderStyle.Render("Seccomp Profile") + "\n")
-	if a.policySeccomp != "" {
-		b.WriteString(fmt.Sprintf("  Current: %s\n", a.policySeccomp))
-	} else {
-		b.WriteString("  Current: (loading...)\n")
-	}
-	// Show options with indicator for current
-	profiles := []struct{ key, name string }{{"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}}
-	for _, p := range profiles {
-		indicator := "  "
-		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) {
-			indicator = "▸ "
-		}
-		b.WriteString(fmt.Sprintf("  %s[%s] %s\n", indicator, p.key, p.name))
-	}
-	b.WriteString("\n")
-
-	// Syscall Blocking section (security.syscalls.deny)
-	b.WriteString(SectionHeaderStyle.Render("Syscall Blocking (LXD BPF Deny)") + "\n")
-	if len(a.policyDenyList) > 0 {
-		activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c"))
-		b.WriteString(fmt.Sprintf("  Status: %s\n", activeStyle.Render("⛔ ACTIVE")))
-		// Show first 8 blocked syscalls to avoid overflow
-		shown := a.policyDenyList
-		if len(shown) > 8 {
-			shown = shown[:8]
-		}
-		b.WriteString(fmt.Sprintf("  Blocked: %s", strings.Join(shown, ", ")))
-		if len(a.policyDenyList) > 8 {
-			b.WriteString(fmt.Sprintf(" (+%d more)", len(a.policyDenyList)-8))
-		}
-		b.WriteString("\n")
-		b.WriteString("  [Z] Disable blocking\n")
-	} else {
-		b.WriteString("  Status: 🟢 off\n")
-		b.WriteString("  [Z] Enable (blocks ptrace/mount/bpf/kexec…)\n")
-	}
-	b.WriteString("\n")
-
-	// AppArmor section
-	b.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
-	b.WriteString(fmt.Sprintf("  Current: %s\n", a.policyAppArmor))
-
-	// Show AppArmor profile options with indicator
-	aaProfiles := []struct{ key, name string }{
-		{"4", "default"},
-		{"5", "hardened"},
-		{"6", "net-restricted"},
-		{"7", "read-only"},
-	}
-	for _, p := range aaProfiles {
-		indicator := "  "
-		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) {
-			indicator = "▸ "
-		}
-		b.WriteString(fmt.Sprintf("  %s[%s] %s\n", indicator, p.key, p.name))
-	}
-	b.WriteString("\n")
-
-	// Import mode prompt
-	if a.policyMode == "import" {
-		b.WriteString(SectionHeaderStyle.Render("Import Policy") + "\n")
-		b.WriteString(fmt.Sprintf("  File: %s█\n\n", a.policyInput))
-	}
-
-	// Egress section
-	b.WriteString(SectionHeaderStyle.Render("Egress Rules (nftables)") + "\n")
-	if a.policyMode == "egress-add" {
-		b.WriteString(fmt.Sprintf("  Add domain: %s█\n\n", a.policyInput))
-	}
-	if a.policyEgress != "" {
-		lines := strings.Split(a.policyEgress, "\n")
-		start := a.policyScroll
-		if start >= len(lines) {
-			start = len(lines) - 1
-		}
-		if start < 0 {
-			start = 0
-		}
-		maxLines := a.height - 20
-		if maxLines < 5 {
-			maxLines = 5
-		}
-		end := start + maxLines
-		if end > len(lines) {
-			end = len(lines)
-		}
-		for _, line := range lines[start:end] {
-			b.WriteString("  " + line + "\n")
-		}
-	} else {
-		b.WriteString("  (loading...)\n")
-	}
-
-	// Security flags
-	b.WriteString("\n")
-	b.WriteString(SectionHeaderStyle.Render("Container Security Flags") + "\n")
-	privIcon := "🟢 off"
-	if a.policyPrivileged {
-		privIcon = "🔴 ON (dangerous!)"
-	}
-	nestIcon := "🟢 off"
-	if a.policyNesting {
-		nestIcon = "🟡 on"
-	}
-	devlxdIcon := "🟢 on"
-	if !a.policyDevLXD {
-		devlxdIcon = "⚫ off"
-	}
-	idmapIcon := "⚫ off"
-	if a.policyIdmapIso {
-		idmapIcon = "🟡 on"
-	}
+	title := TitleStyle.Render(fmt.Sprintf("🛡 Policy — %s %s %s ◆", rtIcon, c.Name, strings.ToUpper(c.Runtime)))
 
 	keyHint := lipgloss.NewStyle().Foreground(lipgloss.Color("#f0a500")).Bold(true)
-	fmtFlag := func(short, label, value string) string {
-		return fmt.Sprintf("  (%s)%s: %s\n", keyHint.Render(short), label, value)
-	}
-	b.WriteString(fmtFlag("P", "rivileged", privIcon))
-	b.WriteString(fmtFlag("N", "esting", nestIcon))
-	b.WriteString(fmtFlag("V", "DevLXD", devlxdIcon))
-	b.WriteString(fmtFlag("M", "IdmapIsolated", idmapIcon))
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Toggle key · (r)efresh · ↑↓ switch container · [/] scroll egress") + "\n")
-
-	// Syscall Intercept section
-	b.WriteString("\n")
-	b.WriteString(SectionHeaderStyle.Render("Syscall Intercept (security.syscalls.intercept.*)") + "\n")
-
-	on := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60")).Render("🟢 on")
-	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("⚫ off")
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#666"))
+	on := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60")).Render("🟢")
+	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("⚫")
 	boolIcon := func(v bool) string {
 		if v { return on }
 		return off
 	}
-	strVal := func(v, placeholder string) string {
-		if v == "" { return lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("(unset)") }
+	strVal := func(v string) string {
+		if v == "" { return dim.Render("(unset)") }
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7ec8e3")).Render(v)
 	}
 
-	b.WriteString(fmt.Sprintf("  (%s)mknod            %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod)))
-	b.WriteString(fmt.Sprintf("  (%s)pf               %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf)))
-	b.WriteString(fmt.Sprintf("  (%s)pf.devices       %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev)))
-	b.WriteString(fmt.Sprintf("  (%s)etxattr          %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr)))
-	b.WriteString(fmt.Sprintf("  s(%s)hed_setscheduler %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched)))
-	b.WriteString(fmt.Sprintf("  s(%s)sinfo           %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo)))
-	b.WriteString(fmt.Sprintf("  mo(%s)nt             %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount)))
-	b.WriteString(fmt.Sprintf("  mount.s(%s)ift       %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift)))
+	// ── Left column: Seccomp + Syscall Blocking + AppArmor ──
+	var left strings.Builder
 
-	// String inputs
-	if a.policyMode == "intercept-mount-fuse" {
-		b.WriteString(fmt.Sprintf("  mount.(%s)use → edit: %s█\n", keyHint.Render("F"), a.policyInput))
+	// Seccomp
+	left.WriteString(SectionHeaderStyle.Render("Seccomp") + "\n")
+	seccomp := a.policySeccomp
+	if seccomp == "" { seccomp = "(loading...)" }
+	left.WriteString(fmt.Sprintf("  %s\n", seccomp))
+	for _, p := range []struct{ key, name string }{{"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}} {
+		ind := "  "
+		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) { ind = "▸ " }
+		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
+	}
+
+	left.WriteString("\n")
+
+	// Syscall Blocking (BPF deny)
+	left.WriteString(SectionHeaderStyle.Render("Syscall Block [Z]") + "\n")
+	if len(a.policyDenyList) > 0 {
+		activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c"))
+		left.WriteString(fmt.Sprintf("  %s\n", activeStyle.Render("⛔ ACTIVE")))
+		shown := a.policyDenyList
+		if len(shown) > 5 { shown = shown[:5] }
+		left.WriteString(fmt.Sprintf("  %s", strings.Join(shown, ", ")))
+		if len(a.policyDenyList) > 5 { left.WriteString(fmt.Sprintf(" +%d", len(a.policyDenyList)-5)) }
+		left.WriteString("\n")
 	} else {
-		b.WriteString(fmt.Sprintf("  mount.(%s)use         %s\n", keyHint.Render("F"), strVal(a.policyInterceptMountFuse, "")))
+		left.WriteString(fmt.Sprintf("  %s\n", dim.Render("off — [Z] enable")))
+	}
+
+	left.WriteString("\n")
+
+	// AppArmor
+	left.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
+	aa := a.policyAppArmor
+	if aa == "" { aa = "(loading...)" }
+	left.WriteString(fmt.Sprintf("  %s\n", aa))
+	for _, p := range []struct{ key, name string }{{"4", "default"}, {"5", "hardened"}, {"6", "net-restricted"}, {"7", "read-only"}} {
+		ind := "  "
+		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) { ind = "▸ " }
+		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
+	}
+
+	// ── Right column: Security Flags + Syscall Intercept ──
+	var right strings.Builder
+
+	// Security Flags
+	right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
+	privLabel := "off"
+	if a.policyPrivileged { privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!") }
+	right.WriteString(fmt.Sprintf("  (%s)rivileged  %s %s\n", keyHint.Render("P"), boolIcon(a.policyPrivileged), privLabel))
+	right.WriteString(fmt.Sprintf("  (%s)esting     %s\n", keyHint.Render("N"), boolIcon(a.policyNesting)))
+	right.WriteString(fmt.Sprintf("  (%s)evLXD      %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD)))
+	right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso)))
+
+	right.WriteString("\n")
+
+	// Syscall Intercept
+	right.WriteString(SectionHeaderStyle.Render("Syscall Intercept") + "\n")
+	right.WriteString(fmt.Sprintf("  (%s) mknod         %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod)))
+	right.WriteString(fmt.Sprintf("  (%s) bpf           %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf)))
+	right.WriteString(fmt.Sprintf("  (%s) bpf.devices   %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev)))
+	right.WriteString(fmt.Sprintf("  (%s) setxattr      %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr)))
+	right.WriteString(fmt.Sprintf("  (%s) sched_set     %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched)))
+	right.WriteString(fmt.Sprintf("  (%s) sysinfo       %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo)))
+	right.WriteString(fmt.Sprintf("  (%s) mount         %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount)))
+	right.WriteString(fmt.Sprintf("  (%s) mount.shift   %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift)))
+	if a.policyMode == "intercept-mount-fuse" {
+		right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s█\n", keyHint.Render("F"), a.policyInput))
+	} else {
+		right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s\n", keyHint.Render("F"), strVal(a.policyInterceptMountFuse)))
 	}
 	if a.policyMode == "intercept-mount-allowed" {
-		b.WriteString(fmt.Sprintf("  mount.a(%s)lowed → edit: %s█\n", keyHint.Render("L"), a.policyInput))
+		right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s█\n", keyHint.Render("L"), a.policyInput))
 	} else {
-		b.WriteString(fmt.Sprintf("  mount.a(%s)lowed      %s\n", keyHint.Render("L"), strVal(a.policyInterceptMountAllow, "")))
+		right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s\n", keyHint.Render("L"), strVal(a.policyInterceptMountAllow)))
 	}
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Toggle/edit · F & L open text input (Enter confirm, Esc cancel)") + "\n")
 
-	return b.String()
+	// ── Two-column join ──
+	colW := (a.width - 6) / 2
+	if colW < 28 { colW = 28 }
+	colStyle := lipgloss.NewStyle().Width(colW)
+	columns := lipgloss.JoinHorizontal(lipgloss.Top,
+		colStyle.Render(left.String()),
+		colStyle.Render(right.String()),
+	)
+
+	// ── Bottom: Egress (full width, limited height) ──
+	var egress strings.Builder
+	egress.WriteString(SectionHeaderStyle.Render("Egress Rules (nftables)") + "\n")
+	if a.policyMode == "egress-add" {
+		egress.WriteString(fmt.Sprintf("  Add domain: %s█\n", a.policyInput))
+	} else if a.policyMode == "import" {
+		egress.WriteString(fmt.Sprintf("  Import file: %s█\n", a.policyInput))
+	}
+	if a.policyEgress != "" {
+		lines := strings.Split(a.policyEgress, "\n")
+		start := a.policyScroll
+		if start < 0 { start = 0 }
+		if start >= len(lines) { start = len(lines) - 1 }
+		maxLines := 4
+		end := start + maxLines
+		if end > len(lines) { end = len(lines) }
+		for _, line := range lines[start:end] {
+			egress.WriteString("  " + line + "\n")
+		}
+		if len(lines) > maxLines {
+			egress.WriteString(dim.Render(fmt.Sprintf("  [/] scroll (%d/%d lines)", start+maxLines, len(lines))) + "\n")
+		}
+	} else {
+		egress.WriteString(dim.Render("  (no egress rules)") + "\n")
+	}
+
+	// ── Status bar ──
+	hint := dim.Render("(r)efresh  ↑↓ switch container  (a) add egress  (d) remove  (e) export  (i) import  (esc) back")
+
+	return title + "\n\n" + columns + "\n" + egress.String() + "\n" + hint
 }
