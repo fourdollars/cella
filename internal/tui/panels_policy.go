@@ -267,11 +267,31 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.focus = a.prevFocus
 		return a, nil
 	case "up", "k":
+		// Navigate to previous container
+		if a.selected > 0 {
+			a.selected--
+			a.policyScroll = 0
+			if a.selected < len(a.containers) {
+				return a, a.fetchPolicyInfo(a.containers[a.selected])
+			}
+		}
+		return a, nil
+	case "down", "j":
+		// Navigate to next container
+		if a.selected < len(a.containers)-1 {
+			a.selected++
+			a.policyScroll = 0
+			if a.selected < len(a.containers) {
+				return a, a.fetchPolicyInfo(a.containers[a.selected])
+			}
+		}
+		return a, nil
+	case "[":
 		if a.policyScroll > 0 {
 			a.policyScroll--
 		}
 		return a, nil
-	case "down", "j":
+	case "]":
 		a.policyScroll++
 		return a, nil
 	case "1":
@@ -641,7 +661,7 @@ func (a App) renderPolicyPanel() string {
 	b.WriteString(fmtFlag("N", "esting", nestIcon))
 	b.WriteString(fmtFlag("V", "DevLXD", devlxdIcon))
 	b.WriteString(fmtFlag("M", "IdmapIsolated", idmapIcon))
-	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Press key to toggle · (r) refresh") + "\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Render("  Toggle key · (r)efresh · ↑↓ switch container · [/] scroll egress") + "\n")
 
 	return b.String()
 }
