@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fourdoors/cella/internal/lxd"
 	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/security"
 )
@@ -36,6 +38,10 @@ type policyInfoMsg struct {
 	interceptMountShift bool
 	interceptMountFuse  string
 	interceptMountAllow string
+	// Profiles + details (LXD only)
+	Profiles       []string
+	ProfileDetails map[string]*lxd.Profile
+	ContainerCfg   *lxd.InstanceConfig
 	err         error
 }
 
@@ -141,6 +147,24 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				return ""
 			}
 
+			// Try to fetch the container's effective config and profile details via the LXD client (fast JSON)
+			var profiles []string
+			profileDetails := make(map[string]*lxd.Profile)
+			var containerCfg *lxd.InstanceConfig
+			if a.client != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+				defer cancel()
+				if cfg, err := a.client.GetContainerConfig(ctx, name); err == nil {
+					containerCfg = cfg
+					profiles = cfg.Profiles
+					if len(profiles) > 0 {
+						if details, err := a.client.GetProfiles(ctx, profiles); err == nil {
+							profileDetails = details
+						}
+					}
+				}
+			}
+
 			return policyInfoMsg{
 				egress:              egress,
 				seccomp:             seccompName,
@@ -160,6 +184,9 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				interceptMountShift: lxcBool("security.syscalls.intercept.mount.shift"),
 				interceptMountFuse:  lxcStr("security.syscalls.intercept.mount.fuse"),
 				interceptMountAllow: lxcStr("security.syscalls.intercept.mount.allowed"),
+				Profiles:            profiles,
+				ProfileDetails:      profileDetails,
+				ContainerCfg:        containerCfg,
 			}
 		} else {
 			apparmorName = "(docker default)"
@@ -798,6 +825,19 @@ func (a App) renderPolicyPanel() string {
 		ind := "  "
 		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) { ind = "▸ " }
 		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
+	}
+
+	// Show profiles (LXD)
+	if c.Runtime == "lxd" {
+		left.WriteString("\n" + SectionHeaderStyle.Render("LXD Profiles") + "\n")
+		if len(c.Profiles) == 0 {
+			left.WriteString(fmt.Sprintf("  %s\n", dim.Render("(none)")))
+		} else {
+			for _, p := range c.Profiles {
+				left.WriteString(fmt.Sprintf("  [%s] ", p))
+			}
+			left.WriteString("\n  (press 'r' to refresh profiles details)\n")
+		}
 	}
 
 	// ── Right column: Security Flags + Syscall Intercept ──
