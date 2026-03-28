@@ -238,6 +238,8 @@ type App struct {
 	policyProfiles          []string
 	policyProfileDetails    map[string]*lxd.Profile
 	policyContainerCfg      *lxd.InstanceConfig
+	// Show sensitive fields in merged view
+	policyShowSensitive    bool
 	// security.syscalls.intercept.*
 	policyInterceptMknod     bool
 	policyInterceptBpf       bool

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -485,7 +486,15 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		return a, nil
+	case "v":
+		// Toggle show sensitive in merged view
+		if a.policyMode == "profiles-merged" {
+			a.policyShowSensitive = !a.policyShowSensitive
+			return a, nil
+		}
+		return a, nil
 	case "r":
+
 		// Refresh
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
@@ -852,10 +861,89 @@ func (a App) renderPolicyPanel() string {
 
 		// Merged view (overlay): show when toggled
 		if a.policyMode == "profiles-merged" {
-			merged := FormatMerged(a.policyProfiles, a.policyProfileDetails, a.policyContainerCfg)
+			// local helpers
+			isSensitiveKey := func(k string) bool {
+				kl := strings.ToLower(k)
+				if strings.Contains(kl, "raw.lxc") || strings.Contains(kl, "user-data") || strings.Contains(kl, "user.user-data") || strings.Contains(kl, "cloud-init") {
+					return true
+				}
+				if strings.Contains(kl, "password") || strings.Contains(kl, "passwd") || strings.Contains(kl, "secret") || strings.Contains(kl, "token") {
+					return true
+				}
+				if strings.Contains(kl, "private_key") || strings.Contains(kl, "ssh_private") {
+					return true
+				}
+				return false
+			}
+
+			colorForOrigin := func(name string) string {
+				colors := []string{"#7ec8e3", "#f0a500", "#27ae60", "#e74c3c", "#9b59b6", "#f39c12"}
+				if name == "container" || name == "(unknown)" {
+					return "#aaaaaa"
+				}
+				sum := 0
+				for i := 0; i < len(name); i++ { sum += int(name[i]) }
+				return colors[sum%len(colors)]
+			}
+
+			mergedCfg, mergedDevs, origin := MergeProfiles(a.policyProfiles, a.policyProfileDetails, a.policyContainerCfg)
 			left.WriteString("\n" + SectionHeaderStyle.Render("Merged View") + "\n")
-			for _, line := range strings.Split(strings.TrimSpace(merged), "\n") {
-				left.WriteString("  " + line + "\n")
+			// Hint
+			hint := "(m) toggle merged view  (v) toggle sensitive"
+			left.WriteString("  " + hint + "\n")
+
+			// Config
+			left.WriteString("\n  Config:\n")
+			if len(mergedCfg) == 0 {
+				left.WriteString("    (none)\n")
+			} else {
+				keys := make([]string, 0, len(mergedCfg))
+				for k := range mergedCfg { keys = append(keys, k) }
+				sort.Strings(keys)
+				for _, k := range keys {
+					val := mergedCfg[k]
+					if !a.policyShowSensitive && isSensitiveKey(k) {
+						val = "<masked>"
+					} else {
+						val = fmt.Sprintf("%q", val)
+					}
+					src := origin[k]
+					if src == "" { src = "(unknown)" }
+					col := colorForOrigin(src)
+					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+					left.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
+				}
+			}
+
+			// Devices
+			left.WriteString("\n  Devices:\n")
+			if len(mergedDevs) == 0 {
+				left.WriteString("    (none)\n")
+			} else {
+				devNames := make([]string, 0, len(mergedDevs))
+				for d := range mergedDevs { devNames = append(devNames, d) }
+				sort.Strings(devNames)
+				for _, d := range devNames {
+					left.WriteString(fmt.Sprintf("  %s:\n", d))
+					attrs := mergedDevs[d]
+					keys := make([]string, 0, len(attrs))
+					for k := range attrs { keys = append(keys, k) }
+					sort.Strings(keys)
+					for _, k := range keys {
+						val := attrs[k]
+						fullKey := fmt.Sprintf("%s.%s", d, k)
+						if !a.policyShowSensitive && isSensitiveKey(fullKey) {
+							val = "<masked>"
+						} else {
+							val = fmt.Sprintf("%q", val)
+						}
+						src := origin[fullKey]
+						if src == "" { src = "(unknown)" }
+						col := colorForOrigin(src)
+						tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+						left.WriteString(fmt.Sprintf("    %s = %s  <-- %s\n", k, val, tag))
+					}
+				}
 			}
 		}
 	}
