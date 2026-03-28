@@ -234,6 +234,10 @@ type App struct {
 	policyDenyList   []string          // security.syscalls.deny active list
 	policyDevLXD     bool              // security.devlxd enabled
 	policyIdmapIso   bool              // security.idmap.isolated enabled
+	// LXD profiles (loaded when policy panel fetches info)
+	policyProfiles          []string
+	policyProfileDetails    map[string]*lxd.Profile
+	policyContainerCfg      *lxd.InstanceConfig
 	// security.syscalls.intercept.*
 	policyInterceptMknod     bool
 	policyInterceptBpf       bool
@@ -1264,6 +1268,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.syscallBlocked[name] = len(msg.syscallDeny) > 0
 			}
+
+			// Profiles and container config (LXD)
+			a.policyProfiles = msg.Profiles
+			a.policyProfileDetails = msg.ProfileDetails
+			a.policyContainerCfg = msg.ContainerCfg
 		}
 		return a, nil
 
