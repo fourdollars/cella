@@ -474,6 +474,17 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.addEvent(fmt.Sprintf("🛡 Press 'y' to remove all egress rules for %s", name))
 			return a, nil
 		}
+	case "m":
+		// Toggle merged profiles view (LXD)
+		if a.selected < len(a.containers) && a.containers[a.selected].Runtime == "lxd" {
+			if a.policyMode == "profiles-merged" {
+				a.policyMode = "view"
+				return a, nil
+			}
+			a.policyMode = "profiles-merged"
+			return a, nil
+		}
+		return a, nil
 	case "r":
 		// Refresh
 		if a.selected < len(a.containers) {
@@ -836,7 +847,16 @@ func (a App) renderPolicyPanel() string {
 			for _, p := range c.Profiles {
 				left.WriteString(fmt.Sprintf("  [%s] ", p))
 			}
-			left.WriteString("\n  (press 'r' to refresh profiles details)\n")
+			left.WriteString("\n  (press 'r' to refresh profiles details, 'm' to toggle merged view)\n")
+		}
+
+		// Merged view (overlay): show when toggled
+		if a.policyMode == "profiles-merged" {
+			merged := FormatMerged(a.policyProfiles, a.policyProfileDetails, a.policyContainerCfg)
+			left.WriteString("\n" + SectionHeaderStyle.Render("Merged View") + "\n")
+			for _, line := range strings.Split(strings.TrimSpace(merged), "\n") {
+				left.WriteString("  " + line + "\n")
+			}
 		}
 	}
 
