@@ -100,7 +100,7 @@ Or download manually for your architecture:
 ```bash
 git clone https://github.com/fourdollars/cella
 cd cella
-go build -o cella ./cmd/main.go
+go build -o cella ./cmd/
 ```
 
 Requires Go 1.20+, Linux kernel 5.8+ (for bpftrace / eBPF features).
@@ -131,16 +131,16 @@ sudo ./cella
 | `1/2/3` | Sort by name / CPU / memory |
 | `f` | Cycle runtime filter (All → LXD → Docker) |
 | `/` | Search by name |
-| `s/x/p` | Start / Stop / Pause container |
+| `s/x/p` | Start / Stop / Pause container (`s` also unfreezes Frozen containers) |
 | `e` | Exec command / shell |
 | `l` | Logs (streaming) |
 | `+` / `d` | Create / Delete container |
 | `w` | Network panel |
 | `r` | Resource limits panel |
-| `n` | Snapshots & clone |
+| `n` | Snapshots & clone (shows size for zfs/btrfs/lvm storage) |
 | `t` / `T` | Start / stop syscall trace |
 | `G` / `S` | Generate / save seccomp profile |
-| `Z` | Toggle syscall blocking (Policy panel — applies `security.syscalls.deny`) |
+| `Z` | Toggle syscall blocking from **any panel** (applies `security.syscalls.deny`) |
 | `P` | Security policy panel |
 | `D` | DNS monitor panel |
 | `A` | **API audit panel** (HTTPS interception) |
@@ -168,11 +168,11 @@ sudo ./cella
 cella is written in Go using [Bubbletea](https://github.com/charmbracelet/bubbletea) for the TUI. It communicates with LXD via its Unix socket REST API, and with Docker via the Docker socket.
 
 ```
-cella (~14MB binary, 14,500+ lines of Go)
-├── cmd/            CLI entry point (cobra)
+cella (~15MB binary, 14,514 lines of Go, 52 files)
+├── cmd/            CLI entry point (cobra) + subcommands
 ├── internal/
 │   ├── proxy/      HTTP interception, MITM, audit, inference routing
-│   ├── tui/        Bubbletea TUI (18 panels)
+│   ├── tui/        Bubbletea TUI (20 panels)
 │   ├── security/   Seccomp, AppArmor, egress, DNS monitor
 │   ├── trace/      bpftrace-based syscall tracing + seccomp generator
 │   ├── runtime/    LXD + Docker runtime abstraction
