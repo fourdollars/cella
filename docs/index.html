@@ -293,9 +293,9 @@
             syscall tracing, HTTPS interception, and AI inference monitoring. Single binary, SSH-ready.
         </p>
         <div class="badges">
-            <span class="badge badge-go">Go 14,500+ lines</span>
+            <span class="badge badge-go">Go 14,514 lines · 52 files</span>
             <span class="badge badge-lxd">LXD + Docker</span>
-            <span class="badge badge-sec">19 TUI Panels</span>
+            <span class="badge badge-sec">20 TUI Panels</span>
             <span class="badge badge-obs">MITM Interception</span>
             <span class="badge badge-mit">Inference Stats</span>
         </div>
@@ -476,7 +476,7 @@ go build -o cella ./cmd/main.go</code>
 <!-- PANELS -->
 <section class="panels" id="panels">
     <div class="container">
-        <h2 class="section-title">19 TUI Panels</h2>
+        <h2 class="section-title">20 TUI Panels</h2>
         <p class="section-subtitle">Keyboard-driven, zero mouse required</p>
         <div class="panel-grid">
             <div class="panel-item">
@@ -507,12 +507,22 @@ go build -o cella ./cmd/main.go</code>
             <div class="panel-item">
                 <div class="panel-key">n</div>
                 <div class="panel-name">📸 Snapshots</div>
-                <div class="panel-desc">Create / restore / clone</div>
+                <div class="panel-desc">Create / restore / clone · size (zfs/btrfs/lvm)</div>
             </div>
             <div class="panel-item">
-                <div class="panel-key">t / G</div>
+                <div class="panel-key">t</div>
                 <div class="panel-name">🔬 Syscall Trace</div>
-                <div class="panel-desc">bpftrace passive monitoring + seccomp generator</div>
+                <div class="panel-desc">bpftrace passive monitoring · family breakdown · sparkline</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">G</div>
+                <div class="panel-name">🧬 Seccomp Generator</div>
+                <div class="panel-desc">Generate minimal OCI seccomp JSON from observed syscalls</div>
+            </div>
+            <div class="panel-item">
+                <div class="panel-key">auto</div>
+                <div class="panel-name">🔐 Syscall Approval</div>
+                <div class="panel-desc">Seccomp notify overlay · y/Y/n approve or deny intercepted calls</div>
             </div>
             <div class="panel-item">
                 <div class="panel-key">P</div>
