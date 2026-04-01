@@ -209,7 +209,18 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return a, a.setFlash(fmt.Sprintf("❌ CA gen: %v", err))
 				}
 				srv.EnableMITM(mitmCfg)
+				// Load persisted allowlists from previous sessions
+				if err := srv.LoadAllowlistsFromDir(dataDir); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ allowlist load: %v", err))
+				}
 				tl := proxy.NewTransparentListener(9081, srv)
+				// Wire persistence callback: save allowlist on every [Y] allow always
+				tl.SetOnPermanentAllow(func() {
+					if err := srv.SaveAllowlistsToDir(dataDir); err != nil {
+						// best-effort; log to stderr but don't crash TUI
+						_ = err
+					}
+				})
 				if err := tl.Start(); err != nil {
 					return a, a.setFlash(fmt.Sprintf("❌ listener: %v", err))
 				}
@@ -232,7 +243,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, a.setFlash("❌ Only LXD containers supported")
 		}
 		return a, nil
-		case "S":
+	case "S":
 		if globalProxyServer != nil {
 			entries := a.filterAuditEntries(globalProxyServer.Audit().All())
 			return a, a.exportAuditJSON(entries)
@@ -445,15 +456,15 @@ func (a App) renderAuditPanel() string {
 			b.WriteString(bright.Render("  No entries match current filters.") + dim.Render(" Press Ctrl+L to clear.") + "\n")
 		} else {
 			selectedName := ""
-		if a.selected < len(a.containers) {
-			selectedName = a.containers[a.selected].Name
-		}
-		b.WriteString(dim.Render("  No requests recorded yet.") + "\n\n")
-		if selectedName != "" {
-			b.WriteString(dim.Render("  Selected: ") + bright.Render(selectedName) + "\n")
-			b.WriteString(dim.Render("  Press ") + bright.Render("p") + dim.Render(" to auto-configure proxy on this container") + "\n")
-			b.WriteString(dim.Render("  Press ") + bright.Render("u") + dim.Render(" to remove proxy configuration") + "\n")
-		}
+			if a.selected < len(a.containers) {
+				selectedName = a.containers[a.selected].Name
+			}
+			b.WriteString(dim.Render("  No requests recorded yet.") + "\n\n")
+			if selectedName != "" {
+				b.WriteString(dim.Render("  Selected: ") + bright.Render(selectedName) + "\n")
+				b.WriteString(dim.Render("  Press ") + bright.Render("p") + dim.Render(" to auto-configure proxy on this container") + "\n")
+				b.WriteString(dim.Render("  Press ") + bright.Render("u") + dim.Render(" to remove proxy configuration") + "\n")
+			}
 		}
 		return b.String()
 	}
@@ -566,7 +577,12 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 		}
 		srv.UpdateContainerMap(ipMap)
 
-		return asyncResultMsg{text: fmt.Sprintf("🔧 intercepting %s (%s) — REDIRECT :9081 + CA cert", container, containerIP)}
+		return asyncResultMsg{
+			text: fmt.Sprintf("🔧 intercepting %s (%s) — REDIRECT :9081 + CA cert", container, containerIP),
+			// Attach IP so the caller can record it in interceptedIPs.
+			extra: containerIP,
+			extraKey: container,
+		}
 	}
 }
 
@@ -591,6 +607,9 @@ func (a *App) removeProxySetup(container string) tea.Cmd {
 			}
 		}
 
-		return asyncResultMsg{text: fmt.Sprintf("🔧 proxy removed from %s", container)}
+		return asyncResultMsg{
+			text:     fmt.Sprintf("🔧 proxy removed from %s", container),
+			extraKey: container, // signal removal: extra is empty string
+		}
 	}
 }

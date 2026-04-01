@@ -20,8 +20,11 @@ type TransparentListener struct {
 	server           *Server
 	listener         net.Listener
 	pendingApprovals map[string]chan bool // domain → result channel (dedup concurrent approvals)
-	mitmFailed       map[string]bool     // domains where MITM handshake failed (cert pinning)
+	mitmFailed       map[string]bool      // domains where MITM handshake failed (cert pinning)
 	mu               sync.RWMutex
+	// onPermanentAllow is called whenever a domain is permanently added to an
+	// allowlist (i.e. operator pressed [Y]). Use it to persist the allowlist.
+	onPermanentAllow func()
 }
 
 // NewTransparentListener creates a transparent proxy listener
@@ -32,6 +35,14 @@ func NewTransparentListener(port int, server *Server) *TransparentListener {
 		pendingApprovals: make(map[string]chan bool),
 		mitmFailed:       make(map[string]bool),
 	}
+}
+
+// SetOnPermanentAllow registers a callback invoked after every permanent
+// allowlist addition. Typically used to persist the updated allowlist.
+func (t *TransparentListener) SetOnPermanentAllow(fn func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onPermanentAllow = fn
 }
 
 // Start begins accepting redirected connections
@@ -68,7 +79,6 @@ func (t *TransparentListener) Stop() {
 func (t *TransparentListener) handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 	start := time.Now()
-	
 
 	// Resolve source container
 	srcIP := extractIP(clientConn.RemoteAddr().String())
@@ -112,7 +122,7 @@ func (t *TransparentListener) handleTLS(
 	}
 
 	// Check allowlist (with dedup for concurrent connections)
-		al := t.server.GetAllowlist(container)
+	al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
 		// Check if another goroutine is already requesting approval for this domain
 		approvalKey := container + ":" + domain
@@ -135,6 +145,12 @@ func (t *TransparentListener) handleTLS(
 
 			if status == "approved-permanent" {
 				al.Add(domain)
+				t.mu.RLock()
+				cb := t.onPermanentAllow
+				t.mu.RUnlock()
+				if cb != nil {
+					go cb()
+				}
 			}
 
 			// Notify all waiting goroutines
@@ -200,7 +216,6 @@ func (t *TransparentListener) handleTLS(
 	})
 }
 
-
 func (t *TransparentListener) handlePlainHTTP(
 	clientConn net.Conn,
 	reader *bufio.Reader,
@@ -224,6 +239,12 @@ func (t *TransparentListener) handlePlainHTTP(
 		status := t.server.requestApproval(container, domain, req.Method, req.URL.String(), req.URL.Path)
 		if status == "approved-permanent" {
 			al.Add(domain)
+			t.mu.RLock()
+			cb := t.onPermanentAllow
+			t.mu.RUnlock()
+			if cb != nil {
+				go cb()
+			}
 		} else if status != "approved" {
 			clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\nContent-Length: 28\r\n\r\nBlocked by cella proxy policy"))
 			t.server.audit.Add(AuditEntry{

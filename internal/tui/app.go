@@ -94,8 +94,10 @@ type snapshotsMsg struct {
 	err       error
 }
 type asyncResultMsg struct {
-	text string
-	err  error
+	text     string
+	err      error
+	extraKey string // optional: used to record interceptedIPs (container name)
+	extra    string // optional: used to record interceptedIPs (container IP)
 }
 
 // ContainerMetrics holds computed metrics for a container
@@ -264,6 +266,11 @@ type App struct {
 	// Quit confirmation
 	confirmQuit bool
 
+	// interceptedIPs tracks containers with active nftables REDIRECT rules.
+	// Key = container name, Value = container IP.
+	// Used to clean up rules on exit.
+	interceptedIPs map[string]string
+
 	// Proxy + Operator Approval
 	pendingApproval *proxy.ApprovalRequest
 	auditScroll       int
@@ -308,14 +315,15 @@ func NewApp() App {
 	}
 
 	app := App{
-		client:   lxdClient,
-		runtimes: runtimes,
-		metrics:  make(map[string]*ContainerMetrics),
-		prev:     make(map[string]*prevState),
-		events:   []timedEvent{},
-		sortBy:   "name",
-		eventCh:  make(chan string, 100),
-		tracers:  make(map[string]*trace.Tracer),
+		client:         lxdClient,
+		runtimes:       runtimes,
+		metrics:        make(map[string]*ContainerMetrics),
+		prev:           make(map[string]*prevState),
+		events:         []timedEvent{},
+		sortBy:         "name",
+		eventCh:        make(chan string, 100),
+		tracers:        make(map[string]*trace.Tracer),
+		interceptedIPs: make(map[string]string),
 	}
 
 	return app
@@ -790,9 +798,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Quit confirmation mode — intercept all keys
 		if a.confirmQuit {
 			switch msg.String() {
-			case "y", "Y", "ctrl+c":
+		case "y", "Y", "ctrl+c":
 				for _, t := range a.tracers {
 					t.Stop()
+				}
+				// Clean up nftables REDIRECT rules for all intercepted containers.
+				for _, ip := range a.interceptedIPs {
+					_ = proxy.RemoveTransparentRedirect(ip)
+				}
+				if globalTproxyListener != nil {
+					globalTproxyListener.Stop()
 				}
 				return a, tea.Quit
 			default:
@@ -1349,6 +1364,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.addEvent(msg.text)
 		cmds := []tea.Cmd{a.setFlash(fmt.Sprintf("✅ %s", msg.text))}
+		// Record intercepted container IP for cleanup on exit;
+		// empty extra = removal signal
+		if msg.extraKey != "" {
+			if msg.extra != "" {
+				if a.interceptedIPs == nil {
+					a.interceptedIPs = make(map[string]string)
+				}
+				a.interceptedIPs[msg.extraKey] = msg.extra
+			} else {
+				delete(a.interceptedIPs, msg.extraKey)
+			}
+		}
 		// Start listening for approval requests after lazy proxy init
 		if globalApprovalCh != nil && !globalListeningApprvals {
 			globalListeningApprvals = true

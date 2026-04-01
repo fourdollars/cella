@@ -1,6 +1,11 @@
 package proxy
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -100,4 +105,80 @@ func (a *Allowlist) Count() int {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return len(a.domains)
+}
+
+// UserDomains returns only user-added domains (excludes global defaults).
+func (a *Allowlist) UserDomains() []string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	globals := make(map[string]bool)
+	for _, d := range GlobalAllowlist() {
+		globals[d] = true
+	}
+	var result []string
+	for d := range a.domains {
+		if !globals[d] {
+			result = append(result, d)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+// ── Persistence ─────────────────────────────────────────────────────────────
+
+// allowlistFile is the on-disk format: a JSON object mapping container name
+// to its user-added domain list (global defaults are excluded).
+type allowlistFile struct {
+	Containers map[string][]string `json:"containers"`
+}
+
+// SaveAllowlists writes all per-container allowlists to
+// <dataDir>/allowlist.json, excluding global default entries.
+func SaveAllowlists(dataDir string, allowlists map[string]*Allowlist) error {
+	if err := os.MkdirAll(dataDir, 0700); err != nil {
+		return fmt.Errorf("allowlist mkdir: %w", err)
+	}
+	f := allowlistFile{Containers: make(map[string][]string)}
+	for container, al := range allowlists {
+		userDomains := al.UserDomains()
+		if len(userDomains) > 0 {
+			f.Containers[container] = userDomains
+		}
+	}
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return fmt.Errorf("allowlist marshal: %w", err)
+	}
+	tmp := filepath.Join(dataDir, "allowlist.json.tmp")
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("allowlist write: %w", err)
+	}
+	return os.Rename(tmp, filepath.Join(dataDir, "allowlist.json"))
+}
+
+// LoadAllowlists reads <dataDir>/allowlist.json and returns a map of
+// container name → Allowlist. Missing file returns an empty map (not an error).
+func LoadAllowlists(dataDir string) (map[string]*Allowlist, error) {
+	path := filepath.Join(dataDir, "allowlist.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return make(map[string]*Allowlist), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("allowlist read: %w", err)
+	}
+	var f allowlistFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("allowlist parse: %w", err)
+	}
+	result := make(map[string]*Allowlist, len(f.Containers))
+	for container, domains := range f.Containers {
+		al := NewAllowlist()
+		for _, d := range domains {
+			al.Add(d)
+		}
+		result[container] = al
+	}
+	return result, nil
 }

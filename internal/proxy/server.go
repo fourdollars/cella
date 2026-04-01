@@ -38,35 +38,35 @@ type AuditEntry struct {
 	Status    string // "allowed", "denied", "approved", "timeout"
 	RespCode  int    // HTTP response code (MITM mode)
 	Latency   time.Duration
-	TLS       bool   // true = decrypted HTTPS via MITM
+	TLS       bool // true = decrypted HTTPS via MITM
 }
 
 // Server is the HTTP/CONNECT proxy with operator approval
 type Server struct {
-	port          int
-	allowlists    map[string]*Allowlist // container name → allowlist
-	containerByIP map[string]string     // source IP → container name
-	approvalCh    chan ApprovalRequest   // → TUI for approval
+	port           int
+	allowlists     map[string]*Allowlist // container name → allowlist
+	containerByIP  map[string]string     // source IP → container name
+	approvalCh     chan ApprovalRequest  // → TUI for approval
 	audit          *AuditLog
 	inferenceStats *InferenceStats
 	routes         *RouteTable
-	mitm          *MITMConfig           // nil = tunnel mode, non-nil = MITM mode
-	mu            sync.RWMutex
-	nextID        int
-	timeout       time.Duration // approval timeout
+	mitm           *MITMConfig // nil = tunnel mode, non-nil = MITM mode
+	mu             sync.RWMutex
+	nextID         int
+	timeout        time.Duration // approval timeout
 }
 
 // NewServer creates a proxy server
 func NewServer(port int, approvalCh chan ApprovalRequest) *Server {
 	return &Server{
-		port:          port,
-		allowlists:    make(map[string]*Allowlist),
-		containerByIP: make(map[string]string),
-		approvalCh:    approvalCh,
+		port:           port,
+		allowlists:     make(map[string]*Allowlist),
+		containerByIP:  make(map[string]string),
+		approvalCh:     approvalCh,
 		audit:          NewAuditLog(500),
 		inferenceStats: NewInferenceStats(),
 		routes:         NewRouteTable(),
-		timeout:       30 * time.Second,
+		timeout:        30 * time.Second,
 	}
 }
 
@@ -93,7 +93,6 @@ func (s *Server) MITMCAPem() []byte {
 	}
 	return s.mitm.CACertPEM()
 }
-
 
 // Port returns the listening port
 func (s *Server) Port() int { return s.port }
@@ -122,12 +121,38 @@ func (s *Server) Audit() *AuditLog { return s.audit }
 
 func (s *Server) InferenceStats() *InferenceStats { return s.inferenceStats }
 
+// AllAllowlists returns a snapshot of the container→allowlist map for persistence.
+func (s *Server) AllAllowlists() map[string]*Allowlist {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]*Allowlist, len(s.allowlists))
+	for k, v := range s.allowlists {
+		result[k] = v
+	}
+	return result
+}
+
+// LoadAllowlistsFromDir loads persisted allowlists into the server.
+// Existing in-memory entries are kept; persisted domains are merged in.
+func (s *Server) LoadAllowlistsFromDir(dataDir string) error {
+	loaded, err := LoadAllowlists(dataDir)
+	if err != nil {
+		return err
+	}
+	for container, al := range loaded {
+		for _, d := range al.UserDomains() {
+			s.GetAllowlist(container).Add(d)
+		}
+	}
+	return nil
+}
+
+// SaveAllowlistsToDir persists all per-container allowlists to dataDir.
+func (s *Server) SaveAllowlistsToDir(dataDir string) error {
+	return SaveAllowlists(dataDir, s.AllAllowlists())
+}
+
 func (s *Server) Routes() *RouteTable { return s.routes }
-
-
-
-
-
 
 func (s *Server) requestApproval(container, domain, method, url, path string) string {
 	s.mu.Lock()
