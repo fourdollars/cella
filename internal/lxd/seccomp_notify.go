@@ -12,17 +12,18 @@ import (
 // DangerousSyscalls is detected.
 //
 // Background — LXD seccomp notify limitations:
-//   LXD v5.x does NOT expose seccomp notify events via the REST event stream
-//   (type=seccomp returns HTTP 400 "isn't a supported event type"). The LXD
-//   seccomp intercept mechanism (security.syscalls.intercept.*) is handled
-//   internally by LXD daemon — it processes specific syscalls (mknod, mount,
-//   bpf, etc.) via its own supervisor and does NOT forward them to external
-//   clients for operator approval.
 //
-//   The interactive operator-approval flow for syscalls therefore uses
-//   bpftrace detection (via trace/tracer.go) as the trigger, and applies
-//   LXD's security.syscalls.intercept.* config keys to block dangerous
-//   syscalls after the operator decides to deny.
+//	LXD v5.x does NOT expose seccomp notify events via the REST event stream
+//	(type=seccomp returns HTTP 400 "isn't a supported event type"). The LXD
+//	seccomp intercept mechanism (security.syscalls.intercept.*) is handled
+//	internally by LXD daemon — it processes specific syscalls (mknod, mount,
+//	bpf, etc.) via its own supervisor and does NOT forward them to external
+//	clients for operator approval.
+//
+//	The interactive operator-approval flow for syscalls therefore uses
+//	bpftrace detection (via trace/tracer.go) as the trigger, and applies
+//	LXD's security.syscalls.intercept.* config keys to block dangerous
+//	syscalls after the operator decides to deny.
 type SeccompEvent struct {
 	Container string    // container name
 	Syscall   string    // syscall name (e.g. "ptrace", "mount")
@@ -157,15 +158,17 @@ func (c *Client) GetSyscallDenyList(ctx context.Context, containerName string) (
 
 // ── Stub: SeccompMonitor ────────────────────────────────────────────────────
 //
-// SeccompMonitor is a stub retained for API compatibility.
-// LXD v5.x does not expose a seccomp notify event stream via REST API.
-// Real-time dangerous syscall detection is performed by trace/tracer.go
-// using bpftrace, which feeds into the TUI approval overlay.
+// SeccompMonitor is a stub retained for API compatibility with
+// panels_syscall_approval.go. LXD v5.x does NOT expose a seccomp notify
+// event stream via REST API.
 //
-// Future: if LXD exposes a seccomp notify socket (like systemd-seccomp or
-// libseccomp's SECCOMP_IOCTL_NOTIF_*), this can be wired up to provide
-// true kernel-level interception. For now, cella uses bpftrace detection
-// + LXD static intercept/deny as the two-step response.
+// Real-time dangerous syscall detection is performed by trace/tracer.go
+// (bpftrace), which feeds events into the TUI approval overlay via
+// globalSeccompApprovalCh. The Start() method always returns an error to
+// signal that callers should use the bpftrace path instead.
+//
+// Future: if LXD exposes a seccomp notify socket (SECCOMP_IOCTL_NOTIF_*),
+// this can be wired up for true kernel-level interception.
 type SeccompMonitor struct {
 	socketPath string
 	cancel     context.CancelFunc
@@ -176,48 +179,40 @@ func NewSeccompMonitor(socketPath string) *SeccompMonitor {
 	return &SeccompMonitor{socketPath: socketPath}
 }
 
-// Start is a no-op stub. Dangerous syscall events come from trace/tracer.go.
+// Start always returns an error — LXD v5.x has no seccomp notify REST stream.
+// Syscall events are sourced from bpftrace via trace.Tracer instead.
 func (m *SeccompMonitor) Start(ctx context.Context, callback SeccompEventCallback) error {
-	// LXD REST API does not support type=seccomp event subscriptions.
-	// Syscall events are sourced from bpftrace via trace.Tracer.
-	return fmt.Errorf("LXD seccomp event stream not available; use trace.Tracer (bpftrace) for syscall detection")
+	return fmt.Errorf("LXD seccomp notify stream unavailable in LXD v5.x; syscall events come from bpftrace (trace.Tracer)")
 }
 
-// Stop is a no-op stub.
+// Stop cancels any background goroutine (no-op for this stub).
 func (m *SeccompMonitor) Stop() {
 	if m.cancel != nil {
 		m.cancel()
 	}
 }
 
-// SendSeccompVerdict is a stub retained for API compatibility.
-// With bpftrace-based detection, there is no kernel-level verdict to send —
-// cella instead applies security.syscalls.intercept.* or security.syscalls.deny
-// to block denied syscalls for future calls.
+// SendSeccompVerdict is a no-op stub — LXD has no seccomp verdict REST endpoint.
+// To block a syscall after operator denial, use BlockSyscallViaIntercept or
+// SetSyscallDenyList instead.
 func (c *Client) SendSeccompVerdict(ctx context.Context, notifyID string, verdict SeccompVerdict) error {
-	// No-op: LXD does not expose a seccomp verdict REST endpoint.
-	// Use BlockSyscallViaIntercept or SetSyscallDenyList to block syscalls.
 	_ = notifyID
 	_ = verdict
 	return nil
 }
 
-// ── Deprecated stubs (kept to avoid compile errors in panels_syscall_approval.go) ──
+// ── Deprecated stubs removed ──────────────────────────────────────────────
+//
+// EnableSeccompNotify and DisableSeccompNotify have been deleted.
+// They referenced a non-existent "security.seccomp.notify" LXD config key.
+// Use SetSyscallDenyList / GetSyscallDenyList instead:
+//
+//   Enable:  client.SetSyscallDenyList(ctx, name, lxd.DangerousSyscalls)
+//   Disable: client.SetSyscallDenyList(ctx, name, nil)
 
-// EnableSeccompNotify is deprecated. The security.seccomp.notify config key
-// does not exist in LXD v5.x. Use security.syscalls.intercept.* instead.
-// Kept as a no-op to avoid breaking callers until panels_syscall_approval.go
-// is updated to use BlockSyscallViaIntercept / SetSyscallDenyList.
-func (c *Client) EnableSeccompNotify(ctx context.Context, containerName string) error {
-	// TODO: replace call sites with SetSyscallDenyList(ctx, name, DangerousSyscalls)
-	return nil
-}
-
-// DisableSeccompNotify is deprecated. See EnableSeccompNotify.
-func (c *Client) DisableSeccompNotify(ctx context.Context, containerName string) error {
-	// TODO: replace call sites with SetSyscallDenyList(ctx, name, nil)
-	return nil
-}
+//
+//   Enable:  client.SetSyscallDenyList(ctx, name, lxd.DangerousSyscalls)
+//   Disable: client.SetSyscallDenyList(ctx, name, nil)
 
 // ── Internal helpers used by parseSeccompEvent (kept for future use) ────────
 
