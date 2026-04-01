@@ -30,8 +30,8 @@ type InstanceConfig struct {
 	Devices  map[string]map[string]string `json:"devices"`
 	Profiles []string                     `json:"profiles"`
 	// Docker-specific
-	Image    string            `json:"image,omitempty"`
-	Labels   map[string]string `json:"labels,omitempty"`
+	Image  string            `json:"image,omitempty"`
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // SnapshotInfo holds snapshot metadata
@@ -39,6 +39,7 @@ type SnapshotInfo struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	Stateful  bool   `json:"stateful"`
+	Size      int64  `json:"size"` // bytes; 0 if storage driver doesn't track (e.g. dir)
 }
 
 // ExecResult holds the result of an exec operation

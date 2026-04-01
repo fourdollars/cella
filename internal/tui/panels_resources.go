@@ -11,6 +11,29 @@ import (
 	"github.com/fourdoors/cella/internal/lxd"
 )
 
+// formatSnapshotSize returns a human-readable size string.
+// Returns "-" when the storage driver does not track snapshot sizes (e.g. dir).
+func formatSnapshotSize(bytes int64) string {
+	if bytes <= 0 {
+		return "-"
+	}
+	const (
+		KiB = 1024
+		MiB = 1024 * KiB
+		GiB = 1024 * MiB
+	)
+	switch {
+	case bytes >= GiB:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/GiB)
+	case bytes >= MiB:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/MiB)
+	case bytes >= KiB:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/KiB)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
 // ── Resources panel handler ──
 
 func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -422,7 +445,8 @@ func (a App) renderSnapshotsPanel() string {
 			if snap.Stateful {
 				stateful = " [stateful]"
 			}
-			b.WriteString(cursor + style.Render(fmt.Sprintf("%-20s  %s%s", snap.Name, snap.CreatedAt, stateful)) + "\n")
+			sizeStr := formatSnapshotSize(snap.Size)
+			b.WriteString(cursor + style.Render(fmt.Sprintf("%-20s  %-8s  %s%s", snap.Name, sizeStr, snap.CreatedAt, stateful)) + "\n")
 		}
 	}
 

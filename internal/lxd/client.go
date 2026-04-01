@@ -38,9 +38,9 @@ type ContainerInfo struct {
 
 // InstanceConfig holds the full instance configuration
 type InstanceConfig struct {
-	Config   map[string]string `json:"config"`
+	Config   map[string]string            `json:"config"`
 	Devices  map[string]map[string]string `json:"devices"`
-	Profiles []string          `json:"profiles"`
+	Profiles []string                     `json:"profiles"`
 }
 
 // SnapshotInfo holds snapshot metadata
@@ -48,6 +48,7 @@ type SnapshotInfo struct {
 	Name      string `json:"name"`
 	CreatedAt string `json:"created_at"`
 	Stateful  bool   `json:"stateful"`
+	Size      int64  `json:"size"` // bytes; 0 for dir-backed storage
 }
 
 // ExecResult holds the result of an exec operation
@@ -412,6 +413,15 @@ func (c *Client) UpdateContainerConfig(ctx context.Context, name string, config 
 	return nil
 }
 
+// lxdSnapshotRaw is used to unmarshal snapshot entries from the LXD API,
+// capturing the size field which may not exist in the runtime.SnapshotInfo type.
+type lxdSnapshotRaw struct {
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+	Stateful  bool   `json:"stateful"`
+	Size      int64  `json:"size"` // bytes; 0 for dir-backed storage
+}
+
 // ListSnapshots returns all snapshots for a container
 func (c *Client) ListSnapshots(ctx context.Context, name string) ([]SnapshotInfo, error) {
 	resp, err := c.doGet(ctx, fmt.Sprintf("/1.0/instances/%s/snapshots?recursion=1", name))
@@ -419,9 +429,18 @@ func (c *Client) ListSnapshots(ctx context.Context, name string) ([]SnapshotInfo
 		return nil, err
 	}
 
-	var snapshots []SnapshotInfo
-	if err := json.Unmarshal(resp.Metadata, &snapshots); err != nil {
+	var raw []lxdSnapshotRaw
+	if err := json.Unmarshal(resp.Metadata, &raw); err != nil {
 		return nil, fmt.Errorf("parse snapshots: %w", err)
+	}
+	snapshots := make([]SnapshotInfo, len(raw))
+	for i, r := range raw {
+		snapshots[i] = SnapshotInfo{
+			Name:      r.Name,
+			CreatedAt: r.CreatedAt,
+			Stateful:  r.Stateful,
+			Size:      r.Size,
+		}
 	}
 	return snapshots, nil
 }
@@ -515,10 +534,10 @@ func (c *Client) RestoreSnapshot(ctx context.Context, containerName, snapshotNam
 // ExecCommand runs a command inside a container via LXD exec API
 func (c *Client) ExecCommand(ctx context.Context, name string, command []string) (*ExecResult, error) {
 	payload := map[string]interface{}{
-		"command":              command,
-		"wait-for-websocket":  false,
-		"record-output":       true,
-		"interactive":         false,
+		"command":            command,
+		"wait-for-websocket": false,
+		"record-output":      true,
+		"interactive":        false,
 	}
 	payloadBytes, _ := json.Marshal(payload)
 

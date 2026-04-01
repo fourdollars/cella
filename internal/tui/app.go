@@ -1109,8 +1109,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if a.selected < len(a.containers) {
 				c := a.containers[a.selected]
+				rt := a.runtimeFor(c.Name)
 				if c.Status == "Stopped" {
-					rt := a.runtimeFor(c.Name)
 					go func() {
 						ctx := context.Background()
 						if rt != nil {
@@ -1118,6 +1118,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}()
 					a.addEvent(fmt.Sprintf("▶ starting %s...", c.Name))
+				} else if c.Status == "Frozen" {
+					// Container may be frozen by a clone/copy operation that was
+					// interrupted; unfreeze it instead of silently doing nothing.
+					go func() {
+						ctx := context.Background()
+						if rt != nil {
+							_ = rt.UnpauseContainer(ctx, c.Name)
+						}
+					}()
+					a.addEvent(fmt.Sprintf("▶ unfreezing %s...", c.Name))
 				}
 			}
 		case "p":
