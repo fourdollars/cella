@@ -1040,22 +1040,50 @@ func (a App) renderPolicyPanel() string {
 	if start < 0 {
 		start = 0
 	}
-	maxScroll := len(leftLines) - colH
+	// Reserve lines for scroll indicators inside colH
+	showAbove := start > 0
+	showBelow := false // determined after clamping
+	visible := colH
+	if showAbove {
+		visible-- // 1 line for ▲ indicator
+	}
+	// Peek: will there be lines below?
+	if start+visible < len(leftLines) {
+		showBelow = true
+		visible-- // 1 line for ▼ indicator
+	}
+	if visible < 1 {
+		visible = 1
+	}
+	maxScroll := len(leftLines) - visible
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
 	if start > maxScroll {
 		start = maxScroll
 	}
-	end := start + colH
+	// Recalculate after clamping
+	showAbove = start > 0
+	visible = colH
+	if showAbove {
+		visible--
+	}
+	showBelow = start+visible < len(leftLines)
+	if showBelow {
+		visible--
+	}
+	if visible < 1 {
+		visible = 1
+	}
+	end := start + visible
 	if end > len(leftLines) {
 		end = len(leftLines)
 	}
 	scrolledLeft := strings.Join(leftLines[start:end], "\n")
-	if start > 0 {
+	if showAbove {
 		scrolledLeft = dim.Render(fmt.Sprintf("  ▲ %d lines above (PgUp/[)", start)) + "\n" + scrolledLeft
 	}
-	if end < len(leftLines) {
+	if showBelow {
 		scrolledLeft += "\n" + dim.Render(fmt.Sprintf("  ▼ %d lines below (PgDn/])", len(leftLines)-end))
 	}
 
