@@ -876,133 +876,130 @@ func (a App) renderPolicyPanel() string {
 			}
 			left.WriteString("\n  (press 'r' to refresh profiles details, 'm' to toggle merged view)\n")
 		}
+	}
 
-		// Merged view (overlay): show when toggled
-		if a.policyMode == "profiles-merged" {
-			// local helpers
-			isSensitiveKey := func(k string) bool {
-				kl := strings.ToLower(k)
-				if strings.Contains(kl, "raw.lxc") || strings.Contains(kl, "user-data") || strings.Contains(kl, "user.user-data") || strings.Contains(kl, "cloud-init") {
-					return true
-				}
-				if strings.Contains(kl, "password") || strings.Contains(kl, "passwd") || strings.Contains(kl, "secret") || strings.Contains(kl, "token") {
-					return true
-				}
-				if strings.Contains(kl, "private_key") || strings.Contains(kl, "ssh_private") {
-					return true
-				}
-				return false
+	// ── Right column ──
+	var right strings.Builder
+
+	if c.Runtime == "lxd" && a.policyMode == "profiles-merged" {
+		// Merged view replaces Security Flags + Syscall Intercept in right column
+		isSensitiveKey := func(k string) bool {
+			kl := strings.ToLower(k)
+			if strings.Contains(kl, "raw.lxc") || strings.Contains(kl, "user-data") || strings.Contains(kl, "user.user-data") || strings.Contains(kl, "cloud-init") {
+				return true
 			}
-
-			colorForOrigin := func(name string) string {
-				colors := []string{"#7ec8e3", "#f0a500", "#27ae60", "#e74c3c", "#9b59b6", "#f39c12"}
-				if name == "container" || name == "(unknown)" {
-					return "#aaaaaa"
-				}
-				sum := 0
-				for i := 0; i < len(name); i++ { sum += int(name[i]) }
-				return colors[sum%len(colors)]
+			if strings.Contains(kl, "password") || strings.Contains(kl, "passwd") || strings.Contains(kl, "secret") || strings.Contains(kl, "token") {
+				return true
 			}
+			if strings.Contains(kl, "private_key") || strings.Contains(kl, "ssh_private") {
+				return true
+			}
+			return false
+		}
 
-			mergedCfg, mergedDevs, origin := MergeProfiles(a.policyProfiles, a.policyProfileDetails, a.policyContainerCfg)
-			left.WriteString("\n" + SectionHeaderStyle.Render("Merged View") + "\n")
-			// Hint
-			hint := "(m) toggle merged view  (v) toggle sensitive"
-			left.WriteString("  " + hint + "\n")
+		colorForOrigin := func(name string) string {
+			colors := []string{"#7ec8e3", "#f0a500", "#27ae60", "#e74c3c", "#9b59b6", "#f39c12"}
+			if name == "container" || name == "(unknown)" {
+				return "#aaaaaa"
+			}
+			sum := 0
+			for i := 0; i < len(name); i++ { sum += int(name[i]) }
+			return colors[sum%len(colors)]
+		}
 
-			// Config
-			left.WriteString("\n  Config:\n")
-			if len(mergedCfg) == 0 {
-				left.WriteString("    (none)\n")
-			} else {
-				keys := make([]string, 0, len(mergedCfg))
-				for k := range mergedCfg { keys = append(keys, k) }
+		mergedCfg, mergedDevs, origin := MergeProfiles(a.policyProfiles, a.policyProfileDetails, a.policyContainerCfg)
+		right.WriteString(SectionHeaderStyle.Render("═ Merged View ═") + "\n")
+		right.WriteString("  (m) close  (v) toggle sensitive\n\n")
+
+		// Config
+		right.WriteString("  Config:\n")
+		if len(mergedCfg) == 0 {
+			right.WriteString("    (none)\n")
+		} else {
+			keys := make([]string, 0, len(mergedCfg))
+			for k := range mergedCfg { keys = append(keys, k) }
+			sort.Strings(keys)
+			for _, k := range keys {
+				val := mergedCfg[k]
+				if !a.policyShowSensitive && isSensitiveKey(k) {
+					val = "<masked>"
+				} else {
+					val = fmt.Sprintf("%q", val)
+				}
+				src := origin[k]
+				if src == "" { src = "(unknown)" }
+				col := colorForOrigin(src)
+				tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+				right.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
+			}
+		}
+
+		// Devices
+		right.WriteString("\n  Devices:\n")
+		if len(mergedDevs) == 0 {
+			right.WriteString("    (none)\n")
+		} else {
+			devNames := make([]string, 0, len(mergedDevs))
+			for d := range mergedDevs { devNames = append(devNames, d) }
+			sort.Strings(devNames)
+			for _, d := range devNames {
+				right.WriteString(fmt.Sprintf("  %s:\n", d))
+				attrs := mergedDevs[d]
+				keys := make([]string, 0, len(attrs))
+				for k := range attrs { keys = append(keys, k) }
 				sort.Strings(keys)
 				for _, k := range keys {
-					val := mergedCfg[k]
-					if !a.policyShowSensitive && isSensitiveKey(k) {
+					val := attrs[k]
+					fullKey := fmt.Sprintf("%s.%s", d, k)
+					if !a.policyShowSensitive && isSensitiveKey(fullKey) {
 						val = "<masked>"
 					} else {
 						val = fmt.Sprintf("%q", val)
 					}
-					src := origin[k]
+					src := origin[fullKey]
 					if src == "" { src = "(unknown)" }
 					col := colorForOrigin(src)
 					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
-					left.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
-				}
-			}
-
-			// Devices
-			left.WriteString("\n  Devices:\n")
-			if len(mergedDevs) == 0 {
-				left.WriteString("    (none)\n")
-			} else {
-				devNames := make([]string, 0, len(mergedDevs))
-				for d := range mergedDevs { devNames = append(devNames, d) }
-				sort.Strings(devNames)
-				for _, d := range devNames {
-					left.WriteString(fmt.Sprintf("  %s:\n", d))
-					attrs := mergedDevs[d]
-					keys := make([]string, 0, len(attrs))
-					for k := range attrs { keys = append(keys, k) }
-					sort.Strings(keys)
-					for _, k := range keys {
-						val := attrs[k]
-						fullKey := fmt.Sprintf("%s.%s", d, k)
-						if !a.policyShowSensitive && isSensitiveKey(fullKey) {
-							val = "<masked>"
-						} else {
-							val = fmt.Sprintf("%q", val)
-						}
-						src := origin[fullKey]
-						if src == "" { src = "(unknown)" }
-						col := colorForOrigin(src)
-						tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
-						left.WriteString(fmt.Sprintf("    %s = %s  <-- %s\n", k, val, tag))
-					}
+					right.WriteString(fmt.Sprintf("    %s = %s  <-- %s\n", k, val, tag))
 				}
 			}
 		}
-	}
-
-	// ── Right column: Security Flags + Syscall Intercept ──
-	var right strings.Builder
-
-	// Security Flags
-	right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
-	label := func(v bool) string {
-		if v { return "on" }
-		return dim.Render("off")
-	}
-	privLabel := label(a.policyPrivileged)
-	if a.policyPrivileged { privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!") }
-	right.WriteString(fmt.Sprintf("  (%s)rivileged  %s %s\n", keyHint.Render("P"), boolIcon(a.policyPrivileged), privLabel))
-	right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
-	right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
-	right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso), label(a.policyIdmapIso)))
-
-	right.WriteString("\n")
-
-	// Syscall Intercept
-	right.WriteString(SectionHeaderStyle.Render("Syscall Intercept") + "\n")
-	right.WriteString(fmt.Sprintf("  (%s) mknod         %s %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod), label(a.policyInterceptMknod)))
-	right.WriteString(fmt.Sprintf("  (%s) bpf           %s %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf), label(a.policyInterceptBpf)))
-	right.WriteString(fmt.Sprintf("  (%s) bpf.devices   %s %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev), label(a.policyInterceptBpfDev)))
-	right.WriteString(fmt.Sprintf("  (%s) setxattr      %s %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr), label(a.policyInterceptSetxattr)))
-	right.WriteString(fmt.Sprintf("  (%s) sched_set     %s %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched), label(a.policyInterceptSched)))
-	right.WriteString(fmt.Sprintf("  (%s) sysinfo       %s %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo), label(a.policyInterceptSysinfo)))
-	right.WriteString(fmt.Sprintf("  (%s) mount         %s %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount), label(a.policyInterceptMount)))
-	right.WriteString(fmt.Sprintf("  (%s) mount.shift   %s %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift), label(a.policyInterceptMountShift)))
-	if a.policyMode == "intercept-mount-fuse" {
-		right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s█\n", keyHint.Render("F"), a.policyInput))
 	} else {
-		right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s\n", keyHint.Render("F"), strVal(a.policyInterceptMountFuse)))
-	}
-	if a.policyMode == "intercept-mount-allowed" {
-		right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s█\n", keyHint.Render("L"), a.policyInput))
-	} else {
-		right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s\n", keyHint.Render("L"), strVal(a.policyInterceptMountAllow)))
+		// ── Right column: Security Flags + Syscall Intercept ──
+		label := func(v bool) string {
+			if v { return "on" }
+			return dim.Render("off")
+		}
+		right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
+		privLabel := label(a.policyPrivileged)
+		if a.policyPrivileged { privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!") }
+		right.WriteString(fmt.Sprintf("  (%s)rivileged  %s %s\n", keyHint.Render("P"), boolIcon(a.policyPrivileged), privLabel))
+		right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
+		right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
+		right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso), label(a.policyIdmapIso)))
+
+		right.WriteString("\n")
+
+		// Syscall Intercept
+		right.WriteString(SectionHeaderStyle.Render("Syscall Intercept") + "\n")
+		right.WriteString(fmt.Sprintf("  (%s) mknod         %s %s\n", keyHint.Render("I"), boolIcon(a.policyInterceptMknod), label(a.policyInterceptMknod)))
+		right.WriteString(fmt.Sprintf("  (%s) bpf           %s %s\n", keyHint.Render("B"), boolIcon(a.policyInterceptBpf), label(a.policyInterceptBpf)))
+		right.WriteString(fmt.Sprintf("  (%s) bpf.devices   %s %s\n", keyHint.Render("O"), boolIcon(a.policyInterceptBpfDev), label(a.policyInterceptBpfDev)))
+		right.WriteString(fmt.Sprintf("  (%s) setxattr      %s %s\n", keyHint.Render("X"), boolIcon(a.policyInterceptSetxattr), label(a.policyInterceptSetxattr)))
+		right.WriteString(fmt.Sprintf("  (%s) sched_set     %s %s\n", keyHint.Render("C"), boolIcon(a.policyInterceptSched), label(a.policyInterceptSched)))
+		right.WriteString(fmt.Sprintf("  (%s) sysinfo       %s %s\n", keyHint.Render("Y"), boolIcon(a.policyInterceptSysinfo), label(a.policyInterceptSysinfo)))
+		right.WriteString(fmt.Sprintf("  (%s) mount         %s %s\n", keyHint.Render("U"), boolIcon(a.policyInterceptMount), label(a.policyInterceptMount)))
+		right.WriteString(fmt.Sprintf("  (%s) mount.shift   %s %s\n", keyHint.Render("H"), boolIcon(a.policyInterceptMountShift), label(a.policyInterceptMountShift)))
+		if a.policyMode == "intercept-mount-fuse" {
+			right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s█\n", keyHint.Render("F"), a.policyInput))
+		} else {
+			right.WriteString(fmt.Sprintf("  (%s) mount.fuse    %s\n", keyHint.Render("F"), strVal(a.policyInterceptMountFuse)))
+		}
+		if a.policyMode == "intercept-mount-allowed" {
+			right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s█\n", keyHint.Render("L"), a.policyInput))
+		} else {
+			right.WriteString(fmt.Sprintf("  (%s) mount.allowed %s\n", keyHint.Render("L"), strVal(a.policyInterceptMountAllow)))
+		}
 	}
 
 	// ── Two-column join ──
@@ -1030,11 +1027,17 @@ func (a App) renderPolicyPanel() string {
 
 	colStyle := lipgloss.NewStyle().Width(colW).MaxWidth(colW).Height(colH).MaxHeight(colH)
 
-	// Apply policyScroll to left column (merged view can be long)
-	leftLines := strings.Split(left.String(), "\n")
+	// Apply policyScroll to the column that needs scrolling:
+	// - merged view on: scroll right column (merged content)
+	// - merged view off: scroll left column (policy details)
+	scrollTarget := left.String()
+	if a.policyMode == "profiles-merged" {
+		scrollTarget = right.String()
+	}
+	targetLines := strings.Split(scrollTarget, "\n")
 	// Remove trailing empty line from Split if present
-	if len(leftLines) > 0 && leftLines[len(leftLines)-1] == "" {
-		leftLines = leftLines[:len(leftLines)-1]
+	if len(targetLines) > 0 && targetLines[len(targetLines)-1] == "" {
+		targetLines = targetLines[:len(targetLines)-1]
 	}
 	start := a.policyScroll
 	if start < 0 {
@@ -1048,14 +1051,14 @@ func (a App) renderPolicyPanel() string {
 		visible-- // 1 line for ▲ indicator
 	}
 	// Peek: will there be lines below?
-	if start+visible < len(leftLines) {
+	if start+visible < len(targetLines) {
 		showBelow = true
 		visible-- // 1 line for ▼ indicator
 	}
 	if visible < 1 {
 		visible = 1
 	}
-	maxScroll := len(leftLines) - visible
+	maxScroll := len(targetLines) - visible
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
@@ -1068,7 +1071,7 @@ func (a App) renderPolicyPanel() string {
 	if showAbove {
 		visible--
 	}
-	showBelow = start+visible < len(leftLines)
+	showBelow = start+visible < len(targetLines)
 	if showBelow {
 		visible--
 	}
@@ -1076,20 +1079,31 @@ func (a App) renderPolicyPanel() string {
 		visible = 1
 	}
 	end := start + visible
-	if end > len(leftLines) {
-		end = len(leftLines)
+	if end > len(targetLines) {
+		end = len(targetLines)
 	}
-	scrolledLeft := strings.Join(leftLines[start:end], "\n")
+	scrolled := strings.Join(targetLines[start:end], "\n")
 	if showAbove {
-		scrolledLeft = dim.Render(fmt.Sprintf("  ▲ %d lines above (PgUp/[)", start)) + "\n" + scrolledLeft
+		scrolled = dim.Render(fmt.Sprintf("  ▲ %d lines above (PgUp/[)", start)) + "\n" + scrolled
 	}
 	if showBelow {
-		scrolledLeft += "\n" + dim.Render(fmt.Sprintf("  ▼ %d lines below (PgDn/])", len(leftLines)-end))
+		scrolled += "\n" + dim.Render(fmt.Sprintf("  ▼ %d lines below (PgDn/])", len(targetLines)-end))
+	}
+
+	var leftRendered, rightRendered string
+	if a.policyMode == "profiles-merged" {
+		// Left: no scroll, Right: scrolled merged view
+		leftRendered = left.String()
+		rightRendered = scrolled
+	} else {
+		// Left: scrolled, Right: no scroll
+		leftRendered = scrolled
+		rightRendered = right.String()
 	}
 
 	columns := lipgloss.JoinHorizontal(lipgloss.Top,
-		colStyle.Render(scrolledLeft),
-		colStyle.Render(right.String()),
+		colStyle.Render(leftRendered),
+		colStyle.Render(rightRendered),
 	)
 
 	// ── Bottom: Egress (full width, limited height) ──
