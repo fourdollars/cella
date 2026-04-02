@@ -988,11 +988,48 @@ func (a App) renderPolicyPanel() string {
 	}
 
 	// ── Two-column join ──
-	colW := (a.width - 6) / 2
-	if colW < 28 { colW = 28 }
+	// Use mainW (same as View()) to avoid overflowing sidebar
+	sideW := a.calcSidebarWidth()
+	mainW := a.width - sideW - 4
+	if mainW < 40 {
+		mainW = 40
+	}
+	colW := (mainW - 4) / 2
+	if colW < 28 {
+		colW = 28
+	}
 	colStyle := lipgloss.NewStyle().Width(colW)
+
+	// Apply policyScroll to left column (merged view can be long)
+	visibleH := a.height - 8 // approximate viewable lines in content area
+	if visibleH < 10 {
+		visibleH = 10
+	}
+	leftLines := strings.Split(left.String(), "\n")
+	start := a.policyScroll
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(leftLines) {
+		start = len(leftLines) - 1
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + visibleH
+	if end > len(leftLines) {
+		end = len(leftLines)
+	}
+	scrolledLeft := strings.Join(leftLines[start:end], "\n")
+	if start > 0 {
+		scrolledLeft = dim.Render(fmt.Sprintf("  ▲ %d lines above (PgUp/[)", start)) + "\n" + scrolledLeft
+	}
+	if end < len(leftLines) {
+		scrolledLeft += "\n" + dim.Render(fmt.Sprintf("  ▼ %d lines below (PgDn/])", len(leftLines)-end))
+	}
+
 	columns := lipgloss.JoinHorizontal(lipgloss.Top,
-		colStyle.Render(left.String()),
+		colStyle.Render(scrolledLeft),
 		colStyle.Render(right.String()),
 	)
 
