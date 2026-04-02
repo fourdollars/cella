@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/lxd"
 	"github.com/fourdoors/cella/internal/runtime"
@@ -998,7 +999,7 @@ func (a App) renderPolicyPanel() string {
 	if colW < 28 {
 		colW = 28
 	}
-	colStyle := lipgloss.NewStyle().Width(colW)
+	colStyle := lipgloss.NewStyle().Width(colW).MaxWidth(colW)
 
 	// Apply policyScroll to left column (merged view can be long)
 	visibleH := a.height - 8 // approximate viewable lines in content area
@@ -1062,5 +1063,18 @@ func (a App) renderPolicyPanel() string {
 	// ── Status bar ──
 	hint := dim.Render("(r)efresh  ↑↓ switch container  (a) add egress  (d) remove  (e) export  (i) import  (esc) back")
 
-	return title + "\n\n" + columns + "\n" + egress.String() + "\n" + hint
+	out := title + "\n\n" + columns + "\n" + egress.String() + "\n" + hint
+
+	// Hard-truncate every line to mainW-4 to prevent sidebar displacement.
+	// lipgloss Width() wraps but doesn't truncate; long ANSI lines can push
+	// the sidebar off-screen when JoinHorizontal measures visual width.
+	maxLineW := mainW - 4
+	if maxLineW < 20 {
+		maxLineW = 20
+	}
+	outLines := strings.Split(out, "\n")
+	for i, l := range outLines {
+		outLines[i] = xansi.Truncate(l, maxLineW, "")
+	}
+	return strings.Join(outLines, "\n")
 }
