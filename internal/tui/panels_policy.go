@@ -946,6 +946,10 @@ func (a App) renderPolicyPanel() string {
 					right.WriteString(fmt.Sprintf("  %s = %q  <-- %s\n", k, val, tag))
 				}
 			}
+			// Show raw.lxc hint if not present in merged config
+			if _, ok := mergedCfg["raw.lxc"]; !ok {
+				right.WriteString(fmt.Sprintf("  %s = %s\n", "raw.lxc", dim.Render("(not set)")))
+			}
 		}
 
 		// Devices
