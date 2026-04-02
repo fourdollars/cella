@@ -418,13 +418,31 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return a, nil
-	case "[", "pgup":
+	case "[":
 		if a.policyScroll > 0 {
 			a.policyScroll--
 		}
 		return a, nil
-	case "]", "pgdown":
+	case "]":
 		a.policyScroll++
+		return a, nil
+	case "pgup":
+		step := (a.height - 16) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.policyScroll > step {
+			a.policyScroll -= step
+		} else {
+			a.policyScroll = 0
+		}
+		return a, nil
+	case "pgdown":
+		step := (a.height - 16) / 2
+		if step < 1 {
+			step = 1
+		}
+		a.policyScroll += step
 		return a, nil
 	case "0":
 		// Reset seccomp to LXD default (unset raw.lxc)
@@ -998,25 +1016,38 @@ func (a App) renderPolicyPanel() string {
 	if colW < 28 {
 		colW = 28
 	}
-	colStyle := lipgloss.NewStyle().Width(colW).MaxWidth(colW)
+
+	// Fixed panel height: border(2)+padding(2)+title(2)+egress(~7)+hint(1)=~14
+	contentH := a.height - 4 // same as View()
+	if contentH < 10 {
+		contentH = 10
+	}
+	// Reserve lines for title(2) + egress area(7) + hint(1) = 10
+	colH := contentH - 12
+	if colH < 5 {
+		colH = 5
+	}
+
+	colStyle := lipgloss.NewStyle().Width(colW).MaxWidth(colW).Height(colH).MaxHeight(colH)
 
 	// Apply policyScroll to left column (merged view can be long)
-	visibleH := a.height - 8 // approximate viewable lines in content area
-	if visibleH < 10 {
-		visibleH = 10
-	}
 	leftLines := strings.Split(left.String(), "\n")
+	// Remove trailing empty line from Split if present
+	if len(leftLines) > 0 && leftLines[len(leftLines)-1] == "" {
+		leftLines = leftLines[:len(leftLines)-1]
+	}
 	start := a.policyScroll
 	if start < 0 {
 		start = 0
 	}
-	if start >= len(leftLines) {
-		start = len(leftLines) - 1
-		if start < 0 {
-			start = 0
-		}
+	maxScroll := len(leftLines) - colH
+	if maxScroll < 0 {
+		maxScroll = 0
 	}
-	end := start + visibleH
+	if start > maxScroll {
+		start = maxScroll
+	}
+	end := start + colH
 	if end > len(leftLines) {
 		end = len(leftLines)
 	}
@@ -1043,17 +1074,15 @@ func (a App) renderPolicyPanel() string {
 	}
 	if a.policyEgress != "" {
 		lines := strings.Split(a.policyEgress, "\n")
-		start := a.policyScroll
-		if start < 0 { start = 0 }
-		if start >= len(lines) { start = len(lines) - 1 }
 		maxLines := 4
-		end := start + maxLines
-		if end > len(lines) { end = len(lines) }
-		for _, line := range lines[start:end] {
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+		}
+		for _, line := range lines {
 			egress.WriteString("  " + line + "\n")
 		}
-		if len(lines) > maxLines {
-			egress.WriteString(dim.Render(fmt.Sprintf("  [/] scroll (%d/%d lines)", start+maxLines, len(lines))) + "\n")
+		if len(strings.Split(a.policyEgress, "\n")) > maxLines {
+			egress.WriteString(dim.Render(fmt.Sprintf("  (%d more lines)", len(strings.Split(a.policyEgress, "\n"))-maxLines)) + "\n")
 		}
 	} else {
 		egress.WriteString(dim.Render("  (no egress rules)") + "\n")
