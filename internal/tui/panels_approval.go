@@ -255,6 +255,22 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "down", "j":
 		a.auditScroll++
+	case "pgup":
+		step := (a.height - 14) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.auditScroll > step {
+			a.auditScroll -= step
+		} else {
+			a.auditScroll = 0
+		}
+	case "pgdown":
+		step := (a.height - 14) / 2
+		if step < 1 {
+			step = 1
+		}
+		a.auditScroll += step
 	case "g":
 		a.auditScroll = 0
 	case "G":

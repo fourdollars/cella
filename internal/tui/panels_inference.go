@@ -26,6 +26,22 @@ func (a *App) handleInferencePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "down", "j":
 		a.inferenceScroll++
+	case "pgup":
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.inferenceScroll > step {
+			a.inferenceScroll -= step
+		} else {
+			a.inferenceScroll = 0
+		}
+	case "pgdown":
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		a.inferenceScroll += step
 	case "g":
 		a.inferenceScroll = 0
 	case "G":

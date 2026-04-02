@@ -158,7 +158,7 @@ func (a App) renderSyscallPanel() string {
 	b.WriteString("\n" + SectionHeaderStyle.Render("Top Syscalls") + "\n")
 	header := fmt.Sprintf("  %-4s %-18s %6s %6s %-10s", "NR", "NAME", "COUNT", "%", "FAMILY")
 	b.WriteString(lipgloss.NewStyle().Foreground(ColorSubtle).Render(header) + "\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  " + strings.Repeat("─", 48)) + "\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(ColorDim).Render("  "+strings.Repeat("─", 48)) + "\n")
 
 	for i, sc := range snap.TopCalls {
 		if i >= 12 {
@@ -253,6 +253,31 @@ func (a App) handleSeccompPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if a.seccompScroll < maxScroll {
 			a.seccompScroll++
+		}
+	case "pgup":
+		step := (a.height - 14) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.seccompScroll > step {
+			a.seccompScroll -= step
+		} else {
+			a.seccompScroll = 0
+		}
+	case "pgdown":
+		lines := strings.Split(a.seccompJSON, "\n")
+		maxScroll := len(lines) - (a.height - 14)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		step := (a.height - 14) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.seccompScroll+step < maxScroll {
+			a.seccompScroll += step
+		} else {
+			a.seccompScroll = maxScroll
 		}
 	case "S":
 		// Save profile to file

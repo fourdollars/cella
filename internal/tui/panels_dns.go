@@ -35,6 +35,28 @@ func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.dnsScroll++
 		}
 		return a, nil
+	case "pgup":
+		step := (a.height - 16) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.dnsScroll > step {
+			a.dnsScroll -= step
+		} else {
+			a.dnsScroll = 0
+		}
+		return a, nil
+	case "pgdown":
+		step := (a.height - 16) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.dnsScroll+step < maxIdx {
+			a.dnsScroll += step
+		} else {
+			a.dnsScroll = maxIdx
+		}
+		return a, nil
 	case "a":
 		// Allow selected domain for the current container
 		if a.dnsMonitor != nil && a.selected < len(a.containers) {

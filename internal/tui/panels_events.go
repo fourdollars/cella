@@ -29,6 +29,32 @@ func (a App) handleEventsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.eventScroll++
 		}
 		return a, nil
+	case "pgup":
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.eventScroll > step {
+			a.eventScroll -= step
+		} else {
+			a.eventScroll = 0
+		}
+		return a, nil
+	case "pgdown":
+		maxIdx := len(a.events) - 1
+		if maxIdx < 0 {
+			maxIdx = 0
+		}
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.eventScroll+step < maxIdx {
+			a.eventScroll += step
+		} else {
+			a.eventScroll = maxIdx
+		}
+		return a, nil
 	case "G":
 		// Jump to latest
 		a.eventScroll = len(a.events) - 1

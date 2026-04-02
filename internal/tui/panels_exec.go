@@ -85,6 +85,31 @@ func (a App) handleExecOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.execScroll < maxScroll {
 			a.execScroll++
 		}
+	case "pgup":
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.execScroll > step {
+			a.execScroll -= step
+		} else {
+			a.execScroll = 0
+		}
+	case "pgdown":
+		lines := strings.Split(a.execOutput, "\n")
+		maxScroll := len(lines) - (a.height - 10)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.execScroll+step < maxScroll {
+			a.execScroll += step
+		} else {
+			a.execScroll = maxScroll
+		}
 	}
 	return a, nil
 }
@@ -195,6 +220,32 @@ func (a App) handleLogsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if a.logScroll < maxScroll {
 			a.logScroll++
+		}
+	case "pgup":
+		a.logFollow = false
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.logScroll > step {
+			a.logScroll -= step
+		} else {
+			a.logScroll = 0
+		}
+	case "pgdown":
+		a.logFollow = false
+		maxScroll := len(a.logLines) - (a.height - 10)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		step := (a.height - 10) / 2
+		if step < 1 {
+			step = 1
+		}
+		if a.logScroll+step < maxScroll {
+			a.logScroll += step
+		} else {
+			a.logScroll = maxScroll
 		}
 	case "g":
 		a.logFollow = false

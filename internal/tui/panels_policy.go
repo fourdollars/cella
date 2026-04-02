@@ -418,12 +418,12 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return a, nil
-	case "[":
+	case "[", "pgup":
 		if a.policyScroll > 0 {
 			a.policyScroll--
 		}
 		return a, nil
-	case "]":
+	case "]", "pgdown":
 		a.policyScroll++
 		return a, nil
 	case "0":
