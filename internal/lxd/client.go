@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -442,7 +444,93 @@ func (c *Client) ListSnapshots(ctx context.Context, name string) ([]SnapshotInfo
 			Size:      r.Size,
 		}
 	}
+
+	// For dir-backed storage, LXD doesn't track snapshot sizes.
+	// Fall back to measuring the snapshot directory with du.
+	needsDu := false
+	for _, s := range snapshots {
+		if s.Size == 0 {
+			needsDu = true
+			break
+		}
+	}
+	if needsDu && len(snapshots) > 0 {
+		if poolDir := c.getStoragePoolDir(ctx, name); poolDir != "" {
+			snapshotBaseDir := filepath.Join(poolDir, "containers-snapshots", name)
+			for i := range snapshots {
+				if snapshots[i].Size > 0 {
+					continue
+				}
+				dir := filepath.Join(snapshotBaseDir, snapshots[i].Name)
+				if sz := dirSizeBytes(dir); sz > 0 {
+					snapshots[i].Size = sz
+				}
+			}
+		}
+	}
+
 	return snapshots, nil
+}
+
+// getStoragePoolDir returns the source path of the dir-backed storage pool
+// used by the given instance, or "" if not applicable.
+func (c *Client) getStoragePoolDir(ctx context.Context, instanceName string) string {
+	// Get instance expanded_devices to find the root pool
+	resp, err := c.doGet(ctx, fmt.Sprintf("/1.0/instances/%s", instanceName))
+	if err != nil {
+		return ""
+	}
+	var inst struct {
+		ExpandedDevices map[string]map[string]string `json:"expanded_devices"`
+	}
+	if err := json.Unmarshal(resp.Metadata, &inst); err != nil {
+		return ""
+	}
+	poolName := ""
+	for _, dev := range inst.ExpandedDevices {
+		if dev["type"] == "disk" && dev["path"] == "/" {
+			poolName = dev["pool"]
+			break
+		}
+	}
+	if poolName == "" {
+		return ""
+	}
+
+	// Get storage pool info
+	resp, err = c.doGet(ctx, fmt.Sprintf("/1.0/storage-pools/%s", poolName))
+	if err != nil {
+		return ""
+	}
+	var pool struct {
+		Driver string            `json:"driver"`
+		Config map[string]string `json:"config"`
+	}
+	if err := json.Unmarshal(resp.Metadata, &pool); err != nil {
+		return ""
+	}
+	if pool.Driver != "dir" {
+		return "" // only dir backend needs du fallback
+	}
+	return pool.Config["source"]
+}
+
+// dirSizeBytes returns the total size of a directory in bytes using du.
+// Returns 0 on any error.
+func dirSizeBytes(path string) int64 {
+	out, err := exec.Command("du", "-sb", path).Output()
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0
+	}
+	n, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // CreateSnapshot creates a snapshot of the container
