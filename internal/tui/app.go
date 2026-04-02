@@ -14,6 +14,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/lxd"
 	"github.com/fourdoors/cella/internal/runtime"
@@ -1789,6 +1790,22 @@ func (a App) View() string {
 
 	sidebarStyled := SidebarStyle.Width(sideW).Height(contentH).
 		BorderForeground(sidebarBorder).Render(sidebar)
+
+	// Truncate every dashboard line to prevent overflow into the sidebar.
+	// border(1)+padding(1) on each side = 4 chars overhead; subtract 2 extra
+	// for safety to account for double-width rune edge cases.
+	dashMaxW := mainW - 6
+	if dashMaxW < 20 {
+		dashMaxW = 20
+	}
+	{
+		lines := strings.Split(dashboard, "\n")
+		for i, l := range lines {
+			lines[i] = xansi.Truncate(l, dashMaxW, "")
+		}
+		dashboard = strings.Join(lines, "\n")
+	}
+
 	dashboardStyled := MainPanelStyle.Width(mainW).Height(contentH).
 		BorderForeground(mainBorder).Render(dashboard)
 
