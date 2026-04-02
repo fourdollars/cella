@@ -885,7 +885,7 @@ func (a App) renderPolicyPanel() string {
 		// Merged view replaces Security Flags + Syscall Intercept in right column
 		isSensitiveKey := func(k string) bool {
 			kl := strings.ToLower(k)
-			if strings.Contains(kl, "raw.lxc") || strings.Contains(kl, "user-data") || strings.Contains(kl, "user.user-data") || strings.Contains(kl, "cloud-init") {
+			if strings.Contains(kl, "user-data") || strings.Contains(kl, "user.user-data") || strings.Contains(kl, "cloud-init") {
 				return true
 			}
 			if strings.Contains(kl, "password") || strings.Contains(kl, "passwd") || strings.Contains(kl, "secret") || strings.Contains(kl, "token") {
@@ -923,14 +923,28 @@ func (a App) renderPolicyPanel() string {
 				val := mergedCfg[k]
 				if !a.policyShowSensitive && isSensitiveKey(k) {
 					val = "<masked>"
+					src := origin[k]
+					if src == "" { src = "(unknown)" }
+					col := colorForOrigin(src)
+					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+					right.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
+				} else if strings.Contains(val, "\n") {
+					// Multi-line value: show key + origin, then indented lines
+					src := origin[k]
+					if src == "" { src = "(unknown)" }
+					col := colorForOrigin(src)
+					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+					right.WriteString(fmt.Sprintf("  %s  <-- %s\n", k, tag))
+					for _, line := range strings.Split(val, "\n") {
+						right.WriteString(fmt.Sprintf("    %s\n", line))
+					}
 				} else {
-					val = fmt.Sprintf("%q", val)
+					src := origin[k]
+					if src == "" { src = "(unknown)" }
+					col := colorForOrigin(src)
+					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
+					right.WriteString(fmt.Sprintf("  %s = %q  <-- %s\n", k, val, tag))
 				}
-				src := origin[k]
-				if src == "" { src = "(unknown)" }
-				col := colorForOrigin(src)
-				tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
-				right.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
 			}
 		}
 
