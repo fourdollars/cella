@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>How to Block Dangerous Syscalls Per-Container — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#2ecc71;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.warn{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / How-to Guides</div>
+<h1>🔧 How to Block Dangerous Syscalls Per-Container</h1>
+<p>Use cella's active syscall blocking mode to prevent containers from calling dangerous system calls like <code>ptrace</code>, <code>mount</code>, or <code>kexec_load</code>.</p>
+
+<h2>1. Select the Container</h2>
+<p>Navigate to the target container in the main list. This only works for <strong>LXD containers</strong> (not Docker).</p>
+
+<h2>2. Enable Blocking</h2>
+<p>Press <kbd>Z</kbd> to toggle <strong>LXD BPF syscall deny</strong> for the selected container.</p>
+<p>cella sets <code>security.syscalls.deny</code> via the LXD API, which uses the kernel's BPF mechanism to block the following syscalls with <code>EPERM</code>:</p>
+<ul>
+<li><code>ptrace</code> — process debugging/injection</li>
+<li><code>mount</code> / <code>umount2</code> — filesystem manipulation</li>
+<li><code>bpf</code> — BPF program loading</li>
+<li><code>kexec_load</code> / <code>kexec_file_load</code> — kernel replacement</li>
+<li><code>reboot</code> — host reboot from container</li>
+<li><code>init_module</code> / <code>finit_module</code> — kernel module loading</li>
+</ul>
+
+<h2>3. Operator Approval</h2>
+<p>When bpftrace detects an attempt to call a blocked syscall, an <strong>approval overlay</strong> appears:</p>
+<ul>
+<li><kbd>Y</kbd> — Always allow for this container</li>
+<li><kbd>y</kbd> — Allow once</li>
+<li><kbd>n</kbd> — Deny (keep blocking)</li>
+</ul>
+
+<h2>4. Disable</h2>
+<p>Press <kbd>Z</kbd> again on the same container to remove the deny list.</p>
+
+<div class="warn">⚠️ Blocking syscalls may break containerized applications that legitimately need them. Test in a non-production environment first.</div>
+
+<h2>5. Check Status</h2>
+<p>Open the <strong>Policy</strong> panel (<kbd>P</kbd>) to see the current syscall blocking status for all containers — a ⛔ icon indicates active blocking.</p>
+
+<div class="next">
+<a href="intercept-copilot.html">← Intercept Copilot</a>
+<a href="route-to-local-model.html">Next: Route AI API Calls →</a>
+</div>
+</body></html>

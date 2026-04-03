@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Generate a Seccomp Profile from Live Traffic — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#3498db;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(52,152,219,.1);border:1px solid rgba(52,152,219,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Tutorials</div>
+<h1>📖 Generate a Seccomp Profile from Live Traffic</h1>
+<p>Use cella's bpftrace-based syscall tracing to observe what a container actually calls, then auto-generate a minimal seccomp profile.</p>
+
+<h2>Step 1: Start Syscall Tracing</h2>
+<p>Select a container, then press <kbd>t</kbd> to open the <strong>Syscall Trace</strong> panel and start <strong>bpftrace</strong> monitoring.</p>
+<p>You'll see a live breakdown of syscalls grouped into 7 families:</p>
+<ul>
+<li><code>file-io</code> — read, write, open, close, stat…</li>
+<li><code>network</code> — socket, connect, bind, accept…</li>
+<li><code>process</code> — fork, exec, wait, exit…</li>
+<li><code>memory</code> — mmap, mprotect, brk…</li>
+<li><code>signals</code> — kill, sigaction, sigprocmask…</li>
+<li><code>ipc</code> — pipe, futex, eventfd…</li>
+<li><code>system</code> — ioctl, prctl, sysinfo…</li>
+</ul>
+
+<h2>Step 2: Let It Run</h2>
+<p>Let the trace run while the container does its normal work. The longer it runs, the more complete the syscall coverage. A good baseline is <strong>2–5 minutes</strong> of typical activity.</p>
+<p>The top-12 syscalls table and sparkline will show you the hottest paths.</p>
+
+<h2>Step 3: Generate the Profile</h2>
+<p>Press <kbd>G</kbd> to open the <strong>Seccomp Generator</strong>. cella takes all observed syscalls and generates a minimal OCI-format seccomp JSON profile.</p>
+<p>The generated profile uses <code>defaultAction: SCMP_ACT_ERRNO</code> (deny all) and explicitly allows only the syscalls that were actually observed.</p>
+
+<h2>Step 4: Save</h2>
+<p>Press <kbd>S</kbd> to save the profile to a file. The default path is <code>/tmp/seccomp-&lt;container-name&gt;.json</code>.</p>
+
+<div class="note">💡 <strong>Tip:</strong> Run your container's full workload (startup, normal operations, graceful shutdown) during tracing to capture the complete syscall surface.</div>
+
+<h2>Step 5: Apply (Optional)</h2>
+<p>You can apply the generated profile to the container via LXD config:</p>
+<pre>lxc config set my-container raw.lxc "lxc.seccomp.profile = /path/to/seccomp.json"</pre>
+<p>Or use cella's Policy panel (<kbd>P</kbd>) to manage seccomp profiles.</p>
+
+<div class="next">
+<a href="https-interception.html">← HTTPS Interception</a>
+<a href="../index.html">Home →</a>
+</div>
+</body></html>

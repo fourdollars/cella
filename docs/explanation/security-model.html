@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>The Security Model: Seccomp + AppArmor + Egress — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#9b59b6;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}
+p,li{color:#c9d1d9;}ul{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Explanation</div>
+<h1>💡 The Security Model: Seccomp + AppArmor + Egress</h1>
+<p>How cella's three-layer security model works together to isolate and protect containers.</p>
+
+<h2>Defense in Depth</h2>
+<p>cella combines three independent security mechanisms. Each layer catches different types of threats:</p>
+<pre>┌──────────────────────────────────────────┐
+│         Layer 3: Egress Control          │
+│  (nftables + domain allowlist + DNS)     │
+├──────────────────────────────────────────┤
+│         Layer 2: AppArmor                │
+│  (filesystem + capability restrictions)  │
+├──────────────────────────────────────────┤
+│         Layer 1: Seccomp                 │
+│  (syscall filtering at kernel level)     │
+└──────────────────────────────────────────┘</pre>
+
+<h2>Layer 1: Seccomp (System Call Filtering)</h2>
+<p>Seccomp operates at the kernel level, filtering system calls before they execute. This is the deepest layer of defense.</p>
+<ul>
+<li><strong>Scope:</strong> Controls which kernel APIs a process can call</li>
+<li><strong>Granularity:</strong> Per-syscall (allow, deny, notify, log)</li>
+<li><strong>Performance:</strong> Near-zero overhead (BPF filter in kernel)</li>
+<li><strong>cella's approach:</strong> Three tiers (Strict/Moderate/Permissive) plus custom profiles generated from observed traffic</li>
+</ul>
+<p>Example threat blocked: A compromised process trying to <code>ptrace</code> another process, or <code>mount</code> a filesystem to escalate privileges.</p>
+
+<h2>Layer 2: AppArmor (Mandatory Access Control)</h2>
+<p>AppArmor restricts what files, network operations, and capabilities a container can access, based on a profile loaded into the kernel.</p>
+<ul>
+<li><strong>Scope:</strong> File paths, network access, capabilities, mount operations</li>
+<li><strong>Granularity:</strong> Per-path rules with glob patterns</li>
+<li><strong>cella's role:</strong> Displays the active AppArmor profile in the Policy panel; LXD handles enforcement</li>
+</ul>
+<p>Example threat blocked: A container trying to read <code>/etc/shadow</code> on the host filesystem.</p>
+
+<h2>Layer 3: Egress Control (Network)</h2>
+<p>cella's transparent proxy + nftables provides network-level control:</p>
+<ul>
+<li><strong>nftables REDIRECT:</strong> Intercepts all outbound HTTPS traffic</li>
+<li><strong>Domain allowlist:</strong> Only approved domains can be reached (with wildcard support)</li>
+<li><strong>Operator approval:</strong> New domains require explicit human approval</li>
+<li><strong>DNS monitoring:</strong> Independent DNS query tracking with allow/deny rules</li>
+</ul>
+<p>Example threat blocked: A compromised container trying to exfiltrate data to an unknown external server.</p>
+
+<h2>How They Complement Each Other</h2>
+<table style="width:100%;border-collapse:collapse;margin:.8rem 0;">
+<tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:.5rem;color:var(--muted);">Attack</th><th style="text-align:left;padding:.5rem;color:var(--muted);">Seccomp</th><th style="text-align:left;padding:.5rem;color:var(--muted);">AppArmor</th><th style="text-align:left;padding:.5rem;color:var(--muted);">Egress</th></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.5rem;">Privilege escalation via ptrace</td><td style="padding:.5rem;">✅ Blocked</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">—</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.5rem;">Read host /etc/passwd</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">✅ Blocked</td><td style="padding:.5rem;">—</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.5rem;">Data exfiltration to attacker.com</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">✅ Blocked</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.5rem;">Load kernel module</td><td style="padding:.5rem;">✅ Blocked</td><td style="padding:.5rem;">✅ Blocked</td><td style="padding:.5rem;">—</td></tr>
+<tr><td style="padding:.5rem;">DNS tunneling</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">—</td><td style="padding:.5rem;">✅ DNS Monitor</td></tr>
+</table>
+
+<h2>The Policy Panel</h2>
+<p>Press <kbd>P</kbd> in cella to see all three layers in a single view. The Policy panel shows per-container:</p>
+<ul>
+<li>Active seccomp profile (strict/moderate/permissive/custom)</li>
+<li>AppArmor profile status</li>
+<li>Egress proxy status and allowed domains</li>
+<li>Merged view: full LXD config including <code>raw.lxc</code> seccomp paths</li>
+</ul>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

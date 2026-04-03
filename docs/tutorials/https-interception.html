@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Set Up HTTPS Interception — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#3498db;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(52,152,219,.1);border:1px solid rgba(52,152,219,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+.warn{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Tutorials</div>
+<h1>📖 Set Up HTTPS Interception for a Container</h1>
+<p>Learn how to enable cella's transparent MITM proxy to observe all HTTPS traffic from a container.</p>
+
+<h2>How It Works</h2>
+<ol>
+<li>cella starts a <strong>transparent proxy listener</strong> on the host</li>
+<li>An <strong>nftables PREROUTING REDIRECT</strong> rule diverts the container's outbound port-443 traffic to the proxy</li>
+<li>cella generates an <strong>ECDSA P-256 root CA</strong> and dynamically signs per-host certificates</li>
+<li>The root CA is <strong>automatically injected</strong> into the container's trust store</li>
+<li><code>NODE_EXTRA_CA_CERTS</code> is set for Node.js applications</li>
+</ol>
+
+<h2>Step 1: Open the Audit Panel</h2>
+<p>In cella, press <kbd>A</kbd> to open the <strong>API Audit</strong> panel.</p>
+
+<h2>Step 2: Set Up the Proxy</h2>
+<p>With a container selected, press <kbd>p</kbd>. cella will:</p>
+<ul>
+<li>Create the nftables REDIRECT chain for this container</li>
+<li>Generate a root CA (if not already created)</li>
+<li>Push the CA certificate into the container</li>
+<li>Set <code>NODE_EXTRA_CA_CERTS</code> environment variable</li>
+</ul>
+<p>You'll see a confirmation flash: <code>✅ Proxy set up for &lt;container-name&gt;</code></p>
+
+<h2>Step 3: Watch the Traffic</h2>
+<p>The Audit panel now shows intercepted requests in real time:</p>
+<pre>15:04:02 ✅🔓 my-container POST → api.openai.com /v1/chat/completions [200] (2.1s)
+15:04:05 ✅🔓 my-container GET  → api.github.com /zen                [200] (146ms)</pre>
+<p>Each entry shows: timestamp, status, MITM indicator (🔓), container, method, domain, path, HTTP status, and latency.</p>
+
+<h2>Step 4: Domain Approval</h2>
+<p>When a new domain is first seen, an <strong>approval overlay</strong> appears:</p>
+<ul>
+<li><kbd>Y</kbd> — Always allow this domain</li>
+<li><kbd>y</kbd> — Allow this once</li>
+<li><kbd>n</kbd> — Deny this request</li>
+</ul>
+
+<h2>Step 5: Undo</h2>
+<p>Press <kbd>u</kbd> in the Audit panel to <strong>remove the proxy setup</strong> for the selected container. This tears down the nftables rule and removes the CA cert.</p>
+
+<div class="warn">⚠️ <strong>Warning:</strong> MITM interception decrypts all TLS traffic. Only use this in controlled environments for debugging and auditing purposes.</div>
+
+<div class="next">
+<a href="monitor-container.html">← Monitor Container</a>
+<a href="seccomp-from-traffic.html">Next: Generate Seccomp Profile →</a>
+</div>
+</body></html>

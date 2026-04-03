@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>How to Route AI API Calls Through a Local Model — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#2ecc71;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / How-to Guides</div>
+<h1>🔧 How to Route AI API Calls Through a Local Model</h1>
+<p>Redirect cloud AI API traffic (OpenAI, Anthropic, Gemini) to a local Ollama instance or another backend, transparently to the application.</p>
+
+<h2>Prerequisites</h2>
+<ul>
+<li>HTTPS interception already set up for the target container (see <a href="../tutorials/https-interception.html">HTTPS interception tutorial</a>)</li>
+<li>Ollama (or another OpenAI-compatible backend) running, e.g., on <code>localhost:11434</code></li>
+</ul>
+
+<h2>1. Open the Routing Panel</h2>
+<p>Press <kbd>R</kbd> to open the <strong>Inference Routing</strong> panel.</p>
+
+<h2>2. Select a Preset Route</h2>
+<p>cella comes with built-in presets:</p>
+<table style="width:100%;border-collapse:collapse;margin:.8rem 0;">
+<tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:.4rem;color:var(--muted);">Source</th><th style="text-align:left;padding:.4rem;color:var(--muted);">Backend</th><th style="text-align:left;padding:.4rem;color:var(--muted);">Description</th></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.openai.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">OpenAI → local Ollama</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.anthropic.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">Anthropic → local Ollama</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.business.githubcopilot.com</code></td><td style="padding:.4rem;"><code>integrate.api.nvidia.com</code></td><td style="padding:.4rem;">Copilot → NVIDIA Endpoint</td></tr>
+<tr><td style="padding:.4rem;"><code>generativelanguage.googleapis.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">Gemini → local Ollama</td></tr>
+</table>
+
+<h2>3. Enable a Route</h2>
+<p>Navigate to the desired route and press <kbd>Enter</kbd> to toggle it on. The route takes effect immediately.</p>
+
+<h2>4. How It Works</h2>
+<p>When the MITM proxy intercepts a request for a routed domain, it rewrites the upstream destination to the configured backend. The application sees a normal HTTPS response — no code changes needed.</p>
+
+<div class="note">💡 The Anthropic → Ollama route requires an API format adapter since Anthropic uses a different request format than OpenAI. Ollama's OpenAI-compatible endpoint handles OpenAI-format requests natively.</div>
+
+<div class="next">
+<a href="block-syscalls.html">← Block Syscalls</a>
+<a href="export-security-policies.html">Next: Export Security Policies →</a>
+</div>
+</body></html>

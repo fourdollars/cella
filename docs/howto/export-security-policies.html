@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>How to Export Container Security Policies — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#2ecc71;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / How-to Guides</div>
+<h1>🔧 How to Export Container Security Policies</h1>
+<p>Export a container's full configuration — including seccomp, AppArmor, and network settings — as a JSON file for backup or migration.</p>
+
+<h2>1. Select the Container</h2>
+<p>Navigate to the container you want to export in the main list.</p>
+
+<h2>2. Export Configuration</h2>
+<p>Press <kbd>E</kbd> to <strong>export</strong> the container configuration. cella fetches the complete config from the LXD API and saves it as JSON:</p>
+<pre>{
+  "name": "my-container",
+  "config": {
+    "limits.cpu": "2",
+    "limits.memory": "1GB",
+    "raw.lxc": "lxc.seccomp.profile = /path/to/seccomp.json",
+    "security.nesting": "false",
+    ...
+  },
+  "devices": { ... },
+  "profiles": ["default"]
+}</pre>
+
+<h2>3. Export Seccomp Profile</h2>
+<p>If you've generated a seccomp profile (via <kbd>G</kbd> in the Syscall Trace panel), you can save it separately with <kbd>S</kbd>. The output is OCI-format JSON:</p>
+<pre>{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": ["SCMP_ARCH_X86_64"],
+  "syscalls": [
+    {
+      "names": ["read", "write", "open", "close", ...],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}</pre>
+
+<h2>4. Export Audit Data</h2>
+<p>In the Audit panel (<kbd>A</kbd>), press <kbd>S</kbd> to export the HTTP audit log as JSON.</p>
+
+<h2>5. Import Configuration</h2>
+<p>To re-apply a previously exported config, press <kbd>I</kbd> and select the JSON file. cella will apply the config via the LXD API.</p>
+
+<div class="next">
+<a href="route-to-local-model.html">← Route AI Calls</a>
+<a href="../index.html">Home →</a>
+</div>
+</body></html>

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>How to Intercept GitHub Copilot API Traffic — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#2ecc71;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / How-to Guides</div>
+<h1>🔧 How to Intercept GitHub Copilot API Traffic</h1>
+<p>See exactly what requests your IDE's Copilot agent sends, including token counts and response latency.</p>
+
+<h2>1. Enable the Proxy</h2>
+<ol>
+<li>Select the container running your Copilot-enabled IDE or agent</li>
+<li>Press <kbd>A</kbd> to open the Audit panel</li>
+<li>Press <kbd>p</kbd> to set up the transparent proxy</li>
+</ol>
+<p>cella will configure nftables and inject the CA certificate automatically.</p>
+
+<h2>2. Approve the Domain</h2>
+<p>When Copilot makes its first request, you'll see an approval overlay for <code>api.business.githubcopilot.com</code>.</p>
+<p>Press <kbd>Y</kbd> to always allow it.</p>
+
+<h2>3. Watch the Traffic</h2>
+<p>The Audit panel now shows each API call:</p>
+<pre>15:04:02 ✅🔓 my-agent POST → api.business.githubcopilot.com /chat/completions [200] (5.3s)</pre>
+
+<h2>4. View Inference Stats</h2>
+<p>Press <kbd>M</kbd> for the <strong>Inference Stats</strong> panel. cella parses the SSE response stream and extracts:</p>
+<ul>
+<li><strong>Model name</strong> (e.g., gpt-4o, claude-sonnet-4-5)</li>
+<li><strong>Token counts</strong> — input and output tokens</li>
+<li><strong>RPM / TPM</strong> — requests and tokens per minute</li>
+<li><strong>Estimated cost</strong> — based on known model pricing</li>
+</ul>
+
+<h2>5. Export Audit Data</h2>
+<p>In the Audit panel, press <kbd>S</kbd> to export the audit log as JSON for further analysis.</p>
+
+<div class="note">💡 Copilot also calls <code>api.github.com</code> for auth. Approve that too for full visibility.</div>
+
+<div class="next">
+<a href="../index.html">← Home</a>
+<a href="block-syscalls.html">Next: Block Syscalls →</a>
+</div>
+</body></html>

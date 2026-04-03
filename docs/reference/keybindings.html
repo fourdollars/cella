@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Key Binding Reference — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#f1c40f;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:900px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p{color:#c9d1d9;margin-bottom:.5rem;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+table{width:100%;border-collapse:collapse;margin:.8rem 0;}
+th{text-align:left;padding:.5rem;color:var(--muted);border-bottom:2px solid var(--line);font-size:.9rem;}
+td{padding:.5rem;border-bottom:1px solid var(--line);font-size:.9rem;color:#c9d1d9;}
+td:first-child{font-family:'JetBrains Mono',monospace;color:var(--accent);white-space:nowrap;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
+<h1>📚 Complete Key Binding Reference</h1>
+<p>All keyboard shortcuts available in cella, organized by context.</p>
+
+<h2>Global (available from any panel)</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>↑ / k</td><td>Move selection up</td></tr>
+<tr><td>↓ / j</td><td>Move selection down</td></tr>
+<tr><td>PgUp</td><td>Scroll up half page</td></tr>
+<tr><td>PgDn</td><td>Scroll down half page</td></tr>
+<tr><td>q / Ctrl+C</td><td>Quit cella</td></tr>
+<tr><td>?</td><td>Toggle help overlay</td></tr>
+<tr><td>/</td><td>Search / filter</td></tr>
+<tr><td>Ctrl+L</td><td>Force refresh</td></tr>
+<tr><td>Esc</td><td>Return to previous panel / close overlay</td></tr>
+</table>
+
+<h2>Container Operations</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>s</td><td>Start selected container</td></tr>
+<tr><td>x</td><td>Stop selected container</td></tr>
+<tr><td>p</td><td>Pause selected container (or setup proxy in Audit panel)</td></tr>
+<tr><td>e</td><td>Exec — interactive shell in container</td></tr>
+<tr><td>+</td><td>Create new container (wizard)</td></tr>
+<tr><td>d</td><td>Delete selected container</td></tr>
+</table>
+
+<h2>Panel Navigation</h2>
+<table>
+<tr><th>Key</th><th>Panel</th></tr>
+<tr><td>g</td><td>Dashboard (default view)</td></tr>
+<tr><td>l</td><td>Logs — streaming container logs</td></tr>
+<tr><td>w</td><td>Network — RX/TX, ports, connections</td></tr>
+<tr><td>r</td><td>Resources — CPU/memory limits, per-CPU bars</td></tr>
+<tr><td>n</td><td>Snapshots — create, restore, clone</td></tr>
+<tr><td>t</td><td>Syscall Trace — bpftrace passive monitoring</td></tr>
+<tr><td>G</td><td>Seccomp Generator — generate OCI seccomp JSON</td></tr>
+<tr><td>P</td><td>Policy — seccomp + AppArmor + egress overview</td></tr>
+<tr><td>Z</td><td>Toggle syscall blocking (LXD BPF deny)</td></tr>
+<tr><td>D</td><td>DNS Monitor — DNS traffic + allow/deny</td></tr>
+<tr><td>A</td><td>API Audit — HTTP proxy log + approvals</td></tr>
+<tr><td>M</td><td>Inference Stats — RPM/TPM/cost per model</td></tr>
+<tr><td>R</td><td>Inference Routing — redirect AI APIs</td></tr>
+<tr><td>V</td><td>Events — LXD event log</td></tr>
+<tr><td>E</td><td>Export — container config to JSON</td></tr>
+<tr><td>I</td><td>Import — apply config from JSON</td></tr>
+<tr><td>T</td><td>Stop syscall tracing</td></tr>
+</table>
+
+<h2>Sorting</h2>
+<table>
+<tr><th>Key</th><th>Sort Order</th></tr>
+<tr><td>1</td><td>Sort by name</td></tr>
+<tr><td>2</td><td>Sort by status</td></tr>
+<tr><td>3</td><td>Sort by CPU usage</td></tr>
+</table>
+
+<h2>Runtime Filter</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>f</td><td>Cycle filter: All → LXD → Docker → All</td></tr>
+</table>
+
+<h2>Approval Overlays</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>Y</td><td>Always allow</td></tr>
+<tr><td>y</td><td>Allow once</td></tr>
+<tr><td>n</td><td>Deny</td></tr>
+</table>
+
+<h2>Audit Panel</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>p</td><td>Set up proxy for selected container</td></tr>
+<tr><td>u</td><td>Undo proxy setup</td></tr>
+<tr><td>S</td><td>Export audit log</td></tr>
+<tr><td>c</td><td>Clear audit log</td></tr>
+<tr><td>f</td><td>Filter by status</td></tr>
+</table>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

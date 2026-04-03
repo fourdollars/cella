@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Supported AI Models & Cost Table — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#f1c40f;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:900px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p{color:#c9d1d9;margin-bottom:.5rem;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+table{width:100%;border-collapse:collapse;margin:.8rem 0;}
+th{text-align:left;padding:.6rem;color:var(--muted);border-bottom:2px solid var(--line);font-size:.9rem;}
+td{padding:.5rem .6rem;border-bottom:1px solid var(--line);font-size:.9rem;color:#c9d1d9;}
+td:first-child{font-family:'JetBrains Mono',monospace;font-size:.85rem;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.note{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
+<h1>📚 Supported AI Models & Cost Table</h1>
+<p>cella's Inference Stats panel tracks token usage and estimates cost for the following models. Pricing is approximate as of 2026.</p>
+
+<h2>OpenAI / GitHub Copilot</h2>
+<table>
+<tr><th>Model</th><th>Input ($/1M tokens)</th><th>Output ($/1M tokens)</th></tr>
+<tr><td>gpt-5-mini</td><td>$0.15</td><td>$0.60</td></tr>
+<tr><td>gpt-4o</td><td>$2.50</td><td>$10.00</td></tr>
+<tr><td>gpt-4o-mini</td><td>$0.15</td><td>$0.60</td></tr>
+<tr><td>gpt-4.1</td><td>$2.00</td><td>$8.00</td></tr>
+<tr><td>gpt-4.1-mini</td><td>$0.40</td><td>$1.60</td></tr>
+</table>
+
+<h2>Anthropic (Claude)</h2>
+<table>
+<tr><th>Model</th><th>Input ($/1M tokens)</th><th>Output ($/1M tokens)</th></tr>
+<tr><td>claude-sonnet-4-5</td><td>$3.00</td><td>$15.00</td></tr>
+<tr><td>claude-sonnet-3-5</td><td>$3.00</td><td>$15.00</td></tr>
+<tr><td>claude-opus-4-6</td><td>$15.00</td><td>$75.00</td></tr>
+<tr><td>claude-haiku-3-5</td><td>$0.80</td><td>$4.00</td></tr>
+</table>
+
+<h2>Google (Gemini)</h2>
+<table>
+<tr><th>Model</th><th>Input ($/1M tokens)</th><th>Output ($/1M tokens)</th></tr>
+<tr><td>gemini-3.1-pro-preview</td><td>$1.25</td><td>$5.00</td></tr>
+<tr><td>gemini-2.5-pro</td><td>$1.25</td><td>$10.00</td></tr>
+<tr><td>gemini-3-flash-preview</td><td>$0.075</td><td>$0.30</td></tr>
+<tr><td>gemini-2.5-flash</td><td>$0.075</td><td>$0.30</td></tr>
+</table>
+
+<h2>Fuzzy Matching</h2>
+<p>cella uses fuzzy matching on model names. If the intercepted model string contains a known key (case-insensitive), the corresponding pricing is applied. For example, <code>github-copilot/gpt-4o</code> matches the <code>gpt-4o</code> pricing entry.</p>
+
+<h2>Unknown Models</h2>
+<p>If a model isn't recognized, cella still tracks token counts and request rates — it just reports <code>$0.00</code> for cost. You can identify these in the Inference Stats panel (<kbd>M</kbd>) and add pricing if needed.</p>
+
+<div class="note">💡 Pricing data is compiled into the binary in <code>internal/proxy/inference_stats.go</code>. To update, modify the <code>knownPricing</code> map and rebuild.</div>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

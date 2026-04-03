@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Architecture: How cella Talks to LXD & Docker — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#9b59b6;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}
+p,li{color:#c9d1d9;}ul{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Explanation</div>
+<h1>💡 Architecture: How cella Talks to LXD & Docker</h1>
+<p>An overview of cella's internal architecture and how it communicates with container runtimes.</p>
+
+<h2>Overview</h2>
+<p>cella is a single Go binary built on the <strong>Bubbletea</strong> framework (Elm architecture for terminals). It communicates with LXD and Docker through their respective Unix domain sockets — no daemon, no config files, no external dependencies.</p>
+<pre>┌─────────────────────────────────────────────────┐
+│                  cella TUI                       │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
+│  │ Bubbletea│  │ Lipgloss │  │ cobra CLI     │  │
+│  │ (runtime)│  │ (styling)│  │ (entry point) │  │
+│  └────┬─────┘  └──────────┘  └───────────────┘  │
+│       │                                          │
+│  ┌────┴──────────────────────────────────────┐   │
+│  │        Runtime Interface (runtime.go)     │   │
+│  │    ListContainers() / Exec() / Stats()    │   │
+│  └────┬──────────────────────┬───────────────┘   │
+│       │                      │                   │
+│  ┌────┴────────┐  ┌─────────┴──────────┐        │
+│  │ LXD Client  │  │ Docker Client      │        │
+│  │ (unix sock) │  │ (unix sock)        │        │
+│  └─────────────┘  └────────────────────┘        │
+└─────────────────────────────────────────────────┘</pre>
+
+<h2>LXD Communication</h2>
+<p>cella talks to LXD via its REST API over the Unix socket at <code>/var/snap/lxd/common/lxd/unix.socket</code> (snap) or <code>/var/lib/lxd/unix.socket</code> (deb).</p>
+<ul>
+<li><strong>Container list</strong> — <code>GET /1.0/containers?recursion=2</code></li>
+<li><strong>Metrics</strong> — cgroup v2 files read directly from <code>/sys/fs/cgroup</code> (cpu.stat, memory.current, etc.)</li>
+<li><strong>Events</strong> — <code>GET /1.0/events</code> (WebSocket-upgraded SSE stream)</li>
+<li><strong>Exec</strong> — <code>POST /1.0/containers/{name}/exec</code> with WebSocket for stdin/stdout</li>
+<li><strong>Config</strong> — <code>PATCH /1.0/containers/{name}</code> for live config changes</li>
+</ul>
+
+<h2>Docker Communication</h2>
+<p>Docker uses the same interface but talks to <code>/var/run/docker.sock</code>:</p>
+<ul>
+<li><strong>Container list</strong> — <code>GET /containers/json</code></li>
+<li><strong>Stats</strong> — <code>GET /containers/{id}/stats?stream=false</code></li>
+<li><strong>Exec</strong> — <code>POST /containers/{id}/exec</code> + <code>POST /exec/{id}/start</code></li>
+<li><strong>Logs</strong> — <code>GET /containers/{id}/logs?follow=true</code></li>
+</ul>
+
+<h2>Parallel Fetching</h2>
+<p>cella fetches from both runtimes concurrently using goroutines. The results are merged into a unified container list with a <code>Runtime</code> field ("lxd" or "docker") to distinguish them.</p>
+
+<h2>The Bubbletea Model</h2>
+<p>The entire TUI state lives in a single <code>app</code> struct (~300 fields). Bubbletea's update loop processes keyboard events and timer ticks, returning commands that trigger async operations (API calls, bpftrace output parsing, etc.).</p>
+<p>All rendering happens in the <code>View()</code> method, which builds the entire screen as a string on every frame. Lipgloss handles styling, borders, and layout.</p>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

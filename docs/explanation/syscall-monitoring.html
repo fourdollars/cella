@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Dual-Mode Syscall Monitoring Explained — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#9b59b6;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}
+p,li{color:#c9d1d9;}ul{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+table{width:100%;border-collapse:collapse;margin:.8rem 0;}
+th{text-align:left;padding:.5rem;color:var(--muted);border-bottom:2px solid var(--line);font-size:.9rem;}
+td{padding:.5rem;border-bottom:1px solid var(--line);font-size:.9rem;color:#c9d1d9;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Explanation</div>
+<h1>💡 Dual-Mode Syscall Monitoring Explained</h1>
+<p>cella provides two complementary approaches to syscall monitoring: passive observation and active blocking.</p>
+
+<h2>Why Two Modes?</h2>
+<p>Monitoring and enforcement are different goals. You might want to <em>observe</em> what a container does without interfering (profiling, compliance auditing), or you might want to <em>block</em> dangerous operations in real time (security hardening). cella supports both.</p>
+
+<h2>Mode 1: Passive Monitoring (bpftrace)</h2>
+<p>Activated with <kbd>t</kbd>. Uses <strong>bpftrace</strong> to attach to the kernel's tracepoint for syscall entry, filtered by the container's cgroup ID.</p>
+
+<h3>How It Works</h3>
+<ol>
+<li>cella spawns a <code>bpftrace</code> process with a script that traces <code>tracepoint:raw_syscalls:sys_enter</code></li>
+<li>The script filters by the container's cgroup ID to capture only that container's syscalls</li>
+<li>Output is parsed line by line and categorized into 7 families</li>
+<li>Statistics are maintained in a ring buffer for sparkline rendering</li>
+</ol>
+
+<h3>Syscall Families</h3>
+<table>
+<tr><th>Family</th><th>Examples</th></tr>
+<tr><td>file-io</td><td>read, write, open, close, stat, fstat, lstat, lseek</td></tr>
+<tr><td>network</td><td>socket, connect, bind, listen, accept, sendto, recvfrom</td></tr>
+<tr><td>process</td><td>fork, clone, execve, wait4, exit_group</td></tr>
+<tr><td>memory</td><td>mmap, mprotect, munmap, brk, mremap</td></tr>
+<tr><td>signals</td><td>rt_sigaction, rt_sigprocmask, kill, tgkill</td></tr>
+<tr><td>ipc</td><td>pipe, futex, eventfd, epoll_ctl</td></tr>
+<tr><td>system</td><td>ioctl, prctl, sysinfo, getrandom</td></tr>
+</table>
+
+<h3>Key Properties</h3>
+<ul>
+<li><strong>Non-intrusive:</strong> No performance impact on the container</li>
+<li><strong>Comprehensive:</strong> Sees all syscalls, not just blocked ones</li>
+<li><strong>Feeds seccomp generation:</strong> The observed syscall set becomes the allowlist for the generated profile</li>
+</ul>
+
+<h2>Mode 2: Active Blocking (LXD BPF Deny)</h2>
+<p>Activated with <kbd>Z</kbd>. Uses LXD's <code>security.syscalls.deny</code> config, which leverages the kernel's BPF mechanism to block specific syscalls at the container level.</p>
+
+<h3>How It Works</h3>
+<ol>
+<li>cella sets <code>security.syscalls.deny</code> via the LXD API</li>
+<li>LXD configures a BPF program that returns <code>EPERM</code> for the listed syscalls</li>
+<li>If bpftrace detects an attempt to call a blocked syscall, cella shows an operator approval overlay</li>
+</ol>
+
+<h3>Blocked Syscalls</h3>
+<p>The default deny list targets high-risk syscalls: <code>ptrace</code>, <code>mount</code>, <code>umount2</code>, <code>bpf</code>, <code>kexec_load</code>, <code>kexec_file_load</code>, <code>reboot</code>, <code>init_module</code>, <code>finit_module</code>, <code>delete_module</code>.</p>
+
+<h3>Key Properties</h3>
+<ul>
+<li><strong>Enforcement:</strong> Actually prevents the syscall from executing</li>
+<li><strong>LXD-only:</strong> Relies on LXD's BPF integration; not available for Docker containers</li>
+<li><strong>Operator-in-the-loop:</strong> The approval overlay allows real-time decision-making</li>
+</ul>
+
+<h2>Using Both Together</h2>
+<p>The recommended workflow:</p>
+<ol>
+<li>Start with <strong>passive monitoring</strong> (<kbd>t</kbd>) to understand the container's normal behavior</li>
+<li>Generate a seccomp profile (<kbd>G</kbd>) from observed traffic</li>
+<li>Enable <strong>active blocking</strong> (<kbd>Z</kbd>) to enforce restrictions</li>
+<li>Use the approval overlay to handle edge cases</li>
+</ol>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

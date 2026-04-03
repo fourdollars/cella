@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>TUI Panel Reference — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#f1c40f;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:900px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.3rem;margin:2rem 0 .6rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{margin:1.2rem 0 .4rem;font-size:1.05rem;}
+p,li{color:#c9d1d9;font-size:.95rem;}ul{padding-left:1.5rem;margin:.3rem 0;}li{margin:.2rem 0;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.panel-entry{border:1px solid var(--line);border-radius:.7rem;background:rgba(255,255,255,.02);padding:1rem 1.2rem;margin-bottom:1rem;}
+.panel-entry h3{margin:0 0 .3rem;}
+.tag{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--accent);border:1px solid var(--line);padding:.1rem .35rem;border-radius:.25rem;margin-right:.5rem;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
+<h1>📚 TUI Panel Reference</h1>
+<p>Detailed description of all 20 panels available in cella.</p>
+
+<div class="panel-entry">
+<h3>📈 Dashboard</h3><span class="tag">default</span>
+<p>The main view. Shows container list on the left with per-container sparklines for CPU%, memory, and network I/O on the right. Updates every second from cgroup v2 stats.</p>
+</div>
+
+<div class="panel-entry">
+<h3>⚡ Exec</h3><span class="tag">e</span>
+<p>Opens an interactive shell (TTY attach) inside the selected container. Supports both LXD <code>exec</code> and Docker <code>exec</code>. Press <kbd>Esc</kbd> or <kbd>Ctrl+D</kbd> to detach.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📜 Logs</h3><span class="tag">l</span>
+<p>Streams live logs from the selected container. Uses <code>journalctl -f</code> for LXD and <code>docker logs -f</code> for Docker. Supports search with <kbd>/</kbd>.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🌐 Network</h3><span class="tag">w</span>
+<p>Real-time network panel showing RX/TX byte rates, listening ports, and established TCP connections for the selected container.</p>
+</div>
+
+<div class="panel-entry">
+<h3>⚙️ Resources</h3><span class="tag">r</span>
+<p>Detailed resource view with per-CPU utilization bars, memory current/max with progress bar, and <strong>live-editable</strong> CPU and memory limits via the LXD API.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📸 Snapshots</h3><span class="tag">n</span>
+<p>List, create, restore, and clone snapshots. Shows snapshot size (with fallback to <code>du -sb</code> for <code>dir</code> storage backends). Supports ZFS, Btrfs, LVM, and dir.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🔬 Syscall Trace</h3><span class="tag">t</span>
+<p>Starts bpftrace-based passive syscall monitoring. Displays a top-12 syscall table, 7-family breakdown, and a real-time sparkline. Data feeds the Seccomp Generator.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🧬 Seccomp Generator</h3><span class="tag">G</span>
+<p>Generates a minimal OCI-format seccomp JSON profile from the observed syscalls in the Trace panel. Uses <code>SCMP_ACT_ERRNO</code> default with explicit allows. Save with <kbd>S</kbd>.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🔐 Syscall Approval</h3><span class="tag">auto</span>
+<p>Overlay that appears when seccomp notify intercepts a blocked syscall. Operator can approve (<kbd>Y</kbd>/<kbd>y</kbd>) or deny (<kbd>n</kbd>) the call in real time.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🛡️ Policy</h3><span class="tag">P</span>
+<p>Overview of security policies for all containers: seccomp profile (strict/moderate/permissive), AppArmor profile, and nftables egress rules. Includes a "Merged view" showing the full LXD config with expanded <code>raw.lxc</code> values.</p>
+</div>
+
+<div class="panel-entry">
+<h3>⛔ Syscall Block</h3><span class="tag">Z</span>
+<p>Toggles LXD BPF-based syscall deny for the selected container. Blocks dangerous syscalls (<code>ptrace</code>, <code>mount</code>, <code>bpf</code>, <code>kexec_load</code>…) with <code>EPERM</code>. LXD only.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🔍 DNS Monitor</h3><span class="tag">D</span>
+<p>Monitors DNS queries from containers. Supports allow/deny rules per domain. Shows query history with timestamp and resolution status.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📋 API Audit</h3><span class="tag">A</span>
+<p>HTTP proxy audit log showing all intercepted requests: timestamp, method, domain, path, status code, latency, and MITM indicator. Includes domain approval management and export.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📊 Inference Stats</h3><span class="tag">M</span>
+<p>AI inference monitoring: requests per minute (RPM), tokens per minute (TPM), input/output token counts, and estimated USD cost for 27+ models across OpenAI, Anthropic, Gemini, and Copilot families. Per-minute sparklines.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🔀 Inference Routing</h3><span class="tag">R</span>
+<p>Configure routing rules to redirect AI API traffic to alternative backends. Includes presets for OpenAI→Ollama, Anthropic→Ollama, Copilot→NVIDIA, and Gemini→Ollama.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📡 Events</h3><span class="tag">V</span>
+<p>Live LXD event stream showing all lifecycle events (container start/stop/restart, snapshot creation, config changes, etc.).</p>
+</div>
+
+<div class="panel-entry">
+<h3>➕ Create</h3><span class="tag">+</span>
+<p>Container creation wizard. Select image, set name, configure resources, and launch a new container.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📦 Export / Import</h3><span class="tag">E / I</span>
+<p>Export container configuration as JSON (<kbd>E</kbd>) or import a previously exported config (<kbd>I</kbd>) to apply it to a container via the LXD API.</p>
+</div>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

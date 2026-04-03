@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Your First 5 Minutes with cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#3498db;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;letter-spacing:-.02em;}
+h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}
+p,li{color:#c9d1d9;}
+ul,ol{padding-left:1.5rem;margin:.5rem 0;}
+li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(52,152,219,.1);border:1px solid rgba(52,152,219,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+.warn{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style>
+</head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Tutorials</div>
+<h1>📖 Your First 5 Minutes with cella</h1>
+<p>This tutorial walks you through installing cella, launching it, and performing basic container operations.</p>
+
+<h2>Prerequisites</h2>
+<ul>
+<li>A Linux host with <strong>LXD</strong> or <strong>Docker</strong> (or both) installed</li>
+<li>At least one container or Docker container already running (or we'll create one)</li>
+<li><code>sudo</code> access (or membership in the <code>lxd</code> / <code>docker</code> group)</li>
+</ul>
+
+<h2>Step 1: Get the Binary</h2>
+<pre>curl -Lo cella https://github.com/fourdollars/cella/releases/download/latest/cella_linux_amd64
+chmod +x cella</pre>
+<p>Or build from source (requires Go 1.20+):</p>
+<pre>git clone https://github.com/fourdollars/cella
+cd cella
+go build -o cella ./cmd/main.go</pre>
+
+<h2>Step 2: Launch cella</h2>
+<pre>sudo ./cella</pre>
+<p>You'll see the <strong>Dashboard</strong> — a split-pane view with your container list on the left and real-time metrics on the right.</p>
+<div class="note">💡 cella auto-detects both LXD and Docker runtimes. If you have both, all containers appear in a unified list.</div>
+
+<h2>Step 3: Navigate</h2>
+<ul>
+<li><kbd>↑</kbd> / <kbd>↓</kbd> (or <kbd>k</kbd> / <kbd>j</kbd>) — Move between containers</li>
+<li><kbd>s</kbd> — Start a stopped container</li>
+<li><kbd>x</kbd> — Stop a running container</li>
+<li><kbd>e</kbd> — Open an interactive shell (exec) in the selected container</li>
+<li><kbd>?</kbd> — Show the full help overlay with all key bindings</li>
+</ul>
+
+<h2>Step 4: Watch the Metrics</h2>
+<p>The Dashboard shows live sparklines for CPU, memory, and network I/O. These update every second from cgroup v2 stats.</p>
+<ul>
+<li>Select a container and watch its sparkline graph build up</li>
+<li>Press <kbd>r</kbd> to open the <strong>Resources</strong> panel for detailed CPU/memory with live-editable limits</li>
+</ul>
+
+<h2>Step 5: Sort and Filter</h2>
+<ul>
+<li><kbd>1</kbd> — Sort by name</li>
+<li><kbd>2</kbd> — Sort by status</li>
+<li><kbd>3</kbd> — Sort by CPU usage</li>
+<li><kbd>f</kbd> — Cycle runtime filter: All → LXD → Docker → All</li>
+</ul>
+
+<h2>Step 6: Quit</h2>
+<p>Press <kbd>q</kbd> or <kbd>Ctrl+C</kbd> to exit.</p>
+
+<h2>What's Next?</h2>
+<ul>
+<li><a href="monitor-container.html">Monitor your first LXD container</a> — deeper dive into metrics</li>
+<li><a href="https-interception.html">Set up HTTPS interception</a> — see what your containers are talking to</li>
+<li><a href="seccomp-from-traffic.html">Generate a seccomp profile from live traffic</a></li>
+</ul>
+
+<div class="next">
+<a href="../index.html">← Home</a>
+<a href="monitor-container.html">Next: Monitor a Container →</a>
+</div>
+</body></html>

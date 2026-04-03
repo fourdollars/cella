@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Security Policy Configuration — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#f1c40f;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:900px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}
+p,li{color:#c9d1d9;}ul{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+table{width:100%;border-collapse:collapse;margin:.8rem 0;}
+th{text-align:left;padding:.5rem;color:var(--muted);border-bottom:2px solid var(--line);font-size:.9rem;}
+td{padding:.5rem;border-bottom:1px solid var(--line);font-size:.9rem;color:#c9d1d9;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
+<h1>📚 Security Policy Configuration</h1>
+<p>Reference for cella's security policy system: seccomp profiles, AppArmor, and egress control.</p>
+
+<h2>Seccomp Profiles</h2>
+<p>cella provides three built-in seccomp profile tiers:</p>
+
+<h3>Strict</h3>
+<p>Default action: <code>SCMP_ACT_ALLOW</code>. Targeted <code>SCMP_ACT_NOTIFY</code> on dangerous syscalls — every flagged call triggers the operator approval overlay.</p>
+<ul>
+<li>Best for high-security containers where every sensitive operation needs human approval</li>
+<li>Dangerous syscalls: <code>ptrace</code>, <code>mount</code>, <code>bpf</code>, <code>kexec_load</code>, <code>init_module</code>, etc.</li>
+</ul>
+
+<h3>Moderate</h3>
+<p>Default action: <code>SCMP_ACT_ALLOW</code>. Dangerous syscalls are blocked outright with <code>SCMP_ACT_ERRNO</code> (returns <code>EPERM</code>). No approval overlay.</p>
+<ul>
+<li>Good balance between security and convenience</li>
+<li>Blocked syscalls: <code>ptrace</code>, <code>mount</code>, <code>umount2</code>, <code>bpf</code>, <code>kexec_load</code>, <code>kexec_file_load</code>, <code>reboot</code>, <code>init_module</code>, <code>finit_module</code>, <code>delete_module</code></li>
+</ul>
+
+<h3>Permissive</h3>
+<p>Default action: <code>SCMP_ACT_LOG</code>. All syscalls are allowed but logged for visibility. No blocking, no approval.</p>
+<ul>
+<li>Use for monitoring and profiling before applying stricter policies</li>
+</ul>
+
+<h2>AppArmor</h2>
+<p>cella reads AppArmor profile status from the LXD API (<code>raw.apparmor</code> config key). The Policy panel displays the active AppArmor profile per container.</p>
+
+<h2>Egress Control (nftables)</h2>
+<p>Per-container nftables rules are managed through the transparent proxy system:</p>
+<ul>
+<li>PREROUTING REDIRECT chains per container</li>
+<li>Domain allowlist with wildcard support (<code>*.example.com</code>)</li>
+<li>All non-allowed domains require operator approval</li>
+</ul>
+
+<h2>DNS Monitoring</h2>
+<p>The DNS Monitor panel (<kbd>D</kbd>) captures DNS queries and supports per-domain allow/deny rules independent of the HTTP proxy.</p>
+
+<h2>LXD Config Keys Used</h2>
+<table>
+<tr><th>Key</th><th>Purpose</th></tr>
+<tr><td><code>raw.lxc</code></td><td>Seccomp profile path (<code>lxc.seccomp.profile</code>)</td></tr>
+<tr><td><code>security.syscalls.deny</code></td><td>BPF-based syscall deny list (set by <kbd>Z</kbd>)</td></tr>
+<tr><td><code>raw.apparmor</code></td><td>AppArmor profile override</td></tr>
+<tr><td><code>security.nesting</code></td><td>Allow nesting containers</td></tr>
+<tr><td><code>security.privileged</code></td><td>Privileged container mode</td></tr>
+</table>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>

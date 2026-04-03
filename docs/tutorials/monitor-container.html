@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Monitor Your First LXD Container — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#3498db;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+h3{font-size:1.1rem;margin:1.5rem 0 .5rem;}p,li{color:#c9d1d9;}
+ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.note{background:rgba(52,152,219,.1);border:1px solid rgba(52,152,219,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Tutorials</div>
+<h1>📖 Monitor Your First LXD Container</h1>
+<p>Learn how to use cella's monitoring panels to observe a container's resource usage in real time.</p>
+
+<h2>Prerequisites</h2>
+<ul>
+<li>cella installed and running (<a href="first-5-minutes.html">see first 5 minutes tutorial</a>)</li>
+<li>At least one running LXD container</li>
+</ul>
+
+<h2>Step 1: Open the Dashboard</h2>
+<p>Launch cella. The default view is the <strong>Dashboard</strong>. Select a running container with <kbd>↑</kbd>/<kbd>↓</kbd>.</p>
+<p>On the right pane you'll see:</p>
+<ul>
+<li><strong>CPU sparkline</strong> — rolling 60-second CPU% history</li>
+<li><strong>Memory bar</strong> — current / max with percentage</li>
+<li><strong>Network</strong> — RX/TX bytes per second</li>
+</ul>
+
+<h2>Step 2: Resources Panel</h2>
+<p>Press <kbd>r</kbd> to open the <strong>Resources</strong> panel.</p>
+<ul>
+<li><strong>Per-CPU bars</strong> — if the container is pinned to specific CPUs, each core shows separately</li>
+<li><strong>Memory limit</strong> — live-editable: press <kbd>Enter</kbd> on the memory field, type a new value (e.g., <code>512M</code>), and press <kbd>Enter</kbd> to apply</li>
+<li><strong>CPU limit</strong> — similarly editable</li>
+</ul>
+
+<h2>Step 3: Network Panel</h2>
+<p>Press <kbd>Esc</kbd> to go back, then <kbd>w</kbd> for the <strong>Network</strong> panel.</p>
+<ul>
+<li>Real-time RX/TX rates</li>
+<li>Listening ports inside the container</li>
+<li>Active connections (TCP established)</li>
+</ul>
+
+<h2>Step 4: Live Logs</h2>
+<p>Press <kbd>Esc</kbd>, then <kbd>l</kbd> for the <strong>Logs</strong> panel.</p>
+<ul>
+<li>Streams <code>journalctl -f</code> output for LXD containers (or <code>docker logs -f</code> for Docker)</li>
+<li>Use <kbd>/</kbd> to search within the log stream</li>
+<li>Press <kbd>Esc</kbd> to return</li>
+</ul>
+
+<h2>Step 5: Events</h2>
+<p>Press <kbd>V</kbd> to see the <strong>LXD Events</strong> panel — all lifecycle events (start, stop, snapshot, etc.) in real time from the LXD event stream.</p>
+
+<div class="note">💡 <strong>Tip:</strong> In the Dashboard, press <kbd>3</kbd> to sort containers by CPU — the busiest container rises to the top instantly.</div>
+
+<h2>What's Next?</h2>
+<ul>
+<li><a href="https-interception.html">Set up HTTPS interception</a></li>
+<li><a href="seccomp-from-traffic.html">Generate a seccomp profile from live traffic</a></li>
+</ul>
+
+<div class="next">
+<a href="first-5-minutes.html">← First 5 Minutes</a>
+<a href="https-interception.html">Next: HTTPS Interception →</a>
+</div>
+</body></html>

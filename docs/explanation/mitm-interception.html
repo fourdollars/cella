@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>How Transparent MITM Interception Works — cella</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--line:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#9b59b6;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.7;max-width:800px;margin:0 auto;padding:2rem;}
+a{color:var(--accent);text-decoration:none;}a:hover{text-decoration:underline;}
+h1{font-size:2rem;margin-bottom:.5rem;}h2{font-size:1.4rem;margin:2rem 0 .8rem;border-bottom:1px solid var(--line);padding-bottom:.4rem;}
+p,li{color:#c9d1d9;}ul,ol{padding-left:1.5rem;margin:.5rem 0;}li{margin:.3rem 0;}
+pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:1rem;overflow-x:auto;font-family:'JetBrains Mono',monospace;font-size:.85rem;margin:.8rem 0;color:#d5dce6;}
+code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
+.breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
+.warn{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+.next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+</style></head><body>
+<div class="breadcrumb"><a href="../index.html">← cella</a> / Explanation</div>
+<h1>💡 How Transparent MITM Interception Works</h1>
+<p>A deep dive into cella's HTTPS interception architecture: nftables, TLS MITM, CA injection, and traffic auditing.</p>
+
+<h2>The Problem</h2>
+<p>You want to see what HTTPS requests a container is making — but TLS encrypts everything. You can't just sniff the network. Traditional HTTP proxies require changing the application's proxy settings, which is invasive and doesn't work for all software.</p>
+
+<h2>cella's Approach: Transparent Proxy</h2>
+<p>cella uses <strong>nftables PREROUTING REDIRECT</strong> to invisibly intercept traffic at the kernel level. No proxy configuration needed in the container.</p>
+
+<h3>Step-by-step Flow</h3>
+<ol>
+<li><strong>nftables REDIRECT:</strong> cella adds a PREROUTING rule that redirects the container's outbound port 443 traffic to cella's transparent listener on the host</li>
+<li><strong>Original destination recovery:</strong> The listener reads <code>SO_ORIGINAL_DST</code> from the socket to determine where the traffic was originally headed</li>
+<li><strong>TLS ClientHello inspection:</strong> cella reads the SNI (Server Name Indication) from the TLS ClientHello to identify the target domain</li>
+<li><strong>Dynamic certificate generation:</strong> cella's root CA signs a new certificate for that domain on the fly (ECDSA P-256, cached for 24 hours)</li>
+<li><strong>MITM handshake:</strong> cella completes a TLS handshake with the container using the forged cert, and opens a separate TLS connection to the real upstream server</li>
+<li><strong>Traffic relay + inspection:</strong> cella relays data between the two connections, parsing HTTP requests/responses in transit</li>
+</ol>
+
+<pre>Container ──[HTTPS]──→ nftables REDIRECT ──→ cella listener
+                                                    │
+                                              ┌─────┴─────┐
+                                              │ TLS MITM   │
+                                              │ (forged    │
+                                              │  cert)     │
+                                              └─────┬─────┘
+                                                    │
+                                              ┌─────┴─────┐
+                                              │ Real TLS   │
+                                              │ to upstream│
+                                              └───────────┘</pre>
+
+<h2>CA Certificate Injection</h2>
+<p>For TLS to work, the container must trust cella's root CA. cella's <code>autosetup</code> module handles this automatically:</p>
+<ul>
+<li>Pushes the CA cert to <code>/usr/local/share/ca-certificates/cella-ca.crt</code></li>
+<li>Runs <code>update-ca-certificates</code> inside the container</li>
+<li>Sets <code>NODE_EXTRA_CA_CERTS</code> for Node.js applications</li>
+</ul>
+
+<h2>HTTP/2 Support</h2>
+<p>The MITM handler supports HTTP/2 via ALPN negotiation. When the upstream server supports h2, cella negotiates h2 on both sides of the proxy.</p>
+
+<h2>SSE Stream Parsing</h2>
+<p>For AI API calls that use Server-Sent Events (SSE), cella's inference stats module parses the streaming response chunks in real time to extract model names, token counts, and completion data — all without buffering the entire response.</p>
+
+<h2>Teardown</h2>
+<p>Pressing <kbd>u</kbd> in the Audit panel removes the nftables rule and the CA certificate, returning the container to its original state.</p>
+
+<div class="warn">⚠️ MITM interception is a powerful debugging tool. It should only be used on containers you control, in development/testing environments.</div>
+
+<div class="next"><a href="../index.html">← Home</a></div>
+</body></html>
