@@ -10,14 +10,14 @@ import (
 
 // SeccompProfile represents an LXD-compatible seccomp profile
 type SeccompProfile struct {
-	Comment      string        `json:"comment"`
-	DefaultAction string       `json:"defaultAction"`
-	Architectures []string     `json:"architectures"`
-	Syscalls     []SeccompRule `json:"syscalls"`
-	Generated    time.Time     `json:"_generated"`
-	Container    string        `json:"_container"`
-	ObservedSec  int           `json:"_observedSeconds"`
-	TotalSamples int           `json:"_totalSamples"`
+	Comment       string        `json:"comment"`
+	DefaultAction string        `json:"defaultAction"`
+	Architectures []string      `json:"architectures"`
+	Syscalls      []SeccompRule `json:"syscalls"`
+	Generated     time.Time     `json:"_generated"`
+	Container     string        `json:"_container"`
+	ObservedSec   int           `json:"_observedSeconds"`
+	TotalSamples  int           `json:"_totalSamples"`
 }
 
 // SeccompRule is one entry in the seccomp profile
@@ -35,7 +35,7 @@ func GenerateProfile(tracer *Tracer, containerName string) (*SeccompProfile, err
 	}
 
 	// Collect all unique syscalls across all snapshots
-	seen := make(map[int]int64)      // syscall NR → total count
+	seen := make(map[int]int64)       // syscall NR → total count
 	seenNames := make(map[int]string) // syscall NR → name
 	var totalSyscalls int64
 

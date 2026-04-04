@@ -43,12 +43,12 @@ func TestSyscallFamilyOf_KnownFamilies(t *testing.T) {
 		nr     int
 		family SyscallFamily
 	}{
-		{0, FamilyFile},      // read
-		{1, FamilyFile},      // write
-		{41, FamilyNetwork},  // socket
-		{56, FamilyProcess},  // clone
-		{9, FamilyMemory},    // mmap
-		{202, FamilyIPC},     // futex
+		{0, FamilyFile},     // read
+		{1, FamilyFile},     // write
+		{41, FamilyNetwork}, // socket
+		{56, FamilyProcess}, // clone
+		{9, FamilyMemory},   // mmap
+		{202, FamilyIPC},    // futex
 	}
 	for _, c := range cases {
 		got := SyscallFamilyOf(c.nr)

@@ -2,16 +2,16 @@ package tui
 
 // Key bindings
 type keyMap struct {
-	Up      string
-	Down    string
-	Start   string
-	Pause   string
-	Stop    string
-	Exec    string
-	Search  string
-	Help    string
-	Quit    string
-	Tab     string
+	Up     string
+	Down   string
+	Start  string
+	Pause  string
+	Stop   string
+	Exec   string
+	Search string
+	Help   string
+	Quit   string
+	Tab    string
 }
 
 var keys = keyMap{

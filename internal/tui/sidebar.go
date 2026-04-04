@@ -23,8 +23,9 @@ func (a *App) ensureSidebarVisible() {
 
 // calcSidebarWidth dynamically sizes sidebar based on longest container name.
 // Layout per line (worst case):
-//   "▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + " "(1) + "100% 99.9G"(10)
-//   = 19 cells + name length
+//
+//	"▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + " "(1) + "100% 99.9G"(10)
+//	= 19 cells + name length
 func (a App) calcSidebarWidth() int {
 	// Layout: "▸"(1) + "%2d"(2-3) + indicator●(2cells) + rtIcon🔷(2cells) + name + rightInfo(10: "%4s %5s")
 	const overhead = 18 // prefix(~8 cells) + right column(10 cells)

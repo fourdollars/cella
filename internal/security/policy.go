@@ -23,19 +23,19 @@ type ContainerPolicy struct {
 
 // PolicySeccomp represents seccomp policy configuration.
 type PolicySeccomp struct {
-	Profile string `yaml:"profile" json:"profile"` // "strict", "moderate", "permissive", or "custom"
+	Profile string          `yaml:"profile" json:"profile"`                   // "strict", "moderate", "permissive", or "custom"
 	Custom  *SeccompProfile `yaml:"custom,omitempty" json:"custom,omitempty"` // only if profile == "custom"
 }
 
 // PolicyAppArmor represents AppArmor policy configuration.
 type PolicyAppArmor struct {
-	Profile string   `yaml:"profile" json:"profile"` // "default", "hardened", "net-restricted", "read-only", or "custom"
+	Profile string   `yaml:"profile" json:"profile"`                 // "default", "hardened", "net-restricted", "read-only", or "custom"
 	Rules   []string `yaml:"rules,omitempty" json:"rules,omitempty"` // custom rules (only if profile == "custom")
 }
 
 // PolicyEgress represents network egress policy.
 type PolicyEgress struct {
-	Restricted bool     `yaml:"restricted" json:"restricted"` // whether egress restriction is active
+	Restricted bool     `yaml:"restricted" json:"restricted"`           // whether egress restriction is active
 	Allow      []string `yaml:"allow,omitempty" json:"allow,omitempty"` // allowed IPs/CIDRs
 	DenyAll    bool     `yaml:"deny_all,omitempty" json:"deny_all,omitempty"`
 }

@@ -102,6 +102,8 @@ type AuditStats struct {
 func FormatEntry(e AuditEntry) string {
 	statusIcon := "✅"
 	switch {
+	case e.Status == "denied-permanent":
+		statusIcon = "🚫"
 	case e.Status == "denied" || e.Status == "denied-queue-full":
 		statusIcon = "⛔"
 	case e.Status == "timeout":

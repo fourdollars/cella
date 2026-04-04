@@ -25,6 +25,9 @@ type TransparentListener struct {
 	// onPermanentAllow is called whenever a domain is permanently added to an
 	// allowlist (i.e. operator pressed [Y]). Use it to persist the allowlist.
 	onPermanentAllow func()
+	// onPermanentDeny is called whenever a domain is permanently added to a
+	// denylist (i.e. operator pressed [N]). Use it to persist the denylist.
+	onPermanentDeny func()
 }
 
 // NewTransparentListener creates a transparent proxy listener
@@ -43,6 +46,14 @@ func (t *TransparentListener) SetOnPermanentAllow(fn func()) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onPermanentAllow = fn
+}
+
+// SetOnPermanentDeny registers a callback invoked after every permanent
+// denylist addition. Typically used to persist the updated denylist.
+func (t *TransparentListener) SetOnPermanentDeny(fn func()) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onPermanentDeny = fn
 }
 
 // Start begins accepting redirected connections
@@ -121,6 +132,17 @@ func (t *TransparentListener) handleTLS(
 		domain = "unknown"
 	}
 
+	// Check denylist first — permanently denied domains are blocked immediately
+	dl := t.server.GetDenylist(container)
+	if dl.IsDenied(domain) {
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: "TPROXY", Status: "denied-permanent", TLS: true,
+			Latency: time.Since(start),
+		})
+		return
+	}
+
 	// Check allowlist (with dedup for concurrent connections)
 	al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
@@ -147,6 +169,14 @@ func (t *TransparentListener) handleTLS(
 				al.Add(domain)
 				t.mu.RLock()
 				cb := t.onPermanentAllow
+				t.mu.RUnlock()
+				if cb != nil {
+					go cb()
+				}
+			} else if status == "denied-permanent" {
+				dl.Add(domain)
+				t.mu.RLock()
+				cb := t.onPermanentDeny
 				t.mu.RUnlock()
 				if cb != nil {
 					go cb()
@@ -234,6 +264,18 @@ func (t *TransparentListener) handlePlainHTTP(
 	}
 	domain = extractDomain(domain)
 
+	// Check denylist first
+	dl := t.server.GetDenylist(container)
+	if dl.IsDenied(domain) {
+		clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\nContent-Length: 28\r\n\r\nBlocked by cella proxy policy"))
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: req.Method, URL: req.URL.String(), Path: req.URL.Path,
+			Status: "denied-permanent", Latency: time.Since(start),
+		})
+		return
+	}
+
 	al := t.server.GetAllowlist(container)
 	if !al.IsAllowed(domain) {
 		status := t.server.requestApproval(container, domain, req.Method, req.URL.String(), req.URL.Path)
@@ -245,6 +287,21 @@ func (t *TransparentListener) handlePlainHTTP(
 			if cb != nil {
 				go cb()
 			}
+		} else if status == "denied-permanent" {
+			dl.Add(domain)
+			t.mu.RLock()
+			cb := t.onPermanentDeny
+			t.mu.RUnlock()
+			if cb != nil {
+				go cb()
+			}
+			clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\nContent-Length: 28\r\n\r\nBlocked by cella proxy policy"))
+			t.server.audit.Add(AuditEntry{
+				Time: start, Container: container, Domain: domain,
+				Method: req.Method, URL: req.URL.String(), Path: req.URL.Path,
+				Status: "denied-permanent", Latency: time.Since(start),
+			})
+			return
 		} else if status != "approved" {
 			clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\nContent-Length: 28\r\n\r\nBlocked by cella proxy policy"))
 			t.server.audit.Add(AuditEntry{

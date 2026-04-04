@@ -24,19 +24,19 @@ type Rule struct {
 // (SCMP_ACT_NOTIFY) when seccomp notify mode is enabled on a container.
 // These are operations that could break container isolation or affect the host.
 var DangerousSyscalls = []string{
-	"ptrace",         // process tracing / debugging — can read/write other process memory
-	"mount",          // filesystem mount — can access host paths
-	"umount2",        // filesystem unmount
-	"init_module",    // load kernel module
-	"finit_module",   // load kernel module (fd-based)
-	"delete_module",  // unload kernel module
-	"kexec_load",     // load new kernel — full host takeover
+	"ptrace",        // process tracing / debugging — can read/write other process memory
+	"mount",         // filesystem mount — can access host paths
+	"umount2",       // filesystem unmount
+	"init_module",   // load kernel module
+	"finit_module",  // load kernel module (fd-based)
+	"delete_module", // unload kernel module
+	"kexec_load",    // load new kernel — full host takeover
 	"kexec_file_load",
-	"bpf",            // eBPF — can hook into kernel, bypass security
+	"bpf",             // eBPF — can hook into kernel, bypass security
 	"perf_event_open", // kernel performance counters, side-channel risk
-	"pivot_root",     // change root filesystem
-	"unshare",        // create new namespaces (privilege escalation risk)
-	"clone",          // with CLONE_NEWUSER flag = user namespace escape
+	"pivot_root",      // change root filesystem
+	"unshare",         // create new namespaces (privilege escalation risk)
+	"clone",           // with CLONE_NEWUSER flag = user namespace escape
 }
 
 // PredefinedProfiles

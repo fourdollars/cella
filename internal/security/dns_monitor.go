@@ -14,13 +14,13 @@ import (
 
 // DNSEntry represents a captured DNS query/response.
 type DNSEntry struct {
-	Domain    string
-	IPs       []string  // resolved IP addresses
-	SrcIP     string    // container IP that made the query
+	Domain     string
+	IPs        []string // resolved IP addresses
+	SrcIP      string   // container IP that made the query
 	QueryCount int64
-	BytesSent int64     // estimated from packet sizes
-	LastSeen  time.Time
-	Status    string    // "allow", "deny", "" (unset)
+	BytesSent  int64 // estimated from packet sizes
+	LastSeen   time.Time
+	Status     string // "allow", "deny", "" (unset)
 }
 
 // DNSMonitor captures DNS traffic on the bridge interface and maintains a lookup table.

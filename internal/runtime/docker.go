@@ -120,14 +120,14 @@ func (d *DockerClient) doDelete(ctx context.Context, path string) error {
 // Docker API types
 
 type dockerContainer struct {
-	ID      string            `json:"Id"`
-	Names   []string          `json:"Names"`
-	Image   string            `json:"Image"`
-	State   string            `json:"State"`   // running, exited, paused, created
-	Status  string            `json:"Status"`  // human-readable like "Up 2 hours"
-	Created int64             `json:"Created"` // unix timestamp
-	Labels  map[string]string `json:"Labels"`
-	Ports   []dockerPort      `json:"Ports"`
+	ID              string            `json:"Id"`
+	Names           []string          `json:"Names"`
+	Image           string            `json:"Image"`
+	State           string            `json:"State"`   // running, exited, paused, created
+	Status          string            `json:"Status"`  // human-readable like "Up 2 hours"
+	Created         int64             `json:"Created"` // unix timestamp
+	Labels          map[string]string `json:"Labels"`
+	Ports           []dockerPort      `json:"Ports"`
 	NetworkSettings struct {
 		Networks map[string]dockerNetwork `json:"Networks"`
 	} `json:"NetworkSettings"`
@@ -159,11 +159,11 @@ type dockerInspect struct {
 		Labels   map[string]string `json:"Labels"`
 	} `json:"Config"`
 	HostConfig struct {
-		Memory    int64  `json:"Memory"`
-		NanoCPUs  int64  `json:"NanoCpus"`
+		Memory     int64  `json:"Memory"`
+		NanoCPUs   int64  `json:"NanoCpus"`
 		CPUSetCPUs string `json:"CpusetCpus"`
-		CPUQuota  int64  `json:"CpuQuota"`
-		CPUPeriod int64  `json:"CpuPeriod"`
+		CPUQuota   int64  `json:"CpuQuota"`
+		CPUPeriod  int64  `json:"CpuPeriod"`
 	} `json:"HostConfig"`
 }
 

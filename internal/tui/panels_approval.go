@@ -47,9 +47,14 @@ func (a *App) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.addEvent(fmt.Sprintf("👤+ approved (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
-	case "n", "N":
-		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false}
-		a.addEvent(fmt.Sprintf("⛔ denied: %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+	case "n":
+		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: false}
+		a.addEvent(fmt.Sprintf("⛔ denied (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+		a.pendingApproval = nil
+		return a, a.listenApprovalsContinue()
+	case "N":
+		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: true}
+		a.addEvent(fmt.Sprintf("🚫 denied (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	}
@@ -108,10 +113,11 @@ func (a App) renderApprovalOverlay() string {
 		connInfo += fmt.Sprintf(" (%s %s)", req.Method, req.URL)
 	}
 
-	line3 := fmt.Sprintf("  %s %s  %s %s  %s %s",
+	line3 := fmt.Sprintf("  %s %s  %s %s  %s %s  %s %s",
 		keyStyle.Render("[y]"), optStyle.Render("allow once"),
 		keyStyle.Render("[Y]"), optStyle.Render("allow always"),
-		keyStyle.Render("[n]"), optStyle.Render("deny"))
+		keyStyle.Render("[n]"), optStyle.Render("deny once"),
+		keyStyle.Render("[N]"), optStyle.Render("deny always"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -181,6 +187,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "allowed":
 			a.auditStatusFilter = "denied"
 		case "denied":
+			a.auditStatusFilter = "denied-permanent"
+		case "denied-permanent":
 			a.auditStatusFilter = "approved"
 		case "approved":
 			a.auditStatusFilter = "timeout"
@@ -213,11 +221,21 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if err := srv.LoadAllowlistsFromDir(dataDir); err != nil {
 					a.addEvent(fmt.Sprintf("⚠ allowlist load: %v", err))
 				}
+				// Load persisted denylists from previous sessions
+				if err := srv.LoadDenylistsFromDir(dataDir); err != nil {
+					a.addEvent(fmt.Sprintf("⚠ denylist load: %v", err))
+				}
 				tl := proxy.NewTransparentListener(9081, srv)
 				// Wire persistence callback: save allowlist on every [Y] allow always
 				tl.SetOnPermanentAllow(func() {
 					if err := srv.SaveAllowlistsToDir(dataDir); err != nil {
 						// best-effort; log to stderr but don't crash TUI
+						_ = err
+					}
+				})
+				// Wire persistence callback: save denylist on every [N] deny always
+				tl.SetOnPermanentDeny(func() {
+					if err := srv.SaveDenylistsToDir(dataDir); err != nil {
 						_ = err
 					}
 				})
@@ -248,6 +266,11 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			entries := a.filterAuditEntries(globalProxyServer.Audit().All())
 			return a, a.exportAuditJSON(entries)
 		}
+		return a, nil
+	case "L":
+		// Toggle allow/deny list view
+		a.auditShowLists = !a.auditShowLists
+		a.auditScroll = 0
 		return a, nil
 	case "up", "k":
 		if a.auditScroll > 0 {
@@ -289,7 +312,11 @@ func (a App) filterAuditEntries(entries []proxy.AuditEntry) []proxy.AuditEntry {
 	for _, e := range entries {
 		if a.auditStatusFilter != "" {
 			if a.auditStatusFilter == "denied" {
-				if !strings.HasPrefix(e.Status, "denied") {
+				if e.Status != "denied" && e.Status != "denied-queue-full" {
+					continue
+				}
+			} else if a.auditStatusFilter == "denied-permanent" {
+				if e.Status != "denied-permanent" {
 					continue
 				}
 			} else if a.auditStatusFilter == "approved" {
@@ -309,6 +336,86 @@ func (a App) filterAuditEntries(entries []proxy.AuditEntry) []proxy.AuditEntry {
 		result = append(result, e)
 	}
 	return result
+}
+
+// renderAllowDenyLists renders the allowlist and denylist for the current container
+func (a App) renderAllowDenyLists() string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22"))
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
+
+	var b strings.Builder
+	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
+	b.WriteString(dim.Render("  Press L to return to log  │  [Y]=allow always  [N]=deny always") + "\n")
+	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
+
+	if globalProxyServer == nil {
+		b.WriteString(dim.Render("  Proxy not active.") + "\n")
+		return b.String()
+	}
+
+	// Determine selected container name
+	selectedName := ""
+	if a.selected < len(a.containers) {
+		selectedName = a.containers[a.selected].Name
+	}
+
+	// Collect all containers that have entries
+	containers := []string{}
+	seen := map[string]bool{}
+	for _, e := range globalProxyServer.Audit().All() {
+		if !seen[e.Container] {
+			containers = append(containers, e.Container)
+			seen[e.Container] = true
+		}
+	}
+	if selectedName != "" && !seen[selectedName] {
+		containers = append([]string{selectedName}, containers...)
+	}
+
+	if len(containers) == 0 {
+		b.WriteString(dim.Render("  No containers with proxy history.") + "\n")
+		return b.String()
+	}
+
+	for _, cname := range containers {
+		al := globalProxyServer.GetAllowlist(cname)
+		dl := globalProxyServer.GetDenylist(cname)
+		allowDomains := al.UserDomains()
+		denyDomains := dl.List()
+
+		if len(allowDomains) == 0 && len(denyDomains) == 0 {
+			continue
+		}
+
+		header := bright.Render("  📦 " + cname)
+		if cname == selectedName {
+			header += dim.Render(" ◀ selected")
+		}
+		b.WriteString(header + "\n")
+
+		if len(allowDomains) > 0 {
+			b.WriteString(green.Render("    ✅ Allowed (permanent):") + "\n")
+			for _, d := range allowDomains {
+				b.WriteString(green.Render("      + " + d) + "\n")
+			}
+		}
+		if len(denyDomains) > 0 {
+			b.WriteString(red.Render("    🚫 Denied (permanent):") + "\n")
+			for _, d := range denyDomains {
+				b.WriteString(red.Render("      - " + d) + "\n")
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// Show file paths
+	dataDir := os.ExpandEnv("$HOME/.cella")
+	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
+	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)) + "\n")
+	return b.String()
 }
 
 // exportAuditJSON writes filtered audit entries to a JSON file
@@ -386,6 +493,11 @@ func (a App) renderAuditPanel() string {
 
 	var b strings.Builder
 
+	// Show allow/deny lists mode (L key)
+	if a.auditShowLists {
+		return a.renderAllowDenyLists()
+	}
+
 	// Title line
 	b.WriteString(blue.Render("📋 API Audit Log ◆"))
 	b.WriteString(green.Render(fmt.Sprintf(" (intercept :%d", 9081)))
@@ -402,8 +514,9 @@ func (a App) renderAuditPanel() string {
 	approved := stats.ByStatus["approved"] + stats.ByStatus["approved-permanent"]
 	timeouts := stats.ByStatus["timeout"]
 
-	statsLine := fmt.Sprintf("  Total: %d │ ✅ %d │ 👤 %d │ ⛔ %d │ ⏱ %d",
-		stats.Total, allowed, approved, denied, timeouts)
+	deniedPerm := stats.ByStatus["denied-permanent"]
+	statsLine := fmt.Sprintf("  Total: %d │ ✅ %d │ 👤 %d │ ⛔ %d │ 🚫 %d │ ⏱ %d",
+		stats.Total, allowed, approved, denied, deniedPerm, timeouts)
 	if stats.TLSCount > 0 {
 		statsLine += fmt.Sprintf(" │ 🔓 %d", stats.TLSCount)
 	}
@@ -419,6 +532,8 @@ func (a App) renderAuditPanel() string {
 			icon = "✅"
 		case "denied":
 			icon = "⛔"
+		case "denied-permanent":
+			icon = "🚫"
 		case "approved":
 			icon = "👤"
 		case "timeout":

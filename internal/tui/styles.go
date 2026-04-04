@@ -4,19 +4,19 @@ import "github.com/charmbracelet/lipgloss"
 
 // Color palette
 var (
-	ColorBlue   = lipgloss.Color("#58a6ff")
-	ColorGreen  = lipgloss.Color("#3fb950")
-	ColorOrange = lipgloss.Color("#e67e22")
-	ColorRed    = lipgloss.Color("#f85149")
-	ColorPurple = lipgloss.Color("#d2a8ff")
-	ColorYellow = lipgloss.Color("#e3b341")
-	ColorDim    = lipgloss.Color("#484f58")
-	ColorText   = lipgloss.Color("#e6edf3")
-	ColorSubtle = lipgloss.Color("#8b949e")
-	ColorBg     = lipgloss.Color("#0d1117")
-	ColorPanel  = lipgloss.Color("#161b22")
-	ColorBorder       = lipgloss.Color("#30363d") // unfocused border
-	ColorBorderFocus  = lipgloss.Color("#f0f0f0") // focused border (bright white)
+	ColorBlue        = lipgloss.Color("#58a6ff")
+	ColorGreen       = lipgloss.Color("#3fb950")
+	ColorOrange      = lipgloss.Color("#e67e22")
+	ColorRed         = lipgloss.Color("#f85149")
+	ColorPurple      = lipgloss.Color("#d2a8ff")
+	ColorYellow      = lipgloss.Color("#e3b341")
+	ColorDim         = lipgloss.Color("#484f58")
+	ColorText        = lipgloss.Color("#e6edf3")
+	ColorSubtle      = lipgloss.Color("#8b949e")
+	ColorBg          = lipgloss.Color("#0d1117")
+	ColorPanel       = lipgloss.Color("#161b22")
+	ColorBorder      = lipgloss.Color("#30363d") // unfocused border
+	ColorBorderFocus = lipgloss.Color("#f0f0f0") // focused border (bright white)
 )
 
 // Styles

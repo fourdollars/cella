@@ -12,15 +12,15 @@ import (
 
 // Event represents a parsed LXD event
 type Event struct {
-	Type      string    `json:"type"`      // lifecycle, logging, operation
+	Type      string    `json:"type"` // lifecycle, logging, operation
 	Timestamp time.Time `json:"timestamp"`
 	Metadata  EventMeta `json:"metadata"`
 }
 
 // EventMeta holds event-specific metadata
 type EventMeta struct {
-	Action  string                 `json:"action"`  // e.g. instance-started, instance-stopped
-	Source  string                 `json:"source"`  // e.g. /1.0/instances/mycontainer
+	Action  string                 `json:"action"` // e.g. instance-started, instance-stopped
+	Source  string                 `json:"source"` // e.g. /1.0/instances/mycontainer
 	Context map[string]interface{} `json:"context"`
 }
 

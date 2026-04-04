@@ -24,7 +24,7 @@ type ApprovalRequest struct {
 // ApprovalResponse carries the operator's decision
 type ApprovalResponse struct {
 	Approved  bool
-	Permanent bool // true = add to allowlist permanently
+	Permanent bool // true = add to allowlist/denylist permanently
 }
 
 // AuditEntry records a proxied request
@@ -35,7 +35,7 @@ type AuditEntry struct {
 	Method    string
 	URL       string
 	Path      string // URL path (populated in MITM mode)
-	Status    string // "allowed", "denied", "approved", "timeout"
+	Status    string // "allowed", "denied", "approved", "timeout", "denied-permanent"
 	RespCode  int    // HTTP response code (MITM mode)
 	Latency   time.Duration
 	TLS       bool // true = decrypted HTTPS via MITM
@@ -45,6 +45,7 @@ type AuditEntry struct {
 type Server struct {
 	port           int
 	allowlists     map[string]*Allowlist // container name → allowlist
+	denylists      map[string]*Denylist  // container name → denylist
 	containerByIP  map[string]string     // source IP → container name
 	approvalCh     chan ApprovalRequest  // → TUI for approval
 	audit          *AuditLog
@@ -61,6 +62,7 @@ func NewServer(port int, approvalCh chan ApprovalRequest) *Server {
 	return &Server{
 		port:           port,
 		allowlists:     make(map[string]*Allowlist),
+		denylists:      make(map[string]*Denylist),
 		containerByIP:  make(map[string]string),
 		approvalCh:     approvalCh,
 		audit:          NewAuditLog(500),
@@ -116,6 +118,18 @@ func (s *Server) GetAllowlist(container string) *Allowlist {
 	return al
 }
 
+// GetDenylist returns the denylist for a container (creates if needed)
+func (s *Server) GetDenylist(container string) *Denylist {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if dl, ok := s.denylists[container]; ok {
+		return dl
+	}
+	dl := NewDenylist()
+	s.denylists[container] = dl
+	return dl
+}
+
 // Audit returns the audit log
 func (s *Server) Audit() *AuditLog { return s.audit }
 
@@ -127,6 +141,17 @@ func (s *Server) AllAllowlists() map[string]*Allowlist {
 	defer s.mu.RUnlock()
 	result := make(map[string]*Allowlist, len(s.allowlists))
 	for k, v := range s.allowlists {
+		result[k] = v
+	}
+	return result
+}
+
+// AllDenylists returns a snapshot of the container→denylist map for persistence.
+func (s *Server) AllDenylists() map[string]*Denylist {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make(map[string]*Denylist, len(s.denylists))
+	for k, v := range s.denylists {
 		result[k] = v
 	}
 	return result
@@ -150,6 +175,25 @@ func (s *Server) LoadAllowlistsFromDir(dataDir string) error {
 // SaveAllowlistsToDir persists all per-container allowlists to dataDir.
 func (s *Server) SaveAllowlistsToDir(dataDir string) error {
 	return SaveAllowlists(dataDir, s.AllAllowlists())
+}
+
+// LoadDenylistsFromDir loads persisted denylists into the server.
+func (s *Server) LoadDenylistsFromDir(dataDir string) error {
+	loaded, err := LoadDenylists(dataDir)
+	if err != nil {
+		return err
+	}
+	for container, dl := range loaded {
+		for _, d := range dl.List() {
+			s.GetDenylist(container).Add(d)
+		}
+	}
+	return nil
+}
+
+// SaveDenylistsToDir persists all per-container denylists to dataDir.
+func (s *Server) SaveDenylistsToDir(dataDir string) error {
+	return SaveDenylists(dataDir, s.AllDenylists())
 }
 
 func (s *Server) Routes() *RouteTable { return s.routes }
@@ -185,6 +229,9 @@ func (s *Server) requestApproval(container, domain, method, url, path string) st
 				return "approved-permanent"
 			}
 			return "approved"
+		}
+		if resp.Permanent {
+			return "denied-permanent"
 		}
 		return "denied"
 	case <-time.After(s.timeout):

@@ -47,7 +47,7 @@ func TestAllowlist_WildcardMatch(t *testing.T) {
 	}{
 		{"api.openai.com", true},
 		{"cdn.openai.com", true},
-		{"openai.com", false},         // wildcard doesn't match apex
+		{"openai.com", false}, // wildcard doesn't match apex
 		{"api.notopen.com", false},
 	}
 	for _, c := range cases {

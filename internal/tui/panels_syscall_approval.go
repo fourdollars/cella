@@ -230,12 +230,12 @@ func startSeccompApprovalListener(
 // correct LXD v5.x API for syscall restrictions — the old seccomp notify
 // REST endpoint does not exist in LXD v5.x.
 //
-//   Enable:  applies security.syscalls.deny with the DangerousSyscalls list,
-//            so dangerous syscalls return EPERM. bpftrace monitoring continues
-//            to show syscall activity. The TUI approval overlay fires when
-//            bpftrace detects a dangerous syscall attempt.
+//	Enable:  applies security.syscalls.deny with the DangerousSyscalls list,
+//	         so dangerous syscalls return EPERM. bpftrace monitoring continues
+//	         to show syscall activity. The TUI approval overlay fires when
+//	         bpftrace detects a dangerous syscall attempt.
 //
-//   Disable: clears security.syscalls.deny, restoring unrestricted access.
+//	Disable: clears security.syscalls.deny, restoring unrestricted access.
 //
 // Note: LXD requires a container restart to apply seccomp filter changes.
 // cella applies the filter and warns the operator if the container is running.
