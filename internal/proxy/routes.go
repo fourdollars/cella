@@ -17,8 +17,10 @@ type InferenceRoute struct {
 	BackendScheme string `json:"backend_scheme,omitempty"`
 	// PathPrefix: optional path prefix to add (e.g., "/v1" for Ollama)
 	PathPrefix string `json:"path_prefix,omitempty"`
-	// ModelOverride: if set, replace model field in request body
+	// ModelOverride: if set, replace the model field in the request body
 	ModelOverride string `json:"model_override,omitempty"`
+	// Adapter: API format adapter to apply ("anthropic", "gemini", or empty)
+	Adapter AdapterKind `json:"adapter,omitempty"`
 	// Note: human-readable description
 	Note string `json:"note,omitempty"`
 	// Enabled: whether this route is active
@@ -133,8 +135,8 @@ func PresetRoutes() []InferenceRoute {
 			SourceDomain:  "api.anthropic.com",
 			BackendHost:   "localhost:11434",
 			BackendScheme: "http",
-			PathPrefix:    "/v1",
-			Note:          "Anthropic → local Ollama (needs API format adapter)",
+			Adapter:       AdapterAnthropic,
+			Note:          "Anthropic → local Ollama (via format adapter)",
 			Enabled:       false,
 		},
 		{
@@ -149,8 +151,8 @@ func PresetRoutes() []InferenceRoute {
 			SourceDomain:  "generativelanguage.googleapis.com",
 			BackendHost:   "localhost:11434",
 			BackendScheme: "http",
-			PathPrefix:    "/v1",
-			Note:          "Gemini → local Ollama",
+			Adapter:       AdapterGemini,
+			Note:          "Gemini → local Ollama (via format adapter)",
 			Enabled:       false,
 		},
 	}

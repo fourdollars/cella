@@ -2,12 +2,13 @@ package proxy
 
 import (
 	"bytes"
-	"strings"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strings"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -94,17 +95,24 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqStart := time.Now()
 
 	// Check route table for inference routing
+	var activeAdapter Adapter
+	var activeRoute *InferenceRoute
+	var origModel string
 	routed := false
+
 	if h.routes != nil {
 		if route := h.routes.Get(h.domain); route != nil {
-			// Redirect to alternative backend
 			scheme := route.BackendScheme
-			if scheme == "" { scheme = "https" }
+			if scheme == "" {
+				scheme = "https"
+			}
 			r.URL.Scheme = scheme
 			r.URL.Host = route.BackendHost
 			if route.PathPrefix != "" && !strings.HasPrefix(r.URL.Path, route.PathPrefix) {
 				r.URL.Path = route.PathPrefix + r.URL.Path
 			}
+			activeRoute = route
+			activeAdapter = GetAdapter(route.Adapter)
 			routed = true
 		}
 	}
@@ -115,11 +123,33 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.RequestURI = ""
 	removeHopByHopHeaders(r.Header)
 
-	// Capture request body for inference parsing
+	// Capture request body
 	var reqBody []byte
 	if r.Body != nil {
 		reqBody, _ = io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+	}
+
+	// Remember original model name (for response transformation)
+	if len(reqBody) > 0 {
+		origModel = ParseInferenceRequest(reqBody)
+	}
+
+	// Apply request adapter: rewrite body + path to OpenAI format
+	if activeAdapter != nil && len(reqBody) > 0 {
+		modelOverride := ""
+		if activeRoute != nil {
+			modelOverride = activeRoute.ModelOverride
+		}
+		newBody, newPath, err := activeAdapter.TransformRequest(r, reqBody, modelOverride)
+		if err == nil {
+			reqBody = newBody
+			if newPath != "" {
+				r.URL.Path = newPath
+			}
+			r.Body = io.NopCloser(bytes.NewReader(reqBody))
+			r.ContentLength = int64(len(reqBody))
+		}
 	}
 
 	// Forward to real upstream
@@ -137,8 +167,23 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Read response body for token usage parsing
+	// Read response body
 	respBody, _ := io.ReadAll(resp.Body)
+
+	// Apply response adapter: rewrite Ollama response back to original provider format
+	if activeAdapter != nil {
+		contentType := resp.Header.Get("Content-Type")
+		isStream := IsStreamingResponse(contentType)
+		if converted, err := activeAdapter.TransformResponse(respBody, origModel, isStream); err == nil {
+			respBody = converted
+			// Update Content-Length after transformation
+			resp.Header.Set("Content-Length", fmt.Sprint(len(respBody)))
+			// Ensure streaming content-type is preserved
+			if isStream {
+				resp.Header.Set("Content-Type", "text/event-stream")
+			}
+		}
+	}
 
 	// Parse inference stats (model, tokens)
 	var model string
@@ -198,9 +243,9 @@ func isInferencePath(path string) bool {
 	case "/chat/completions",
 		"/v1/chat/completions",
 		"/v1/completions",
-		"/v1/messages",         // Anthropic
+		"/v1/messages", // Anthropic
 		"/v1/embeddings",
-		"/responses":         // GitHub Copilot
+		"/responses": // GitHub Copilot
 		return true
 	}
 	return false
