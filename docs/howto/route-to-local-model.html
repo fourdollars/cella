@@ -36,7 +36,7 @@ kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;
 <tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:.4rem;color:var(--muted);">Source</th><th style="text-align:left;padding:.4rem;color:var(--muted);">Backend</th><th style="text-align:left;padding:.4rem;color:var(--muted);">Description</th></tr>
 <tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.openai.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">OpenAI → local Ollama</td></tr>
 <tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.anthropic.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">Anthropic → local Ollama</td></tr>
-<tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.business.githubcopilot.com</code></td><td style="padding:.4rem;"><code>integrate.api.nvidia.com</code></td><td style="padding:.4rem;">Copilot → NVIDIA Endpoint</td></tr>
+<tr style="border-bottom:1px solid var(--line);"><td style="padding:.4rem;"><code>api.business.githubcopilot.com</code></td><td style="padding:.4rem;"><code>integrate.api.nvidia.com</code></td><td style="padding:.4rem;">Copilot → NVIDIA NIM *</td></tr>
 <tr><td style="padding:.4rem;"><code>generativelanguage.googleapis.com</code></td><td style="padding:.4rem;"><code>localhost:11434</code></td><td style="padding:.4rem;">Gemini → local Ollama</td></tr>
 </table>
 
@@ -46,7 +46,9 @@ kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;
 <h2>4. How It Works</h2>
 <p>When the MITM proxy intercepts a request for a routed domain, it rewrites the upstream destination to the configured backend. The application sees a normal HTTPS response — no code changes needed.</p>
 
-<div class="note">💡 The Anthropic → Ollama route requires an API format adapter since Anthropic uses a different request format than OpenAI. Ollama's OpenAI-compatible endpoint handles OpenAI-format requests natively.</div>
+<div class="note">💡 <strong>Why Copilot → NVIDIA instead of Ollama?</strong><br>
+GitHub Copilot uses an OpenAI-compatible API format, but the request flow includes Copilot-specific auth headers and streaming behavior. NVIDIA NIM endpoints are cloud-hosted and natively OpenAI-compatible, making them a drop-in replacement without needing a local GPU. You can change the preset backend to <code>localhost:11434</code> if you prefer local Ollama.<br><br>
+The Anthropic → Ollama route needs an API format adapter since Anthropic uses a different request schema than OpenAI.</div>
 
 <div class="next">
 <a href="block-syscalls.html">← Block Syscalls</a>
