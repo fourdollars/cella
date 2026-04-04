@@ -11,7 +11,7 @@ import (
 type InferenceRoute struct {
 	// Source: the original target domain (e.g., "api.openai.com")
 	SourceDomain string `json:"source_domain"`
-	// Backend: the actual upstream to forward to (e.g., "localhost:11434", "api.nvidia.com")
+	// Backend: the actual upstream to forward to (e.g., "localhost:11434")
 	BackendHost string `json:"backend_host"`
 	// BackendScheme: "https" (default) or "http" (for local Ollama etc.)
 	BackendScheme string `json:"backend_scheme,omitempty"`
@@ -139,9 +139,10 @@ func PresetRoutes() []InferenceRoute {
 		},
 		{
 			SourceDomain:  "api.business.githubcopilot.com",
-			BackendHost:   "integrate.api.nvidia.com",
-			BackendScheme: "https",
-			Note:          "GitHub Copilot → NVIDIA Endpoint",
+			BackendHost:   "localhost:11434",
+			BackendScheme: "http",
+			PathPrefix:    "/v1",
+			Note:          "GitHub Copilot → local Ollama",
 			Enabled:       false,
 		},
 		{
