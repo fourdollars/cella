@@ -252,9 +252,20 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.auditEditOriginal.kind = it.kind
 			}
 		}
-		// clamp
+		// clamp cursor
 		if max >= 0 && a.auditListCursor > max {
 			a.auditListCursor = max
+		}
+		// scroll to keep cursor visible (viewport = height - 6 header/footer lines)
+		visible := a.height - 8
+		if visible < 4 {
+			visible = 4
+		}
+		if a.auditListCursor < a.auditListScroll {
+			a.auditListScroll = a.auditListCursor
+		}
+		if a.auditListCursor >= a.auditListScroll+visible {
+			a.auditListScroll = a.auditListCursor - visible + 1
 		}
 		return a, nil
 	}
@@ -370,6 +381,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle allow/deny list view
 		a.auditShowLists = !a.auditShowLists
 		a.auditListCursor = 0
+		a.auditListScroll = 0
 		a.auditScroll = 0
 		return a, nil
 	case "H":
@@ -562,6 +574,11 @@ func (a App) renderAllowDenyLists() string {
 		return b.String()
 	}
 
+	// Build all content lines into a slice first, then apply viewport scroll.
+	type contentLine struct{ s string }
+	var lines []contentLine
+	addLine := func(s string) { lines = append(lines, contentLine{s}) }
+
 	for _, cname := range containers {
 		al := globalProxyServer.GetAllowlist(cname)
 		dl := globalProxyServer.GetDenylist(cname)
@@ -572,15 +589,14 @@ func (a App) renderAllowDenyLists() string {
 			continue
 		}
 
-
 		header := bright.Render("  📦 " + cname)
 		if cname == selectedName {
 			header += dim.Render(" ◀ selected")
 		}
-		b.WriteString(header + "\n")
+		addLine(header)
 
 		if len(allowDomains) > 0 {
-			b.WriteString(green.Render("    ✅ Allowed (permanent):") + "\n")
+			addLine(green.Render("    ✅ Allowed (permanent):"))
 			for _, d := range allowDomains {
 				idx := a.listItemIndex(cname, d, "allow", items)
 				if idx == a.auditListCursor {
@@ -596,17 +612,17 @@ func (a App) renderAllowDenyLists() string {
 							after = string(eRunes[a.auditEditCursor+1:])
 						}
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
-						b.WriteString(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+						addLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						b.WriteString(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
+						addLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [x] remove"))
 					}
 				} else {
-					b.WriteString(green.Render("      + " + d) + "\n")
+					addLine(green.Render("      + " + d))
 				}
 			}
 		}
 		if len(denyDomains) > 0 {
-			b.WriteString(red.Render("    🚫 Denied (permanent):") + "\n")
+			addLine(red.Render("    🚫 Denied (permanent):"))
 			for _, d := range denyDomains {
 				idx := a.listItemIndex(cname, d, "deny", items)
 				if idx == a.auditListCursor {
@@ -622,16 +638,43 @@ func (a App) renderAllowDenyLists() string {
 							after = string(eRunes[a.auditEditCursor+1:])
 						}
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
-						b.WriteString(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+						addLine(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						b.WriteString(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
+						addLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [x] remove"))
 					}
 				} else {
-					b.WriteString(red.Render("      - " + d) + "\n")
+					addLine(red.Render("      - " + d))
 				}
 			}
 		}
-		b.WriteString("\n")
+		addLine("") // blank line between containers
+	}
+
+	// Apply viewport: show only the visible window based on scroll offset
+	visible := a.height - 8
+	if visible < 4 {
+		visible = 4
+	}
+	scroll := a.auditListScroll
+	if scroll > len(lines)-visible {
+		scroll = len(lines) - visible
+	}
+	if scroll < 0 {
+		scroll = 0
+	}
+	if scroll > 0 {
+		b.WriteString(dim.Render(fmt.Sprintf("  ▲ %d more", scroll)) + "\n")
+	}
+	end := scroll + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+	for _, l := range lines[scroll:end] {
+		b.WriteString(l.s + "\n")
+	}
+	remaining := len(lines) - end
+	if remaining > 0 {
+		b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", remaining)) + "\n")
 	}
 
 	// Show file paths
