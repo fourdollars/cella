@@ -3,6 +3,7 @@ package proxy
 import (
 	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -85,6 +86,9 @@ func (rt *RouteTable) List() []InferenceRoute {
 	for _, r := range rt.routes {
 		result = append(result, *r)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].SourceDomain < result[j].SourceDomain
+	})
 	return result
 }
 

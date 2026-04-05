@@ -362,18 +362,19 @@ func (a App) renderAllowDenyLists() string {
 		selectedName = a.containers[a.selected].Name
 	}
 
-	// Collect all containers that have entries
-	containers := []string{}
+	// Collect all containers that have entries, sorted by name
 	seen := map[string]bool{}
 	for _, e := range globalProxyServer.Audit().All() {
-		if !seen[e.Container] {
-			containers = append(containers, e.Container)
-			seen[e.Container] = true
-		}
+		seen[e.Container] = true
 	}
-	if selectedName != "" && !seen[selectedName] {
-		containers = append([]string{selectedName}, containers...)
+	if selectedName != "" {
+		seen[selectedName] = true
 	}
+	containers := make([]string, 0, len(seen))
+	for cname := range seen {
+		containers = append(containers, cname)
+	}
+	sort.Strings(containers)
 
 	if len(containers) == 0 {
 		b.WriteString(dim.Render("  No containers with proxy history.") + "\n")
