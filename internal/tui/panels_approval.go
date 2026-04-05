@@ -242,22 +242,20 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return a, a.removeListItem(items[a.auditListCursor])
 			}
 		case "d":
-			// Move allow → deny (or remove if already deny)
+			// Move allow → deny (no-op on deny entries)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
 				if it.kind == "allow" {
 					return a, a.moveListItem(it, "deny")
 				}
-				return a, a.removeListItem(it)
 			}
 		case "a":
-			// Move deny → allow (or remove if already allow)
+			// Move deny → allow (no-op on allow entries)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
 				if it.kind == "deny" {
 					return a, a.moveListItem(it, "allow")
 				}
-				return a, a.removeListItem(it)
 			}
 		case "e":
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
