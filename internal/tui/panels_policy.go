@@ -27,6 +27,7 @@ type policyInfoMsg struct {
 	nesting     bool
 	devlxd      bool
 	idmapIso    bool
+	autostart   bool
 	syscallDeny []string // security.syscalls.deny list (empty = not set)
 	// security.syscalls.intercept.*
 	interceptMknod      bool
@@ -118,6 +119,11 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			if err6 == nil && strings.TrimSpace(string(out6)) == "true" {
 				idmapIso = true
 			}
+			var autostart bool
+			out7, err7 := exec.Command("lxc", "config", "get", name, "boot.autostart").CombinedOutput()
+			if err7 == nil && strings.TrimSpace(string(out7)) == "true" {
+				autostart = true
+			}
 
 			// Read syscall deny list (security.syscalls.deny)
 			var syscallDenyList []string
@@ -174,6 +180,7 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				nesting:             nesting,
 				devlxd:              devlxd,
 				idmapIso:            idmapIso,
+				autostart:           autostart,
 				syscallDeny:         syscallDenyList,
 				interceptMknod:      lxcBool("security.syscalls.intercept.mknod"),
 				interceptBpf:        lxcBool("security.syscalls.intercept.bpf"),
@@ -649,6 +656,25 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
+	case "b":
+		// Toggle boot.autostart
+		if a.selected < len(a.containers) {
+			c := a.containers[a.selected]
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ boot.autostart: LXD only")
+				return a, nil
+			}
+			newVal := "true"
+			if a.policyAutostart {
+				newVal = "false"
+			}
+			if out, err := exec.Command("lxc", "config", "set", c.Name, "boot.autostart", newVal).CombinedOutput(); err != nil {
+				a.addEvent(fmt.Sprintf("⚠ boot.autostart: %s", strings.TrimSpace(string(out))))
+			} else {
+				a.addEvent(fmt.Sprintf("🚀 %s boot.autostart → %s", c.Name, newVal))
+			}
+			return a, a.fetchPolicyInfo(c)
+		}
 	case "M":
 		// Toggle security.idmap.isolated
 		if a.selected < len(a.containers) {
@@ -995,6 +1021,7 @@ func (a App) renderPolicyPanel() string {
 		right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
 		right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
 		right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso), label(a.policyIdmapIso)))
+		right.WriteString(fmt.Sprintf("  (%s)oot.autostart %s %s\n", keyHint.Render("b"), boolIcon(a.policyAutostart), label(a.policyAutostart)))
 
 		right.WriteString("\n")
 

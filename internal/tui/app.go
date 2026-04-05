@@ -237,6 +237,7 @@ type App struct {
 	policyDenyList   []string          // security.syscalls.deny active list
 	policyDevLXD     bool              // security.devlxd enabled
 	policyIdmapIso   bool              // security.idmap.isolated enabled
+	policyAutostart  bool              // boot.autostart
 	// LXD profiles (loaded when policy panel fetches info)
 	policyProfiles          []string
 	policyProfileDetails    map[string]*lxd.Profile
@@ -1279,6 +1280,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.policyDenyList = msg.syscallDeny
 			a.policyDevLXD = msg.devlxd
 			a.policyIdmapIso = msg.idmapIso
+			a.policyAutostart = msg.autostart
 			a.policyInterceptMknod = msg.interceptMknod
 			a.policyInterceptBpf = msg.interceptBpf
 			a.policyInterceptBpfDev = msg.interceptBpfDev
