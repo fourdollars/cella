@@ -275,7 +275,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// scroll to keep cursor visible — scrolloff=2 (2 lines context above/below)
 		const scrolloff = 2
 		cursorLine := a.listItemLineIndex(a.auditListCursor, items)
-		visible := a.height - 12
+		visible := a.height - 13
 		if visible < 4 {
 			visible = 4
 		}
@@ -681,7 +681,7 @@ func (a App) renderAllowDenyLists() string {
 
 	// Apply viewport: show only the visible window based on scroll offset.
 	// header(3) + footer(2) + status bar(1) = 6 fixed lines; reserve 1 more for safety.
-	visible := a.height - 12
+	visible := a.height - 13
 	if visible < 4 {
 		visible = 4
 	}
