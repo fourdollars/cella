@@ -100,7 +100,9 @@ func (t *TransparentListener) handleConn(clientConn net.Conn) {
 	mitmCfg := t.server.mitm
 	t.server.mu.RUnlock()
 	if container == "" {
-		container = srcIP
+		// containerByIP not yet populated for this IP — try reverse DNS.
+		// LXD containers typically have PTR records like "name.lxd".
+		container = resolveContainerName(srcIP)
 	}
 
 	// Peek the first bytes to detect TLS and extract SNI
@@ -356,6 +358,33 @@ func (t *TransparentListener) handlePlainHTTP(
 	})
 
 	resp.Write(clientConn)
+}
+
+// resolveContainerName resolves a source IP to a container name.
+// It attempts a PTR lookup and strips common suffixes (.lxd, .local, trailing dot).
+// Falls back to the raw IP if resolution fails or times out.
+func resolveContainerName(ip string) string {
+	if ip == "" {
+		return ip
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
+	if err != nil || len(names) == 0 {
+		return ip
+	}
+	name := strings.TrimSuffix(names[0], ".")
+	// Strip common container DNS suffixes: .lxd .local
+	for _, suffix := range []string{".lxd", ".local"} {
+		if strings.HasSuffix(name, suffix) {
+			name = name[:len(name)-len(suffix)]
+			break
+		}
+	}
+	if name == "" {
+		return ip
+	}
+	return name
 }
 
 // ── resolveHost: try reverse DNS for bare IPs ──
