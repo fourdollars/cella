@@ -285,16 +285,28 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			effVisible = scrolloff*2 + 1
 		}
 		// scroll up: cursor too close to top edge
+		wantTop := cursorLine - scrolloff
+		if wantTop < 0 {
+			wantTop = 0
+		}
 		if cursorLine < a.auditListScroll+scrolloff {
-			a.auditListScroll = cursorLine - scrolloff
+			a.auditListScroll = wantTop
 		}
 		// scroll down: cursor too close to bottom edge
+		wantBottom := cursorLine - effVisible + scrolloff + 1
 		if cursorLine >= a.auditListScroll+effVisible-scrolloff {
-			a.auditListScroll = cursorLine - effVisible + scrolloff + 1
+			a.auditListScroll = wantBottom
 		}
-		// clamp scroll to valid range
+		// hard clamp: never go negative or past the last line
 		if a.auditListScroll < 0 {
 			a.auditListScroll = 0
+		}
+		maxS := len(items) - effVisible
+		if maxS < 0 {
+			maxS = 0
+		}
+		if a.auditListScroll > maxS {
+			a.auditListScroll = maxS
 		}
 		return a, nil
 	}
@@ -732,7 +744,7 @@ func (a App) renderAllowDenyLists() string {
 	// Show file paths
 	dataDir := os.ExpandEnv("$HOME/.cella")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
-	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)) + "\n")
+	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)))
 	return b.String()
 }
 
