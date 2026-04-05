@@ -200,6 +200,11 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if model == "" && len(reqBody) > 0 {
 			model = ParseInferenceRequest(reqBody)
 		}
+		// Fall back to model name embedded in path:
+		// e.g. /models/claude-sonnet-4.6/chat/completions
+		if model == "" {
+			model = extractModelFromPath(r.URL.Path)
+		}
 	}
 
 	// Audit
@@ -237,8 +242,11 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBody)
 }
 
-// isInferencePath checks if the path is a known inference endpoint
+// isInferencePath checks if the path is a known inference endpoint.
+// Supports exact paths and suffix matching for versioned/model-namespaced paths
+// e.g. /models/claude-sonnet-4.6/chat/completions
 func isInferencePath(path string) bool {
+	// Exact matches (fast path)
 	switch path {
 	case "/chat/completions",
 		"/v1/chat/completions",
@@ -248,7 +256,35 @@ func isInferencePath(path string) bool {
 		"/responses": // GitHub Copilot
 		return true
 	}
+	// Suffix matches: /models/<name>/chat/completions, /openai/v1/chat/completions, etc.
+	for _, suffix := range []string{
+		"/chat/completions",
+		"/completions",
+		"/messages",
+		"/embeddings",
+	} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
 	return false
+}
+
+// extractModelFromPath tries to pull a model name from paths like:
+//   /models/<model>/chat/completions
+//   /openai/deployments/<model>/chat/completions  (Azure)
+func extractModelFromPath(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, p := range parts {
+		if (p == "models" || p == "deployments") && i+1 < len(parts) {
+			candidate := parts[i+1]
+			// Skip if it looks like a version string (v1, v2, beta...)
+			if len(candidate) > 0 && candidate[0] != 'v' {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 // singleConnListener wraps a single net.Conn as a net.Listener
