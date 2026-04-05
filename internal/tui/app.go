@@ -284,6 +284,13 @@ type App struct {
 	auditStatusFilter string
 	auditShowLists    bool   // L: show allowlist/denylist instead of log
 	auditListCursor   int    // cursor position in allow/deny list view
+	auditEditMode     bool   // e: inline edit the selected domain entry
+	auditEditInput    string // current edit buffer
+	auditEditOriginal struct {
+		container string
+		domain    string
+		kind      string
+	}
 	inferenceScroll   int
 	routingCursor    int
 	routingInputMode bool

@@ -170,6 +170,34 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if a.auditShowLists {
 		items := a.buildListItems()
 		max := len(items) - 1
+
+		// ── edit sub-mode ──
+		if a.auditEditMode {
+			switch msg.String() {
+			case "esc":
+				a.auditEditMode = false
+				a.auditEditInput = ""
+			case "enter":
+				newDomain := strings.TrimSpace(strings.ToLower(a.auditEditInput))
+				original := a.auditEditOriginal
+				a.auditEditMode = false
+				a.auditEditInput = ""
+				if newDomain != "" && newDomain != original.domain {
+					return a, a.editListItem(original, newDomain)
+				}
+			case "backspace", "ctrl+h":
+				if len(a.auditEditInput) > 0 {
+					a.auditEditInput = a.auditEditInput[:len([]rune(a.auditEditInput))-1]
+				}
+			default:
+				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
+					a.auditEditInput += k
+				}
+			}
+			return a, nil
+		}
+
+		// ── normal navigation ──
 		switch msg.String() {
 		case "esc", "q", "L":
 			a.auditShowLists = false
@@ -192,6 +220,15 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "x", "d", "delete":
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				return a, a.removeListItem(items[a.auditListCursor])
+			}
+		case "e":
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				a.auditEditMode = true
+				a.auditEditInput = it.domain
+				a.auditEditOriginal.container = it.container
+				a.auditEditOriginal.domain = it.domain
+				a.auditEditOriginal.kind = it.kind
 			}
 		}
 		// clamp
@@ -468,7 +505,7 @@ func (a App) renderAllowDenyLists() string {
 
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  x/d: remove  │  L/Esc: back to log") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  e: edit  │  x/d: remove  │  L/Esc: back to log") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
@@ -524,7 +561,12 @@ func (a App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "allow", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
-					b.WriteString(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[x] remove") + "\n")
+					if a.auditEditMode {
+						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a3a5a")).Foreground(lipgloss.Color("#79c0ff")).Bold(true)
+						b.WriteString(editStyle.Render("    ✏ + "+a.auditEditInput+"█") + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+					} else {
+						b.WriteString(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
+					}
 				} else {
 					b.WriteString(green.Render("      + " + d) + "\n")
 				}
@@ -536,7 +578,12 @@ func (a App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "deny", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
-					b.WriteString(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[x] remove") + "\n")
+					if a.auditEditMode {
+						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2a1a3a")).Foreground(lipgloss.Color("#d2a8ff")).Bold(true)
+						b.WriteString(editStyle.Render("    ✏ - "+a.auditEditInput+"█") + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+					} else {
+						b.WriteString(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
+					}
 				} else {
 					b.WriteString(red.Render("      - " + d) + "\n")
 				}
@@ -550,6 +597,39 @@ func (a App) renderAllowDenyLists() string {
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)) + "\n")
 	return b.String()
+}
+
+// editListItem replaces oldItem.domain with newDomain in its allow/deny list.
+func (a *App) editListItem(old listItem, newDomain string) tea.Cmd {
+	return func() tea.Msg {
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
+		}
+		dataDir := os.ExpandEnv("$HOME/.cella")
+		switch old.kind {
+		case "allow":
+			al := globalProxyServer.GetAllowlist(old.container)
+			al.Remove(old.domain)
+			al.Add(newDomain)
+			if err := globalProxyServer.SaveAllowlistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save allowlist: %w", err)}
+			}
+		case "deny":
+			dl := globalProxyServer.GetDenylist(old.container)
+			dl.Remove(old.domain)
+			dl.Add(newDomain)
+			if err := globalProxyServer.SaveDenylistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save denylist: %w", err)}
+			}
+		}
+		kindIcon := "✅"
+		if old.kind == "deny" {
+			kindIcon = "🚫"
+		}
+		return asyncResultMsg{
+			text: fmt.Sprintf("%s edited [%s] %s → %s", kindIcon, old.container, old.domain, newDomain),
+		}
+	}
 }
 
 // exportAuditJSON writes filtered audit entries to a JSON file
