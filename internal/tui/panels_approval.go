@@ -301,7 +301,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.auditListScroll < 0 {
 			a.auditListScroll = 0
 		}
-		maxS := len(items) - effVisible
+		totalLines := a.buildListLineCount()
+		maxS := totalLines - effVisible
 		if maxS < 0 {
 			maxS = 0
 		}
@@ -568,6 +569,46 @@ func (a *App) removeListItem(item listItem) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// buildListLineCount returns the total number of content lines that
+// renderAllowDenyLists would produce, used for scroll clamping.
+func (a App) buildListLineCount() int {
+	if globalProxyServer == nil {
+		return 0
+	}
+	seen := map[string]bool{}
+	for _, e := range globalProxyServer.Audit().All() {
+		seen[e.Container] = true
+	}
+	if a.selected < len(a.containers) {
+		seen[a.containers[a.selected].Name] = true
+	}
+	containers := make([]string, 0, len(seen))
+	for c := range seen {
+		containers = append(containers, c)
+	}
+	sort.Strings(containers)
+	count := 0
+	for _, cname := range containers {
+		al := globalProxyServer.GetAllowlist(cname)
+		dl := globalProxyServer.GetDenylist(cname)
+		allowDomains := al.UserDomains()
+		denyDomains := dl.List()
+		if len(allowDomains) == 0 && len(denyDomains) == 0 {
+			continue
+		}
+		count++ // container header
+		if len(allowDomains) > 0 {
+			count++ // "✅ Allowed" header
+			count += len(allowDomains)
+		}
+		if len(denyDomains) > 0 {
+			count++ // "🚫 Denied" header
+			count += len(denyDomains)
+		}
+	}
+	return count
 }
 
 // renderAllowDenyLists renders the allowlist and denylist for the current container
