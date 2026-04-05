@@ -274,18 +274,22 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if max >= 0 && a.auditListCursor > max {
 			a.auditListCursor = max
 		}
-		// scroll to keep cursor visible.
-		// We need the line index corresponding to the cursor item.
+		// scroll to keep cursor visible — use same visible calc as render
 		cursorLine := a.listItemLineIndex(a.auditListCursor, items)
-		visible := a.height - 8
+		visible := a.height - 7
 		if visible < 4 {
 			visible = 4
+		}
+		// conservative: leave 2 rows for ▲/▼ indicators
+		effVisible := visible - 2
+		if effVisible < 2 {
+			effVisible = 2
 		}
 		if cursorLine < a.auditListScroll {
 			a.auditListScroll = cursorLine
 		}
-		if cursorLine >= a.auditListScroll+visible {
-			a.auditListScroll = cursorLine - visible + 1
+		if cursorLine >= a.auditListScroll+effVisible {
+			a.auditListScroll = cursorLine - effVisible + 1
 		}
 		return a, nil
 	}
@@ -670,30 +674,53 @@ func (a App) renderAllowDenyLists() string {
 		addLine("") // blank line between containers
 	}
 
-	// Apply viewport: show only the visible window based on scroll offset
-	visible := a.height - 8
+	// Apply viewport: show only the visible window based on scroll offset.
+	// header(3) + footer(2) + status bar(1) = 6 fixed lines; reserve 1 more for safety.
+	visible := a.height - 7
 	if visible < 4 {
 		visible = 4
 	}
 	scroll := a.auditListScroll
-	if scroll > len(lines)-visible {
-		scroll = len(lines) - visible
+	// Clamp scroll so last page fills the viewport exactly
+	maxScroll := len(lines) - visible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
 	}
 	if scroll < 0 {
 		scroll = 0
 	}
-	if scroll > 0 {
+
+	// Account for indicator rows so content lines don't overflow
+	contentVisible := visible
+	hasTop := scroll > 0
+	bottomEnd := scroll + contentVisible
+	if hasTop {
+		contentVisible--
+		bottomEnd = scroll + contentVisible
+	}
+	if bottomEnd > len(lines) {
+		bottomEnd = len(lines)
+	}
+	hasBottom := bottomEnd < len(lines)
+	if hasBottom {
+		contentVisible--
+		bottomEnd = scroll + contentVisible
+		if bottomEnd > len(lines) {
+			bottomEnd = len(lines)
+		}
+	}
+
+	if hasTop {
 		b.WriteString(dim.Render(fmt.Sprintf("  ▲ %d more", scroll)) + "\n")
 	}
-	end := scroll + visible
-	if end > len(lines) {
-		end = len(lines)
-	}
-	for _, l := range lines[scroll:end] {
+	for _, l := range lines[scroll:bottomEnd] {
 		b.WriteString(l.s + "\n")
 	}
-	remaining := len(lines) - end
-	if remaining > 0 {
+	if hasBottom {
+		remaining := len(lines) - bottomEnd
 		b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", remaining)) + "\n")
 	}
 

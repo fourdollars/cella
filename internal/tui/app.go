@@ -1877,6 +1877,11 @@ func (a App) View() string {
 		for i, l := range lines {
 			lines[i] = xansi.Truncate(l, dashMaxW, "")
 		}
+		// Also cap line count to contentH to prevent the dashboard from
+		// overflowing its Lipgloss Height() box and pushing the sidebar down.
+		if len(lines) > contentH {
+			lines = lines[:contentH]
+		}
 		dashboard = strings.Join(lines, "\n")
 	}
 
