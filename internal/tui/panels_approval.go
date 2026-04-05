@@ -40,21 +40,25 @@ func (a *App) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: false}
 		a.addEvent(fmt.Sprintf("👤 approved (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+		a.flashText = fmt.Sprintf("👤 approved (once): %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "Y":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: true}
 		a.addEvent(fmt.Sprintf("👤+ approved (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+		a.flashText = fmt.Sprintf("👤+ allow always: %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "n":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: false}
 		a.addEvent(fmt.Sprintf("⛔ denied (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+		a.flashText = fmt.Sprintf("⛔ denied (once): %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "N":
 		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: true}
 		a.addEvent(fmt.Sprintf("🚫 denied (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
+		a.flashText = fmt.Sprintf("🚫 deny always: %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	}
@@ -204,6 +208,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if globalProxyServer != nil {
 			globalProxyServer.Audit().Clear()
 			a.addEvent("📋 audit log cleared")
+		a.flashText = "📋 audit log cleared"
 		}
 		return a, nil
 	case "/":

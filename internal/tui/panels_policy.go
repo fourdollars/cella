@@ -231,6 +231,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.addEvent(fmt.Sprintf("⚠ mount.fuse: %s", strings.TrimSpace(string(out))))
 				} else {
 					a.addEvent(fmt.Sprintf("🛡 %s intercept.mount.fuse → %q", c.Name, val))
+					a.flashText = fmt.Sprintf("🛡 intercept.mount.fuse → %q", val)
 				}
 				a.policyMode = "view"
 				a.policyInput = ""
@@ -266,6 +267,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.addEvent(fmt.Sprintf("⚠ mount.allowed: %s", strings.TrimSpace(string(out))))
 				} else {
 					a.addEvent(fmt.Sprintf("🛡 %s intercept.mount.allowed → %q", c.Name, val))
+					a.flashText = fmt.Sprintf("🛡 intercept.mount.allowed → %q", val)
 				}
 				a.policyMode = "view"
 				a.policyInput = ""
@@ -292,6 +294,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.addEvent(fmt.Sprintf("⚠ egress remove failed: %v", err))
 				} else {
 					a.addEvent(fmt.Sprintf("🛡 egress rules removed for %s", c.Name))
+					a.flashText = fmt.Sprintf("🛡 egress rules removed for %s", c.Name)
 				}
 				a.policyMode = "view"
 				return a, a.fetchPolicyInfo(c)
@@ -313,6 +316,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.addEvent(fmt.Sprintf("⚠ import: %v", err))
 				} else {
 					a.addEvent(fmt.Sprintf("📄 policy imported from %s for %s", path, c.Name))
+					a.flashText = fmt.Sprintf("📄 policy imported: %s", path)
 				}
 				a.policyMode = "view"
 				a.policyInput = ""
@@ -375,6 +379,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.addEvent(fmt.Sprintf("⚠ egress add failed: %v", err))
 				} else {
 					a.addEvent(fmt.Sprintf("🛡 egress allow %s (%s) for %s", domain, strings.Join(ips, ","), c.Name))
+					a.flashText = fmt.Sprintf("🛡 egress allow %s for %s", domain, c.Name)
 				}
 				// Refresh
 				a.policyMode = "view"
@@ -463,6 +468,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ seccomp reset: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s seccomp → default (raw.lxc unset)", c.Name))
+				a.flashText = fmt.Sprintf("🛡 seccomp reset to default for %s", c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -533,6 +539,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 apparmor → default for %s", c.Name))
+				a.flashText = fmt.Sprintf("🛡 apparmor → default for %s", c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -544,6 +551,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 apparmor → hardened for %s", c.Name))
+				a.flashText = fmt.Sprintf("🛡 apparmor → hardened for %s", c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -555,6 +563,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 apparmor → net-restricted for %s", c.Name))
+				a.flashText = fmt.Sprintf("🛡 apparmor → net-restricted for %s", c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -566,6 +575,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ apparmor: %v", err))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 apparmor → read-only for %s", c.Name))
+				a.flashText = fmt.Sprintf("🛡 apparmor → read-only for %s", c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -615,6 +625,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ privileged: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.privileged → %s", c.Name, newVal))
+			a.flashText = fmt.Sprintf("🛡 security.privileged → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -634,6 +645,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ nesting: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.nesting → %s", c.Name, newVal))
+			a.flashText = fmt.Sprintf("🛡 security.nesting → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -653,6 +665,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ devlxd: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.devlxd → %s", c.Name, newVal))
+			a.flashText = fmt.Sprintf("🛡 security.devlxd → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -672,6 +685,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ boot.autostart: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🚀 %s boot.autostart → %s", c.Name, newVal))
+			a.flashText = fmt.Sprintf("🚀 boot.autostart → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -691,6 +705,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ idmap.isolated: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.idmap.isolated → %s", c.Name, newVal))
+			a.flashText = fmt.Sprintf("🛡 idmap.isolated → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -781,6 +796,7 @@ func (a App) toggleInterceptBool(c runtime.ContainerInfo, key string, current bo
 	} else {
 		shortKey := key[len("security.syscalls.intercept."):]
 		a.addEvent(fmt.Sprintf("🛡 %s intercept.%s → %s", c.Name, shortKey, newVal))
+		a.flashText = fmt.Sprintf("🛡 intercept.%s → %s for %s", shortKey, newVal, c.Name)
 	}
 	return a, a.fetchPolicyInfo(c)
 }
@@ -813,6 +829,7 @@ func (a *App) applySeccompProfile(name, rtName, profileName string) {
 			a.addEvent(fmt.Sprintf("⚠ seccomp apply: %s", strings.TrimSpace(string(out))))
 		} else {
 			a.addEvent(fmt.Sprintf("🛡 seccomp → %s for %s", profileName, name))
+			a.flashText = fmt.Sprintf("🛡 seccomp → %s for %s", profileName, name)
 			a.policySeccomp = profileName
 		}
 	} else {
