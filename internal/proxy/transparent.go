@@ -16,42 +16,38 @@ import (
 // For CONNECT-style proxying: we use nftables REDIRECT in the PREROUTING chain.
 // Container → port 443 → host nftables REDIRECT → localhost:proxyPort → cella proxy
 func SetupTransparentRedirect(containerIP string, proxyPort int) error {
-	// We use nftables (consistent with egress.go)
 	table := "cella_tproxy"
 	chain := "prerouting"
-
-	// Ensure table and chain exist (idempotent: "add" is a no-op if already present)
-	ensureCmd := fmt.Sprintf(
-		"add table ip %s\nadd chain ip %s %s { type nat hook prerouting priority dstnat; policy accept; }",
-		table, table, chain)
-	cmd := nftCmd2("-f", "-")
-	cmd.Stdin = strings.NewReader(ensureCmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("ensure tproxy table/chain: %s: %w", string(out), err)
-	}
-
 	tag := fmt.Sprintf("cella_tproxy_%s", sanitizeName2(containerIP))
 
-	// Remove existing rules for this IP
+	// Remove any stale rules for this IP first (best-effort)
 	removeTransparentRules(table, chain, tag)
 
-	// Redirect HTTP (80) and HTTPS (443) from this container IP to proxy port
-	rules := []string{
-		// Redirect port 443 (HTTPS) to proxy
-		fmt.Sprintf(`add rule ip %s %s ip saddr %s tcp dport 443 redirect to :%d comment "%s_443"`,
-			table, chain, containerIP, proxyPort, tag),
-		// Redirect port 80 (HTTP) to proxy
-		fmt.Sprintf(`add rule ip %s %s ip saddr %s tcp dport 80 redirect to :%d comment "%s_80"`,
-			table, chain, containerIP, proxyPort, tag),
-	}
+	// Build a single atomic batch:
+	//   add table / add chain (idempotent) + add rules
+	// NOTE: nft sometimes exits 0 even on rule errors, so we also
+	// check the output for "Error:" strings.
+	batch := fmt.Sprintf(
+		"add table ip %s\n"+
+			"add chain ip %s %s { type nat hook prerouting priority dstnat; policy accept; }\n"+
+			"add rule ip %s %s ip saddr %s tcp dport 443 redirect to :%d comment \"%s_443\"\n"+
+			"add rule ip %s %s ip saddr %s tcp dport 80  redirect to :%d comment \"%s_80\"",
+		table,
+		table, chain,
+		table, chain, containerIP, proxyPort, tag,
+		table, chain, containerIP, proxyPort, tag,
+	)
 
-	batch := strings.Join(rules, "\n")
-	batchCmd := nftCmd2("-f", "-")
-	batchCmd.Stdin = strings.NewReader(batch)
-	if out, err := batchCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("add tproxy rules: %s: %w", string(out), err)
+	cmd := nftCmd2("-f", "-")
+	cmd.Stdin = strings.NewReader(batch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add tproxy rules: %s: %w", strings.TrimSpace(string(out)), err)
 	}
-
+	// nft exits 0 even on some errors — check output for "Error:"
+	if strings.Contains(string(out), "Error:") {
+		return fmt.Errorf("add tproxy rules: %s", strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 
