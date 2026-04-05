@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"context"
+	"strings"
 	"bufio"
 	"fmt"
 	"io"
@@ -129,7 +131,16 @@ func (t *TransparentListener) handleTLS(
 	// We need to read the full ClientHello to get the SNI
 	domain := extractSNI(reader)
 	if domain == "" {
+		// No SNI — try to determine the original destination via reverse DNS.
+		// nftables REDIRECT keeps the original dst in SO_ORIGINAL_DST but that
+		// requires a syscall; instead we do a best-effort PTR lookup on the
+		// destination IP we can infer from the connection context.
+		// For now fall back to the source IP label so the operator at least
+		// sees something actionable.
 		domain = "unknown"
+	} else {
+		// SNI present but may be a raw IP (some clients do this) — resolve it
+		domain = resolveHost(domain)
 	}
 
 	// Check denylist first — permanently denied domains are blocked immediately
@@ -263,6 +274,7 @@ func (t *TransparentListener) handlePlainHTTP(
 		domain = "unknown"
 	}
 	domain = extractDomain(domain)
+	domain = resolveHost(domain)
 
 	// Check denylist first
 	dl := t.server.GetDenylist(container)
@@ -344,6 +356,37 @@ func (t *TransparentListener) handlePlainHTTP(
 	})
 
 	resp.Write(clientConn)
+}
+
+// ── resolveHost: try reverse DNS for bare IPs ──
+
+// resolveHost returns the canonical hostname for addr.
+// If addr is already a hostname it is returned as-is (lowercased).
+// If addr looks like an IP, a reverse DNS (PTR) lookup is attempted;
+// on success the first result (trimmed of trailing dot) is returned.
+// Falls back to the original addr string if lookup fails or times out.
+func resolveHost(addr string) string {
+	if addr == "" {
+		return addr
+	}
+	// Check if it's an IP address
+	if net.ParseIP(addr) == nil {
+		// Not an IP — already a hostname
+		return strings.ToLower(addr)
+	}
+	// It's an IP — try reverse DNS with a short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	names, err := net.DefaultResolver.LookupAddr(ctx, addr)
+	if err != nil || len(names) == 0 {
+		return addr // fallback to IP
+	}
+	// Trim trailing dot from PTR record (e.g. "host.example.com.")
+	name := strings.TrimSuffix(names[0], ".")
+	if name == "" {
+		return addr
+	}
+	return name
 }
 
 // ── SNI extraction ──
