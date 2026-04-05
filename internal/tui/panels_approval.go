@@ -274,22 +274,29 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if max >= 0 && a.auditListCursor > max {
 			a.auditListCursor = max
 		}
-		// scroll to keep cursor visible — use same visible calc as render
+		// scroll to keep cursor visible — scrolloff=2 (2 lines context above/below)
+		const scrolloff = 2
 		cursorLine := a.listItemLineIndex(a.auditListCursor, items)
 		visible := a.height - 7
 		if visible < 4 {
 			visible = 4
 		}
-		// conservative: leave 2 rows for ▲/▼ indicators
+		// subtract 2 for ▲/▼ indicator rows
 		effVisible := visible - 2
-		if effVisible < 2 {
-			effVisible = 2
+		if effVisible < scrolloff*2+1 {
+			effVisible = scrolloff*2 + 1
 		}
-		if cursorLine < a.auditListScroll {
-			a.auditListScroll = cursorLine
+		// scroll up: cursor too close to top edge
+		if cursorLine < a.auditListScroll+scrolloff {
+			a.auditListScroll = cursorLine - scrolloff
 		}
-		if cursorLine >= a.auditListScroll+effVisible {
-			a.auditListScroll = cursorLine - effVisible + 1
+		// scroll down: cursor too close to bottom edge
+		if cursorLine >= a.auditListScroll+effVisible-scrolloff {
+			a.auditListScroll = cursorLine - effVisible + scrolloff + 1
+		}
+		// clamp scroll to valid range
+		if a.auditListScroll < 0 {
+			a.auditListScroll = 0
 		}
 		return a, nil
 	}
