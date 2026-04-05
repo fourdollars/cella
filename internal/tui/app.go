@@ -286,6 +286,7 @@ type App struct {
 	auditListCursor   int    // cursor position in allow/deny list view
 	auditEditMode     bool   // e: inline edit the selected domain entry
 	auditEditInput    string // current edit buffer
+	auditEditCursor   int    // cursor position within edit input (rune index)
 	auditEditOriginal struct {
 		container string
 		domain    string

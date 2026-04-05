@@ -173,25 +173,45 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// ── edit sub-mode ──
 		if a.auditEditMode {
+			runes := []rune(a.auditEditInput)
 			switch msg.String() {
 			case "esc":
 				a.auditEditMode = false
 				a.auditEditInput = ""
+				a.auditEditCursor = 0
 			case "enter":
 				newDomain := strings.TrimSpace(strings.ToLower(a.auditEditInput))
 				original := a.auditEditOriginal
 				a.auditEditMode = false
 				a.auditEditInput = ""
+				a.auditEditCursor = 0
 				if newDomain != "" && newDomain != original.domain {
 					return a, a.editListItem(original, newDomain)
 				}
+			case "left":
+				if a.auditEditCursor > 0 {
+					a.auditEditCursor--
+				}
+			case "right":
+				if a.auditEditCursor < len(runes) {
+					a.auditEditCursor++
+				}
 			case "backspace", "ctrl+h":
-				if len(a.auditEditInput) > 0 {
-					a.auditEditInput = a.auditEditInput[:len([]rune(a.auditEditInput))-1]
+				if a.auditEditCursor > 0 {
+					runes = append(runes[:a.auditEditCursor-1], runes[a.auditEditCursor:]...)
+					a.auditEditCursor--
+					a.auditEditInput = string(runes)
+				}
+			case "delete":
+				if a.auditEditCursor < len(runes) {
+					runes = append(runes[:a.auditEditCursor], runes[a.auditEditCursor+1:]...)
+					a.auditEditInput = string(runes)
 				}
 			default:
 				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
-					a.auditEditInput += k
+					runes = append(runes[:a.auditEditCursor], append([]rune{rune(k[0])}, runes[a.auditEditCursor:]...)...)
+					a.auditEditCursor++
+					a.auditEditInput = string(runes)
 				}
 			}
 			return a, nil
@@ -226,6 +246,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				it := items[a.auditListCursor]
 				a.auditEditMode = true
 				a.auditEditInput = it.domain
+				a.auditEditCursor = len([]rune(it.domain))
 				a.auditEditOriginal.container = it.container
 				a.auditEditOriginal.domain = it.domain
 				a.auditEditOriginal.kind = it.kind
@@ -563,7 +584,16 @@ func (a App) renderAllowDenyLists() string {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
 					if a.auditEditMode {
 						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a3a5a")).Foreground(lipgloss.Color("#79c0ff")).Bold(true)
-						b.WriteString(editStyle.Render("    ✏ + "+a.auditEditInput+"█") + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+						eRunes := []rune(a.auditEditInput)
+						before := string(eRunes[:a.auditEditCursor])
+						cursorChar := "█"
+						after := ""
+						if a.auditEditCursor < len(eRunes) {
+							cursorChar = string(eRunes[a.auditEditCursor])
+							after = string(eRunes[a.auditEditCursor+1:])
+						}
+						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
+						b.WriteString(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
 					} else {
 						b.WriteString(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
 					}
@@ -580,7 +610,16 @@ func (a App) renderAllowDenyLists() string {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
 					if a.auditEditMode {
 						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2a1a3a")).Foreground(lipgloss.Color("#d2a8ff")).Bold(true)
-						b.WriteString(editStyle.Render("    ✏ - "+a.auditEditInput+"█") + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
+						eRunes := []rune(a.auditEditInput)
+						before := string(eRunes[:a.auditEditCursor])
+						cursorChar := "█"
+						after := ""
+						if a.auditEditCursor < len(eRunes) {
+							cursorChar = string(eRunes[a.auditEditCursor])
+							after = string(eRunes[a.auditEditCursor+1:])
+						}
+						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
+						b.WriteString(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel") + "\n")
 					} else {
 						b.WriteString(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [x] remove") + "\n")
 					}
