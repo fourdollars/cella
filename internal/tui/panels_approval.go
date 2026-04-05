@@ -237,9 +237,27 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if max >= 0 {
 				a.auditListCursor = max
 			}
-		case "x", "d", "delete":
+		case "x", "delete":
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				return a, a.removeListItem(items[a.auditListCursor])
+			}
+		case "d":
+			// Move allow → deny (or remove if already deny)
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				if it.kind == "allow" {
+					return a, a.moveListItem(it, "deny")
+				}
+				return a, a.removeListItem(it)
+			}
+		case "a":
+			// Move deny → allow (or remove if already allow)
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				if it.kind == "deny" {
+					return a, a.moveListItem(it, "allow")
+				}
+				return a, a.removeListItem(it)
 			}
 		case "e":
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
@@ -256,16 +274,18 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if max >= 0 && a.auditListCursor > max {
 			a.auditListCursor = max
 		}
-		// scroll to keep cursor visible (viewport = height - 6 header/footer lines)
+		// scroll to keep cursor visible.
+		// We need the line index corresponding to the cursor item.
+		cursorLine := a.listItemLineIndex(a.auditListCursor, items)
 		visible := a.height - 8
 		if visible < 4 {
 			visible = 4
 		}
-		if a.auditListCursor < a.auditListScroll {
-			a.auditListScroll = a.auditListCursor
+		if cursorLine < a.auditListScroll {
+			a.auditListScroll = cursorLine
 		}
-		if a.auditListCursor >= a.auditListScroll+visible {
-			a.auditListScroll = a.auditListCursor - visible + 1
+		if cursorLine >= a.auditListScroll+visible {
+			a.auditListScroll = cursorLine - visible + 1
 		}
 		return a, nil
 	}
@@ -541,7 +561,7 @@ func (a App) renderAllowDenyLists() string {
 
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  e: edit  │  x/d: remove  │  L/Esc: back to log") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  e: edit  │  d: →deny  │  a: →allow  │  x: remove  │  L/Esc: back") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
@@ -682,6 +702,107 @@ func (a App) renderAllowDenyLists() string {
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)) + "\n")
 	return b.String()
+}
+
+// moveListItem moves an entry from one list to the other (allow↔deny).
+func (a *App) moveListItem(item listItem, toKind string) tea.Cmd {
+	return func() tea.Msg {
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
+		}
+		dataDir := os.ExpandEnv("$HOME/.cella")
+		// Remove from source list
+		switch item.kind {
+		case "allow":
+			globalProxyServer.GetAllowlist(item.container).Remove(item.domain)
+			if err := globalProxyServer.SaveAllowlistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save allowlist: %w", err)}
+			}
+		case "deny":
+			globalProxyServer.GetDenylist(item.container).Remove(item.domain)
+			if err := globalProxyServer.SaveDenylistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save denylist: %w", err)}
+			}
+		}
+		// Add to destination list
+		switch toKind {
+		case "allow":
+			globalProxyServer.GetAllowlist(item.container).Add(item.domain)
+			if err := globalProxyServer.SaveAllowlistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save allowlist: %w", err)}
+			}
+		case "deny":
+			globalProxyServer.GetDenylist(item.container).Add(item.domain)
+			if err := globalProxyServer.SaveDenylistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save denylist: %w", err)}
+			}
+		}
+		fromIcon := "✅"
+		toIcon := "🚫"
+		if toKind == "allow" {
+			fromIcon, toIcon = "🚫", "✅"
+		}
+		return asyncResultMsg{
+			text: fmt.Sprintf("%s→%s moved [%s] %s", fromIcon, toIcon, item.container, item.domain),
+		}
+	}
+}
+
+// listItemLineIndex returns the line number (in the rendered lines slice)
+// corresponding to item index idx. Header and category lines are counted too.
+func (a App) listItemLineIndex(idx int, items []listItem) int {
+	if globalProxyServer == nil || idx < 0 {
+		return 0
+	}
+	if idx >= len(items) {
+		idx = len(items) - 1
+	}
+	// Rebuild the same container/kind grouping as renderAllowDenyLists
+	seen := map[string]bool{}
+	for _, e := range globalProxyServer.Audit().All() {
+		seen[e.Container] = true
+	}
+	if a.selected < len(a.containers) {
+		seen[a.containers[a.selected].Name] = true
+	}
+	containers := make([]string, 0, len(seen))
+	for c := range seen {
+		containers = append(containers, c)
+	}
+	sort.Strings(containers)
+
+	target := items[idx]
+	lineNo := 0
+	for _, cname := range containers {
+		al := globalProxyServer.GetAllowlist(cname)
+		dl := globalProxyServer.GetDenylist(cname)
+		allowDomains := al.UserDomains()
+		denyDomains := dl.List()
+		if len(allowDomains) == 0 && len(denyDomains) == 0 {
+			continue
+		}
+		lineNo++ // container header
+		if len(allowDomains) > 0 {
+			lineNo++ // "✅ Allowed" header
+			for _, d := range allowDomains {
+				if cname == target.container && d == target.domain && target.kind == "allow" {
+					return lineNo
+				}
+				lineNo++
+			}
+		}
+		if len(denyDomains) > 0 {
+			lineNo++ // "🚫 Denied" header
+			for _, d := range denyDomains {
+				if cname == target.container && d == target.domain && target.kind == "deny" {
+					return lineNo
+				}
+				lineNo++
+			}
+		}
+		lineNo++ // blank separator
+	}
+	return lineNo
 }
 
 // editListItem replaces oldItem.domain with newDomain in its allow/deny list.
