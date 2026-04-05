@@ -14,6 +14,7 @@ pre{background:#090c10;border:1px solid var(--line);border-radius:.5rem;padding:
 code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);padding:.1rem .3rem;border-radius:.25rem;font-size:.9em;}
 .breadcrumb{color:var(--muted);font-size:.9rem;margin-bottom:1.5rem;}
 .note{background:rgba(46,204,113,.1);border:1px solid rgba(46,204,113,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
+.warn{background:rgba(241,196,15,.08);border:1px solid rgba(241,196,15,.3);border-radius:.5rem;padding:1rem;margin:1rem 0;}
 kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;padding:.1rem .4rem;font-family:'JetBrains Mono',monospace;font-size:.85em;}
 .next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);display:flex;justify-content:space-between;}
 </style></head><body>
@@ -27,29 +28,47 @@ kbd{background:var(--surface);border:1px solid var(--line);border-radius:.25rem;
 <li>Press <kbd>A</kbd> to open the Audit panel</li>
 <li>Press <kbd>p</kbd> to set up the transparent proxy</li>
 </ol>
-<p>cella will configure nftables and inject the CA certificate automatically.</p>
+<p>cella configures nftables REDIRECT rules and injects a MITM CA certificate into the container's system trust store (<code>/usr/local/share/ca-certificates/cella-proxy.crt</code>) and sets the LXD instance environment variable <code>NODE_EXTRA_CA_CERTS</code> so that Node.js processes trust it.</p>
+
+<div class="warn">
+  <strong>⚠ Restart your services after setup</strong><br>
+  Environment variables set at the LXD instance level are only read when a process <em>starts</em>.
+  Any service already running at the time you press <kbd>p</kbd> will not see <code>NODE_EXTRA_CA_CERTS</code>
+  and will reject the MITM certificate.<br><br>
+  After cella finishes setup, <strong>restart the relevant service(s) inside the container manually</strong>.
+  For example:
+  <pre># systemd user service
+systemctl --user restart my-service.service
+
+# or restart the process directly
+pkill -f my-app && my-app &</pre>
+  cella intentionally does not restart services on your behalf — it has no knowledge of what is
+  running inside the container and you should remain in full control of your workloads.
+</div>
 
 <h2>2. Approve the Domain</h2>
 <p>When Copilot makes its first request, you'll see an approval overlay for <code>api.business.githubcopilot.com</code>.</p>
-<p>Press <kbd>Y</kbd> to always allow it.</p>
+<p>Press <kbd>Y</kbd> to always allow it, or <kbd>y</kbd> for a one-time approval.</p>
+<p>To approve all subdomains at once, press <kbd>L</kbd> to open the Allow/Deny list, navigate to the entry with <kbd>j</kbd>/<kbd>k</kbd>, press <kbd>e</kbd> to edit, and change it to <code>*.githubcopilot.com</code>.</p>
 
 <h2>3. Watch the Traffic</h2>
 <p>The Audit panel now shows each API call:</p>
-<pre>15:04:02 ✅🔓 my-agent POST → api.business.githubcopilot.com /chat/completions [200] (5.3s)</pre>
+<pre>15:04:02 ✅🔓 my-agent POST → api.business.githubcopilot.com /models/claude-sonnet-4.6/chat/completions [200] (5.3s)</pre>
 
 <h2>4. View Inference Stats</h2>
 <p>Press <kbd>M</kbd> for the <strong>Inference Stats</strong> panel. cella parses the SSE response stream and extracts:</p>
 <ul>
-<li><strong>Model name</strong> (e.g., gpt-4o, claude-sonnet-4-5)</li>
+<li><strong>Model name</strong> — from the response body, request body, or URL path (e.g. <code>/models/claude-sonnet-4.6/chat/completions</code>)</li>
 <li><strong>Token counts</strong> — input and output tokens</li>
 <li><strong>RPM / TPM</strong> — requests and tokens per minute</li>
 <li><strong>Estimated cost</strong> — based on known model pricing</li>
 </ul>
+<p>Both standard OpenAI paths (<code>/v1/chat/completions</code>) and model-namespaced Copilot paths (<code>/models/&lt;name&gt;/chat/completions</code>) are detected automatically.</p>
 
 <h2>5. Export Audit Data</h2>
 <p>In the Audit panel, press <kbd>S</kbd> to export the audit log as JSON for further analysis.</p>
 
-<div class="note">💡 Copilot also calls <code>api.github.com</code> for auth. Approve that too for full visibility.</div>
+<div class="note">💡 Copilot also calls <code>api.github.com</code> for auth token exchange. Approve that domain too for full visibility.</div>
 
 <div class="next">
 <a href="../index.html">← Home</a>

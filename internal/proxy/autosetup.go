@@ -66,14 +66,6 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		_ = lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body)
 	}
 
-	// 3. Restart all running user systemd services so they pick up NODE_EXTRA_CA_CERTS.
-	//    Generic: iterates /run/user/<uid>, no service-specific knowledge required.
-	//    See autosetup_restart.go for the script.
-	if len(s.MITMPem) > 0 {
-		_ = lxdExec(socketPath, container, []string{"bash", "-c", restartUserServicesScript})
-		// best-effort: new processes inherit the updated LXD env automatically.
-	}
-
 		// nftables REDIRECT is set up by the caller (transparent.go)
 	return nil
 }
