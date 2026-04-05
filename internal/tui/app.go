@@ -271,7 +271,8 @@ type App struct {
 	// interceptedIPs tracks containers with active nftables REDIRECT rules.
 	// Key = container name, Value = container IP.
 	// Used to clean up rules on exit.
-	interceptedIPs map[string]string
+	interceptedIPs    map[string]string
+	pendingAutoSetup  []string // containers to auto-setup proxy on first containerList
 
 	// Proxy + Operator Approval
 	pendingApproval *proxy.ApprovalRequest
@@ -328,6 +329,40 @@ func NewApp() App {
 		eventCh:        make(chan string, 100),
 		tracers:        make(map[string]*trace.Tracer),
 		interceptedIPs: make(map[string]string),
+	}
+
+	// Auto-start proxy if allowlist.json or denylist.json exist with container entries
+	dataDir := os.ExpandEnv("$HOME/.cella")
+	containersToSetup := map[string]bool{}
+	if al, err := proxy.LoadAllowlists(dataDir); err == nil {
+		for c := range al {
+			containersToSetup[c] = true
+		}
+	}
+	if dl, err := proxy.LoadDenylists(dataDir); err == nil {
+		for c := range dl {
+			containersToSetup[c] = true
+		}
+	}
+	if len(containersToSetup) > 0 {
+		approvalCh := make(chan proxy.ApprovalRequest, 10)
+		srv := proxy.NewServer(9081, approvalCh)
+		if mitmCfg, err := proxy.NewMITMConfig(dataDir); err == nil {
+			srv.EnableMITM(mitmCfg)
+		}
+		_ = srv.LoadAllowlistsFromDir(dataDir)
+		_ = srv.LoadDenylistsFromDir(dataDir)
+		tl := proxy.NewTransparentListener(9081, srv)
+		tl.SetOnPermanentAllow(func() { _ = srv.SaveAllowlistsToDir(dataDir) })
+		tl.SetOnPermanentDeny(func() { _ = srv.SaveDenylistsToDir(dataDir) })
+		if err := tl.Start(); err == nil {
+			globalProxyServer = srv
+			globalApprovalCh = approvalCh
+			globalTproxyListener = tl
+			for c := range containersToSetup {
+				app.pendingAutoSetup = append(app.pendingAutoSetup, c)
+			}
+		}
 	}
 
 	return app
@@ -1491,6 +1526,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			globalProxyServer.UpdateContainerMap(ipMap)
 		}
+		// Auto-setup proxy for containers loaded from persisted allow/deny lists
+		var autoSetupCmds []tea.Cmd
+		if len(a.pendingAutoSetup) > 0 && a.client != nil {
+			var stillPending []string
+			for _, name := range a.pendingAutoSetup {
+				// Find the container in the current list
+				var found *runtime.ContainerInfo
+				for i := range newContainers {
+					if newContainers[i].Name == name {
+						found = &newContainers[i]
+						break
+					}
+				}
+				if found != nil && found.Runtime == "lxd" && found.Status == "Running" && found.IP != "" {
+					a.addEvent(fmt.Sprintf("🔧 auto-setup proxy: %s (%s)", name, found.IP))
+					autoSetupCmds = append(autoSetupCmds, a.autoSetupProxy(name, globalProxyServer, a.client.SocketPath()))
+				} else {
+					stillPending = append(stillPending, name)
+				}
+			}
+			a.pendingAutoSetup = stillPending
+		}
 		a.sortContainers()
 		a.applyFilter()
 		a.lastUpdate = now
@@ -1500,6 +1557,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.selected < 0 {
 			a.selected = 0
+		}
+		if len(autoSetupCmds) > 0 {
+			return a, tea.Batch(autoSetupCmds...)
 		}
 		return a, nil
 
