@@ -272,43 +272,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if max >= 0 && a.auditListCursor > max {
 			a.auditListCursor = max
 		}
-		// scroll to keep cursor visible — scrolloff=2 (2 lines context above/below)
-		const scrolloff = 2
-		cursorLine := a.listItemLineIndex(a.auditListCursor, items)
-		visible := a.height - 13
-		if visible < 4 {
-			visible = 4
-		}
-		// subtract 2 for ▲/▼ indicator rows
-		effVisible := visible - 2
-		if effVisible < scrolloff*2+1 {
-			effVisible = scrolloff*2 + 1
-		}
-		// scroll up: cursor too close to top edge
-		wantTop := cursorLine - scrolloff
-		if wantTop < 0 {
-			wantTop = 0
-		}
-		if cursorLine < a.auditListScroll+scrolloff {
-			a.auditListScroll = wantTop
-		}
-		// scroll down: cursor too close to bottom edge
-		wantBottom := cursorLine - effVisible + scrolloff + 1
-		if cursorLine >= a.auditListScroll+effVisible-scrolloff {
-			a.auditListScroll = wantBottom
-		}
-		// hard clamp: never go negative or past the last line
-		if a.auditListScroll < 0 {
-			a.auditListScroll = 0
-		}
-		totalLines := a.buildListLineCount()
-		maxS := totalLines - effVisible
-		if maxS < 0 {
-			maxS = 0
-		}
-		if a.auditListScroll > maxS {
-			a.auditListScroll = maxS
-		}
+		// scroll is handled entirely by renderAllowDenyLists
 		return a, nil
 	}
 
@@ -571,48 +535,9 @@ func (a *App) removeListItem(item listItem) tea.Cmd {
 	}
 }
 
-// buildListLineCount returns the total number of content lines that
-// renderAllowDenyLists would produce, used for scroll clamping.
-func (a App) buildListLineCount() int {
-	if globalProxyServer == nil {
-		return 0
-	}
-	seen := map[string]bool{}
-	for _, e := range globalProxyServer.Audit().All() {
-		seen[e.Container] = true
-	}
-	if a.selected < len(a.containers) {
-		seen[a.containers[a.selected].Name] = true
-	}
-	containers := make([]string, 0, len(seen))
-	for c := range seen {
-		containers = append(containers, c)
-	}
-	sort.Strings(containers)
-	count := 0
-	for _, cname := range containers {
-		al := globalProxyServer.GetAllowlist(cname)
-		dl := globalProxyServer.GetDenylist(cname)
-		allowDomains := al.UserDomains()
-		denyDomains := dl.List()
-		if len(allowDomains) == 0 && len(denyDomains) == 0 {
-			continue
-		}
-		count++ // container header
-		if len(allowDomains) > 0 {
-			count++ // "✅ Allowed" header
-			count += len(allowDomains)
-		}
-		if len(denyDomains) > 0 {
-			count++ // "🚫 Denied" header
-			count += len(denyDomains)
-		}
-	}
-	return count
-}
 
 // renderAllowDenyLists renders the allowlist and denylist for the current container
-func (a App) renderAllowDenyLists() string {
+func (a *App) renderAllowDenyLists() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
 	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22"))
 	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
@@ -657,9 +582,13 @@ func (a App) renderAllowDenyLists() string {
 	}
 
 	// Build all content lines into a slice first, then apply viewport scroll.
-	type contentLine struct{ s string }
+	type contentLine struct {
+		s        string
+		isCursor bool // true if this line has the cursor on it
+	}
 	var lines []contentLine
-	addLine := func(s string) { lines = append(lines, contentLine{s}) }
+	addLine := func(s string) { lines = append(lines, contentLine{s: s}) }
+	addCursorLine := func(s string) { lines = append(lines, contentLine{s: s, isCursor: true}) }
 
 	for _, cname := range containers {
 		al := globalProxyServer.GetAllowlist(cname)
@@ -694,9 +623,9 @@ func (a App) renderAllowDenyLists() string {
 							after = string(eRunes[a.auditEditCursor+1:])
 						}
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
-						addLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
+						addCursorLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [d] →deny  [x] remove"))
+						addCursorLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [d] →deny  [x] remove"))
 					}
 				} else {
 					addLine(green.Render("      + " + d))
@@ -720,9 +649,9 @@ func (a App) renderAllowDenyLists() string {
 							after = string(eRunes[a.auditEditCursor+1:])
 						}
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
-						addLine(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
+						addCursorLine(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [a] →allow  [x] remove"))
+						addCursorLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [a] →allow  [x] remove"))
 					}
 				} else {
 					addLine(red.Render("      - " + d))
@@ -732,54 +661,83 @@ func (a App) renderAllowDenyLists() string {
 
 	}
 
-	// Apply viewport: show only the visible window based on scroll offset.
-	// header(3) + footer(2) + status bar(1) = 6 fixed lines; reserve 1 more for safety.
-	visible := a.height - 13
-	if visible < 4 {
-		visible = 4
-	}
-	scroll := a.auditListScroll
-	// Clamp scroll so last page fills the viewport exactly
-	maxScroll := len(lines) - visible
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
-
-	// Account for indicator rows so content lines don't overflow
-	contentVisible := visible
-	hasTop := scroll > 0
-	bottomEnd := scroll + contentVisible
-	if hasTop {
-		contentVisible--
-		bottomEnd = scroll + contentVisible
-	}
-	if bottomEnd > len(lines) {
-		bottomEnd = len(lines)
-	}
-	hasBottom := bottomEnd < len(lines)
-	if hasBottom {
-		contentVisible--
-		bottomEnd = scroll + contentVisible
-		if bottomEnd > len(lines) {
-			bottomEnd = len(lines)
+	// ═══ Viewport with scroll-follow (single source of truth) ═══
+	//
+	// Step 1: Find which line the cursor is on
+	cursorLineIdx := -1
+	for i, l := range lines {
+		if l.isCursor {
+			cursorLineIdx = i
+			break
 		}
 	}
 
-	if hasTop {
-		b.WriteString(dim.Render(fmt.Sprintf("  ▲ %d more", scroll)) + "\n")
+	// Step 2: Calculate how many content lines we can show
+	// Total vertical budget inside the panel (after border+padding):
+	//   a.height - 4 (header+statusbar+border*2) - 2 (padding) = contentH
+	// Minus fixed lines in this render:
+	//   title(1) + hint(1) + sep(1) + footer sep(1) + footer path(1) = 5
+	contentH := a.height - 6 - 5
+	if contentH < 3 {
+		contentH = 3
 	}
-	for _, l := range lines[scroll:bottomEnd] {
-		b.WriteString(l.s + "\n")
-	}
-	if hasBottom {
-		remaining := len(lines) - bottomEnd
-		b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", remaining)) + "\n")
+
+	// Step 3: If everything fits, no scrolling needed
+	if len(lines) <= contentH {
+		for _, l := range lines {
+			b.WriteString(l.s + "\n")
+		}
+	} else {
+		// We need scrolling. Reserve 1 line each for ▲/▼ indicators.
+		showable := contentH - 2 // lines available for actual content
+		if showable < 1 {
+			showable = 1
+		}
+
+		// Scroll-follow with scrolloff=2
+		const scrolloff = 2
+		scroll := a.auditListScroll
+
+		// Ensure cursor is visible with scrolloff margin
+		if cursorLineIdx >= 0 {
+			if cursorLineIdx-scrolloff < scroll {
+				scroll = cursorLineIdx - scrolloff
+			}
+			if cursorLineIdx+scrolloff >= scroll+showable {
+				scroll = cursorLineIdx + scrolloff - showable + 1
+			}
+		}
+
+		// Hard clamp
+		maxScroll := len(lines) - showable
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if scroll > maxScroll {
+			scroll = maxScroll
+		}
+		if scroll < 0 {
+			scroll = 0
+		}
+		a.auditListScroll = scroll
+
+		// Render
+		if scroll > 0 {
+			b.WriteString(dim.Render(fmt.Sprintf("  ▲ %d more", scroll)) + "\n")
+		} else {
+			b.WriteString("\n") // blank line to keep height consistent
+		}
+		end := scroll + showable
+		if end > len(lines) {
+			end = len(lines)
+		}
+		for _, l := range lines[scroll:end] {
+			b.WriteString(l.s + "\n")
+		}
+		remaining := len(lines) - end
+		if remaining > 0 {
+			b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", remaining)))
+		}
 	}
 
 	// Show file paths
@@ -833,61 +791,6 @@ func (a *App) moveListItem(item listItem, toKind string) tea.Cmd {
 	}
 }
 
-// listItemLineIndex returns the line number (in the rendered lines slice)
-// corresponding to item index idx. Header and category lines are counted too.
-func (a App) listItemLineIndex(idx int, items []listItem) int {
-	if globalProxyServer == nil || idx < 0 {
-		return 0
-	}
-	if idx >= len(items) {
-		idx = len(items) - 1
-	}
-	// Rebuild the same container/kind grouping as renderAllowDenyLists
-	seen := map[string]bool{}
-	for _, e := range globalProxyServer.Audit().All() {
-		seen[e.Container] = true
-	}
-	if a.selected < len(a.containers) {
-		seen[a.containers[a.selected].Name] = true
-	}
-	containers := make([]string, 0, len(seen))
-	for c := range seen {
-		containers = append(containers, c)
-	}
-	sort.Strings(containers)
-
-	target := items[idx]
-	lineNo := 0
-	for _, cname := range containers {
-		al := globalProxyServer.GetAllowlist(cname)
-		dl := globalProxyServer.GetDenylist(cname)
-		allowDomains := al.UserDomains()
-		denyDomains := dl.List()
-		if len(allowDomains) == 0 && len(denyDomains) == 0 {
-			continue
-		}
-		lineNo++ // container header
-		if len(allowDomains) > 0 {
-			lineNo++ // "✅ Allowed" header
-			for _, d := range allowDomains {
-				if cname == target.container && d == target.domain && target.kind == "allow" {
-					return lineNo
-				}
-				lineNo++
-			}
-		}
-		if len(denyDomains) > 0 {
-			lineNo++ // "🚫 Denied" header
-			for _, d := range denyDomains {
-				if cname == target.container && d == target.domain && target.kind == "deny" {
-					return lineNo
-				}
-				lineNo++
-			}
-		}
-	}
-	return lineNo
-}
 
 // editListItem replaces oldItem.domain with newDomain in its allow/deny list.
 func (a *App) editListItem(old listItem, newDomain string) tea.Cmd {
