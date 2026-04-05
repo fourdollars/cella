@@ -678,7 +678,7 @@ func (a App) renderAllowDenyLists() string {
 				}
 			}
 		}
-		addLine("") // blank line between containers
+
 	}
 
 	// Apply viewport: show only the visible window based on scroll offset.
@@ -834,7 +834,6 @@ func (a App) listItemLineIndex(idx int, items []listItem) int {
 				lineNo++
 			}
 		}
-		lineNo++ // blank separator
 	}
 	return lineNo
 }
