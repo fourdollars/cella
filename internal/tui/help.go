@@ -77,6 +77,7 @@ func (a App) renderHelpOverlay() string {
 	})
 	col2 += "\n"
 	col2 += renderSection("In Policy Panel", [][]string{
+		{"[b]", "Toggle boot.autostart"},
 		{"[P]", "Toggle security.privileged"},
 		{"[N]", "Toggle security.nesting"},
 		{"[V]", "Toggle security.devlxd"},
@@ -91,12 +92,14 @@ func (a App) renderHelpOverlay() string {
 		{"A", "API audit log + interception setup"},
 		{"y", "Approve request (once)"},
 		{"Y", "Approve request (always)"},
-		{"n", "Deny request"},
+		{"n", "Deny request (once)"},
+		{"N", "Deny request (always)"},
 	})
 	col3 += "\n"
 	col3 += renderSection("In Audit Panel", [][]string{
 		{"/", "Filter text"},
 		{"f", "Filter by status"},
+		{"L", "Show allow/deny lists"},
 		{"S", "Export audit JSON"},
 		{"c", "Clear log"},
 		{"p", "Setup HTTPS interception (container)"},

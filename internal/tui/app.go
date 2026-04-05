@@ -1875,7 +1875,7 @@ func (a App) renderStatusBar() string {
 		if a.policyMode == "import" {
 			return " POLICY │ type filename (.yaml/.json) → Enter │ Esc: cancel"
 		}
-		return " POLICY │ 1-3: seccomp │ 4-7: apparmor │ a/d: egress │ e: export │ i: import │ r: refresh │ Esc: back"
+		return " POLICY │ b: boot.autostart │ P: privileged │ N: nesting │ V: devlxd │ M: idmapIso │ 1-3: seccomp │ 4-7: apparmor │ a/d: egress │ e: export │ i: import │ r: refresh │ Esc: back"
 	case panelDNS:
 		return " DNS │ ↑↓ select │ a: allow │ x: deny │ u: unset │ Esc/q: back"
 	case panelEvents:
