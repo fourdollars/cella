@@ -99,6 +99,7 @@ func (a App) renderHelpOverlay() string {
 	col3 += renderSection("In Audit Panel", [][]string{
 		{"/", "Filter text"},
 		{"f", "Filter by status"},
+		{"H", "Toggle host machine interception"},
 		{"L", "Show allow/deny lists"},
 		{"S", "Export audit JSON"},
 		{"c", "Clear log"},

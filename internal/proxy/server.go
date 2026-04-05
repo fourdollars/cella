@@ -51,8 +51,9 @@ type Server struct {
 	audit          *AuditLog
 	inferenceStats *InferenceStats
 	routes         *RouteTable
-	mitm           *MITMConfig // nil = tunnel mode, non-nil = MITM mode
-	mu             sync.RWMutex
+	mitm                  *MITMConfig // nil = tunnel mode, non-nil = MITM mode
+	hostInterceptionActive bool
+	mu                    sync.RWMutex
 	nextID         int
 	timeout        time.Duration // approval timeout
 }
@@ -70,6 +71,20 @@ func NewServer(port int, approvalCh chan ApprovalRequest) *Server {
 		routes:         NewRouteTable(),
 		timeout:        30 * time.Second,
 	}
+}
+
+// HostInterceptionActive returns whether host OUTPUT redirect is enabled.
+func (s *Server) HostInterceptionActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.hostInterceptionActive
+}
+
+// SetHostInterceptionActive sets the host interception state flag.
+func (s *Server) SetHostInterceptionActive(active bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hostInterceptionActive = active
 }
 
 // EnableMITM activates TLS interception with the given config

@@ -79,6 +79,47 @@ func removeTransparentRules(table, chain, tag string) error {
 	return nil
 }
 
+// SetupHostRedirect adds an OUTPUT chain rule that redirects the host's own
+// outbound port 80/443 traffic to the cella proxy.
+//
+// To prevent a redirect loop, traffic from uid is excluded (pass os.Getuid()).
+// The container name "host" is used for audit/approval attribution.
+func SetupHostRedirect(proxyPort, uid int) error {
+	table := "cella_tproxy"
+	chain := "output"
+	tag := "cella_tproxy_host"
+
+	// Remove stale rules first
+	removeTransparentRules(table, chain, tag)
+
+	batch := fmt.Sprintf(
+		"add table ip %s\n"+
+			"add chain ip %s %s { type nat hook output priority dstnat; policy accept; }\n"+
+			"add rule ip %s %s meta skuid != %d tcp dport 443 redirect to :%d comment \"%s_443\"\n"+
+			"add rule ip %s %s meta skuid != %d tcp dport 80  redirect to :%d comment \"%s_80\"",
+		table,
+		table, chain,
+		table, chain, uid, proxyPort, tag,
+		table, chain, uid, proxyPort, tag,
+	)
+
+	cmd := nftCmd2("-f", "-")
+	cmd.Stdin = strings.NewReader(batch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add host output rules: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	if strings.Contains(string(out), "Error:") {
+		return fmt.Errorf("add host output rules: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// RemoveHostRedirect removes the OUTPUT chain redirect rules for host traffic.
+func RemoveHostRedirect() error {
+	return removeTransparentRules("cella_tproxy", "output", "cella_tproxy_host")
+}
+
 func nftCmd2(args ...string) *exec.Cmd {
 	if os.Getuid() == 0 {
 		return exec.Command("nft", args...)

@@ -372,6 +372,9 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.auditListCursor = 0
 		a.auditScroll = 0
 		return a, nil
+	case "H":
+		// Toggle host traffic interception (OUTPUT chain)
+		return a, a.toggleHostInterception()
 	case "up", "k":
 		if a.auditScroll > 0 {
 			a.auditScroll--
@@ -668,6 +671,46 @@ func (a *App) editListItem(old listItem, newDomain string) tea.Cmd {
 		return asyncResultMsg{
 			text: fmt.Sprintf("%s edited [%s] %s → %s", kindIcon, old.container, old.domain, newDomain),
 		}
+	}
+}
+
+// toggleHostInterception enables or removes nftables OUTPUT REDIRECT for the host.
+func (a *App) toggleHostInterception() tea.Cmd {
+	return func() tea.Msg {
+		// Ensure proxy is running
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not active — press p first")}
+		}
+		// Determine current state via containerByIP or a flag stored on the server
+		if globalProxyServer.HostInterceptionActive() {
+			// Turn off
+			if err := proxy.RemoveHostRedirect(); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("remove host redirect: %w", err)}
+			}
+			globalProxyServer.SetHostInterceptionActive(false)
+			hostname, _ := os.Hostname()
+			return asyncResultMsg{text: fmt.Sprintf("🖥 host interception OFF (%s)", hostname)}
+		}
+		// Turn on
+		hostname, _ := os.Hostname()
+		uid := os.Getuid()
+		if err := proxy.SetupHostRedirect(9081, uid); err != nil {
+			return asyncResultMsg{err: fmt.Errorf("host redirect: %w", err)}
+		}
+		// Register host IP in containerByIP so traffic is attributed to hostname
+		ipMap := make(map[string]string)
+		for _, c := range a.allContainers {
+			if c.IP != "" && c.IP != "-" {
+				ipMap[c.IP] = c.Name
+			}
+		}
+		// 127.0.0.1 won't appear in REDIRECT (OUTPUT uses 127.0.0.1 as src),
+		// so the PTR/resolveContainerName fallback will resolve from "juju-..." hostname.
+		// Register a marker so it shows nicely.
+		ipMap["127.0.0.1"] = hostname
+		globalProxyServer.UpdateContainerMap(ipMap)
+		globalProxyServer.SetHostInterceptionActive(true)
+		return asyncResultMsg{text: fmt.Sprintf("🖥 host interception ON (%s, uid≠%d excluded)", hostname, uid)}
 	}
 }
 
