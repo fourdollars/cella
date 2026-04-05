@@ -634,7 +634,7 @@ func (a App) renderAllowDenyLists() string {
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
 						addLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [x] remove"))
+						addLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [d] →deny  [x] remove"))
 					}
 				} else {
 					addLine(green.Render("      + " + d))
@@ -660,7 +660,7 @@ func (a App) renderAllowDenyLists() string {
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
 						addLine(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [x] remove"))
+						addLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [a] →allow  [x] remove"))
 					}
 				} else {
 					addLine(red.Render("      - " + d))
