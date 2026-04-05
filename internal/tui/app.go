@@ -281,6 +281,7 @@ type App struct {
 	auditFilterText   string
 	auditStatusFilter string
 	auditShowLists    bool   // L: show allowlist/denylist instead of log
+	auditListCursor   int    // cursor position in allow/deny list view
 	inferenceScroll   int
 	routingCursor    int
 	routingInputMode bool

@@ -161,6 +161,41 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
+	// List-view mode: j/k/del/x navigate and remove entries
+	if a.auditShowLists {
+		items := a.buildListItems()
+		max := len(items) - 1
+		switch msg.String() {
+		case "esc", "q", "L":
+			a.auditShowLists = false
+			a.auditListCursor = 0
+			return a, nil
+		case "up", "k":
+			if a.auditListCursor > 0 {
+				a.auditListCursor--
+			}
+		case "down", "j":
+			if a.auditListCursor < max {
+				a.auditListCursor++
+			}
+		case "g":
+			a.auditListCursor = 0
+		case "G":
+			if max >= 0 {
+				a.auditListCursor = max
+			}
+		case "x", "d", "delete":
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				return a, a.removeListItem(items[a.auditListCursor])
+			}
+		}
+		// clamp
+		if max >= 0 && a.auditListCursor > max {
+			a.auditListCursor = max
+		}
+		return a, nil
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		a.focus = panelSidebar
@@ -270,6 +305,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "L":
 		// Toggle allow/deny list view
 		a.auditShowLists = !a.auditShowLists
+		a.auditListCursor = 0
 		a.auditScroll = 0
 		return a, nil
 	case "up", "k":
@@ -338,6 +374,82 @@ func (a App) filterAuditEntries(entries []proxy.AuditEntry) []proxy.AuditEntry {
 	return result
 }
 
+// listItem represents a single domain entry in the allow/deny list view
+type listItem struct {
+	container string
+	domain    string
+	kind      string // "allow" or "deny"
+}
+
+// buildListItems returns a flat ordered slice of all allow+deny entries
+// (sorted by container, then allow before deny, then domain).
+func (a App) buildListItems() []listItem {
+	if globalProxyServer == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, e := range globalProxyServer.Audit().All() {
+		seen[e.Container] = true
+	}
+	if a.selected < len(a.containers) {
+		seen[a.containers[a.selected].Name] = true
+	}
+	containers := make([]string, 0, len(seen))
+	for c := range seen {
+		containers = append(containers, c)
+	}
+	sort.Strings(containers)
+
+	var items []listItem
+	for _, cname := range containers {
+		al := globalProxyServer.GetAllowlist(cname)
+		dl := globalProxyServer.GetDenylist(cname)
+		for _, d := range al.UserDomains() {
+			items = append(items, listItem{container: cname, domain: d, kind: "allow"})
+		}
+		for _, d := range dl.List() {
+			items = append(items, listItem{container: cname, domain: d, kind: "deny"})
+		}
+	}
+	return items
+}
+
+// listItemIndex returns the cursor index of a specific item in the flat list.
+// Returns -1 if not found.
+func (a App) listItemIndex(container, domain, kind string, items []listItem) int {
+	for i, it := range items {
+		if it.container == container && it.domain == domain && it.kind == kind {
+			return i
+		}
+	}
+	return -1
+}
+
+// removeListItem removes the domain from its allowlist or denylist and persists.
+func (a *App) removeListItem(item listItem) tea.Cmd {
+	return func() tea.Msg {
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
+		}
+		dataDir := os.ExpandEnv("$HOME/.cella")
+		switch item.kind {
+		case "allow":
+			globalProxyServer.GetAllowlist(item.container).Remove(item.domain)
+			if err := globalProxyServer.SaveAllowlistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save allowlist: %w", err)}
+			}
+			return asyncResultMsg{text: fmt.Sprintf("✅ removed allow: %s → %s", item.container, item.domain)}
+		case "deny":
+			globalProxyServer.GetDenylist(item.container).Remove(item.domain)
+			if err := globalProxyServer.SaveDenylistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save denylist: %w", err)}
+			}
+			return asyncResultMsg{text: fmt.Sprintf("🚫 removed deny: %s → %s", item.container, item.domain)}
+		}
+		return nil
+	}
+}
+
 // renderAllowDenyLists renders the allowlist and denylist for the current container
 func (a App) renderAllowDenyLists() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
@@ -346,9 +458,11 @@ func (a App) renderAllowDenyLists() string {
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
 	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
 
+	items := a.buildListItems()
+
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  Press L to return to log  │  [Y]=allow always  [N]=deny always") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  x/d: remove  │  L/Esc: back to log") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
@@ -391,6 +505,7 @@ func (a App) renderAllowDenyLists() string {
 			continue
 		}
 
+
 		header := bright.Render("  📦 " + cname)
 		if cname == selectedName {
 			header += dim.Render(" ◀ selected")
@@ -400,13 +515,25 @@ func (a App) renderAllowDenyLists() string {
 		if len(allowDomains) > 0 {
 			b.WriteString(green.Render("    ✅ Allowed (permanent):") + "\n")
 			for _, d := range allowDomains {
-				b.WriteString(green.Render("      + " + d) + "\n")
+				idx := a.listItemIndex(cname, d, "allow", items)
+				if idx == a.auditListCursor {
+					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
+					b.WriteString(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[x] remove") + "\n")
+				} else {
+					b.WriteString(green.Render("      + " + d) + "\n")
+				}
 			}
 		}
 		if len(denyDomains) > 0 {
 			b.WriteString(red.Render("    🚫 Denied (permanent):") + "\n")
 			for _, d := range denyDomains {
-				b.WriteString(red.Render("      - " + d) + "\n")
+				idx := a.listItemIndex(cname, d, "deny", items)
+				if idx == a.auditListCursor {
+					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
+					b.WriteString(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[x] remove") + "\n")
+				} else {
+					b.WriteString(red.Render("      - " + d) + "\n")
+				}
 			}
 		}
 		b.WriteString("\n")
