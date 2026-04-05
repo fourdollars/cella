@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"os/exec"
@@ -1539,7 +1540,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
-				if found != nil && found.Runtime == "lxd" && found.Status == "Running" && found.IP != "" {
+				if found != nil && found.Runtime == "lxd" && found.Status == "Running" && found.IP != "" && found.IP != "-" && net.ParseIP(found.IP) != nil {
 					a.addEvent(fmt.Sprintf("🔧 auto-setup proxy: %s (%s)", name, found.IP))
 					autoSetupCmds = append(autoSetupCmds, a.autoSetupProxy(name, globalProxyServer, a.client.SocketPath()))
 				} else {

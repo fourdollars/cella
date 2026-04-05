@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"sort"
 	"strings"
@@ -814,8 +815,8 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 				break
 			}
 		}
-		if containerIP == "" {
-			return asyncResultMsg{err: fmt.Errorf("cannot find IP for %s", container)}
+		if containerIP == "" || containerIP == "-" || net.ParseIP(containerIP) == nil {
+			return asyncResultMsg{err: fmt.Errorf("no valid IP for %s (got %q) — container may still be starting", container, containerIP)}
 		}
 
 		// 1. nftables REDIRECT (port 80/443 → :9081)
