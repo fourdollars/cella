@@ -66,22 +66,15 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		_ = lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body)
 	}
 
-	// 3. Restart the openclaw-gateway service so it picks up NODE_EXTRA_CA_CERTS.
-	//    The env var is set at the LXD instance level and is only read at process
-	//    start time, so any already-running OpenClaw process must be restarted.
-	//    We try both systemctl (user unit) and a direct kill+restart approach.
+	// 3. Restart all running user systemd services so they pick up NODE_EXTRA_CA_CERTS.
+	//    Generic: iterates /run/user/<uid>, no service-specific knowledge required.
+	//    See autosetup_restart.go for the script.
 	if len(s.MITMPem) > 0 {
-		// Try systemd user unit first (standard charm deployment)
-		err := lxdExec(socketPath, container, []string{
-			"bash", "-c",
-			"export XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu 2>/dev/null || echo 1000) && " +
-				"sudo -u ubuntu systemctl --user restart openclaw-gateway.service 2>/dev/null || " +
-				"pkill -u ubuntu -f 'openclaw.*gateway' 2>/dev/null || true",
-		})
-		_ = err // best-effort — MITM will work once the process restarts
+		_ = lxdExec(socketPath, container, []string{"bash", "-c", restartUserServicesScript})
+		// best-effort: new processes inherit the updated LXD env automatically.
 	}
 
-	// nftables REDIRECT is set up by the caller (transparent.go)
+		// nftables REDIRECT is set up by the caller (transparent.go)
 	return nil
 }
 
