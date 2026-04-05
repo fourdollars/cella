@@ -819,8 +819,20 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 		}
 
 		// 1. nftables REDIRECT (port 80/443 → :9081)
+		// Always try to remove any stale rules for this container first
+		// (handles IP change after container restart, or leftover rules).
+		for _, oldIP := range func() []string {
+			var ips []string
+			if prev, ok := a.interceptedIPs[container]; ok && prev != containerIP {
+				ips = append(ips, prev)
+			}
+			ips = append(ips, containerIP) // also clean current IP before re-adding
+			return ips
+		}() {
+			_ = proxy.RemoveTransparentRedirect(oldIP) // best-effort cleanup
+		}
 		if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
-			return asyncResultMsg{err: fmt.Errorf("nftables REDIRECT: %w", err)}
+			return asyncResultMsg{err: fmt.Errorf("nftables REDIRECT for %s (%s): %w", container, containerIP, err)}
 		}
 
 		// 2. CA cert inject + update-ca-certificates

@@ -20,22 +20,14 @@ func SetupTransparentRedirect(containerIP string, proxyPort int) error {
 	table := "cella_tproxy"
 	chain := "prerouting"
 
-	// Ensure table and chain exist
-	ensureCmd := fmt.Sprintf(`table ip %s {
-  chain %s {
-    type nat hook prerouting priority dstnat; policy accept;
-  }
-}`, table, chain)
-
-	// Check if table exists
-	cmd := nftCmd2("list", "table", "ip", table)
-	if err := cmd.Run(); err != nil {
-		// Create table
-		cmd = nftCmd2("-f", "-")
-		cmd.Stdin = strings.NewReader(ensureCmd)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("create tproxy table: %s: %w", string(out), err)
-		}
+	// Ensure table and chain exist (idempotent: "add" is a no-op if already present)
+	ensureCmd := fmt.Sprintf(
+		"add table ip %s\nadd chain ip %s %s { type nat hook prerouting priority dstnat; policy accept; }",
+		table, table, chain)
+	cmd := nftCmd2("-f", "-")
+	cmd.Stdin = strings.NewReader(ensureCmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ensure tproxy table/chain: %s: %w", string(out), err)
 	}
 
 	tag := fmt.Sprintf("cella_tproxy_%s", sanitizeName2(containerIP))
@@ -54,9 +46,9 @@ func SetupTransparentRedirect(containerIP string, proxyPort int) error {
 	}
 
 	batch := strings.Join(rules, "\n")
-	cmd = nftCmd2("-f", "-")
-	cmd.Stdin = strings.NewReader(batch)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	batchCmd := nftCmd2("-f", "-")
+	batchCmd.Stdin = strings.NewReader(batch)
+	if out, err := batchCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("add tproxy rules: %s: %w", string(out), err)
 	}
 
