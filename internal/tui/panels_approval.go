@@ -284,12 +284,12 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "":
 			a.auditStatusFilter = "allowed"
 		case "allowed":
+			a.auditStatusFilter = "approved"
+		case "approved":
 			a.auditStatusFilter = "denied"
 		case "denied":
 			a.auditStatusFilter = "denied-permanent"
 		case "denied-permanent":
-			a.auditStatusFilter = "approved"
-		case "approved":
 			a.auditStatusFilter = "timeout"
 		default:
 			a.auditStatusFilter = ""
