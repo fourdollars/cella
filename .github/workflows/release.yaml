@@ -27,7 +27,7 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: "0"
       run: |
-        go build -trimpath -ldflags="-s -w" -o cella_linux_${{ matrix.goarch }} ./cmd/main.go
+        go build -trimpath -ldflags="-s -w" -o cella_linux_${{ matrix.goarch }} ./cmd/
 
     - name: SHA256
       run: sha256sum cella_linux_${{ matrix.goarch }} > cella_linux_${{ matrix.goarch }}.sha256
