@@ -1577,6 +1577,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		req := proxy.ApprovalRequest(msg)
 		a.pendingApproval = &req
 		a.addEvent(fmt.Sprintf("🔒 approval needed: %s → %s", req.Container, req.Domain))
+		// Watch CancelCh: auto-dismiss overlay when proxy times out
+		reqID := req.ID
+		cancelCh := req.CancelCh
+		return a, func() tea.Msg {
+			<-cancelCh
+			return approvalCancelMsg(reqID)
+		}
+
+	case approvalCancelMsg:
+		if a.pendingApproval != nil && a.pendingApproval.ID == string(msg) {
+			a.addEvent(fmt.Sprintf("⏱ approval timeout: %s → %s (auto-dismissed)", a.pendingApproval.Container, a.pendingApproval.Domain))
+			a.pendingApproval = nil
+		}
 		return a, nil
 
 	case seccompApprovalMsg:

@@ -19,6 +19,7 @@ type ApprovalRequest struct {
 	Path       string // URL path (populated in MITM mode)
 	Time       time.Time
 	ResponseCh chan ApprovalResponse // send response here to unblock proxy
+	CancelCh   chan struct{}          // closed by proxy when request times out
 }
 
 // ApprovalResponse carries the operator's decision
@@ -220,6 +221,7 @@ func (s *Server) requestApproval(container, domain, method, url, path string) st
 	s.mu.Unlock()
 
 	responseCh := make(chan ApprovalResponse, 1)
+	cancelCh := make(chan struct{})
 	req := ApprovalRequest{
 		ID:         id,
 		Container:  container,
@@ -229,6 +231,7 @@ func (s *Server) requestApproval(container, domain, method, url, path string) st
 		Path:       path,
 		Time:       time.Now(),
 		ResponseCh: responseCh,
+		CancelCh:   cancelCh,
 	}
 
 	select {
@@ -250,6 +253,7 @@ func (s *Server) requestApproval(container, domain, method, url, path string) st
 		}
 		return "denied"
 	case <-time.After(s.timeout):
+		close(cancelCh) // signal TUI that this request has expired
 		return "timeout"
 	}
 }

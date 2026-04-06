@@ -17,6 +17,9 @@ import (
 // approvalMsg wraps an incoming approval request from the proxy
 type approvalMsg proxy.ApprovalRequest
 
+// approvalCancelMsg is sent when a proxy approval request times out
+type approvalCancelMsg string // request ID
+
 // approvalDismissMsg signals the approval prompt should be dismissed
 type approvalDismissMsg struct{}
 
@@ -39,25 +42,37 @@ func (a *App) handleApprovalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "y":
-		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: false}
+		select {
+		case a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: false}:
+		default: // proxy already timed out
+		}
 		a.addEvent(fmt.Sprintf("👤 approved (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.flashText = fmt.Sprintf("👤 approved (once): %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "Y":
-		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: true}
+		select {
+		case a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: true, Permanent: true}:
+		default:
+		}
 		a.addEvent(fmt.Sprintf("👤+ approved (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.flashText = fmt.Sprintf("👤+ allow always: %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "n":
-		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: false}
+		select {
+		case a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: false}:
+		default:
+		}
 		a.addEvent(fmt.Sprintf("⛔ denied (once): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.flashText = fmt.Sprintf("⛔ denied (once): %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
 		return a, a.listenApprovalsContinue()
 	case "N":
-		a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: true}
+		select {
+		case a.pendingApproval.ResponseCh <- proxy.ApprovalResponse{Approved: false, Permanent: true}:
+		default:
+		}
 		a.addEvent(fmt.Sprintf("🚫 denied (permanent): %s → %s", a.pendingApproval.Container, a.pendingApproval.Domain))
 		a.flashText = fmt.Sprintf("🚫 deny always: %s", a.pendingApproval.Domain)
 		a.pendingApproval = nil
