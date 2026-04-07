@@ -289,6 +289,7 @@ type App struct {
 	auditEditMode     bool   // e: inline edit the selected domain entry
 	auditEditInput    string // current edit buffer
 	auditEditCursor   int    // cursor position within edit input (rune index)
+	auditClipboard    string // c [copy] buffer (no X11/Wayland needed)
 	auditEditOriginal struct {
 		container string
 		domain    string

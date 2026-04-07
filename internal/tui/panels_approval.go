@@ -11,7 +11,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/atotto/clipboard"
 	"github.com/fourdoors/cella/internal/proxy"
 )
 
@@ -197,7 +196,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.auditEditCursor = 0
 			case "enter":
 				newDomain := strings.TrimSpace(strings.ToLower(a.auditEditInput))
-				original := a.auditEditOriginal // used to know which container/kind to add to
+				original := a.auditEditOriginal
 				a.auditAddMode = false
 				a.auditEditInput = ""
 				a.auditEditCursor = 0
@@ -224,17 +223,15 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.auditEditInput = string(runes)
 				}
 			case "ctrl+v":
-				text, err := clipboard.ReadAll()
-				if err == nil {
-					cleanText := strings.TrimSpace(text)
-					if len(cleanText) > 0 {
-						runes = append(runes[:a.auditEditCursor], append([]rune(cleanText), runes[a.auditEditCursor:]...)...)
-						a.auditEditCursor += len([]rune(cleanText))
-						a.auditEditInput = string(runes)
-					}
+				if a.auditClipboard != "" {
+					clip := []rune(a.auditClipboard)
+					runes = append(runes[:a.auditEditCursor], append(clip, runes[a.auditEditCursor:]...)...)
+					a.auditEditCursor += len(clip)
+					a.auditEditInput = string(runes)
 				}
-
-				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
+			default:
+				k := msg.String()
+				if len(k) == 1 && k[0] >= 32 && k[0] < 127 {
 					runes = append(runes[:a.auditEditCursor], append([]rune{rune(k[0])}, runes[a.auditEditCursor:]...)...)
 					a.auditEditCursor++
 					a.auditEditInput = string(runes)
@@ -280,16 +277,12 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					a.auditEditInput = string(runes)
 				}
 			case "ctrl+v":
-				text, err := clipboard.ReadAll()
-				if err == nil {
-					cleanText := strings.TrimSpace(text)
-					if len(cleanText) > 0 {
-						runes = append(runes[:a.auditEditCursor], append([]rune(cleanText), runes[a.auditEditCursor:]...)...)
-						a.auditEditCursor += len([]rune(cleanText))
-						a.auditEditInput = string(runes)
-					}
+				if a.auditClipboard != "" {
+					clip := []rune(a.auditClipboard)
+					runes = append(runes[:a.auditEditCursor], append(clip, runes[a.auditEditCursor:]...)...)
+					a.auditEditCursor += len(clip)
+					a.auditEditInput = string(runes)
 				}
-
 			default:
 				k := msg.String()
 				if len(k) == 1 && k[0] >= 32 && k[0] < 127 {
@@ -357,18 +350,14 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "c", "y": // copy
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
-				_ = clipboard.WriteAll(it.domain)
+				a.auditClipboard = it.domain
 				return a, a.setFlash("📋 Copied: " + it.domain)
 			}
 		case "p": // paste (as new item)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
-				text, err := clipboard.ReadAll()
-				if err == nil {
-					cleanText := strings.TrimSpace(text)
-					if cleanText != "" {
-						return a, a.addListItem(it.container, cleanText, it.kind)
-					}
+				if a.auditClipboard != "" {
+					return a, a.addListItem(it.container, a.auditClipboard, it.kind)
 				}
 			}
 		case "e":
