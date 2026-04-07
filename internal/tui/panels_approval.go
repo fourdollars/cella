@@ -291,8 +291,13 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 
 			default:
-				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
+				k := msg.String()
+				if len(k) == 1 && k[0] >= 32 && k[0] < 127 {
 					runes = append(runes[:a.auditEditCursor], append([]rune{rune(k[0])}, runes[a.auditEditCursor:]...)...)
+					a.auditEditCursor++
+					a.auditEditInput = string(runes)
+				} else if k == "space" {
+					runes = append(runes[:a.auditEditCursor], append([]rune{' '}, runes[a.auditEditCursor:]...)...)
 					a.auditEditCursor++
 					a.auditEditInput = string(runes)
 				}
@@ -324,7 +329,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				return a, a.removeListItem(items[a.auditListCursor])
 			}
-		case "d":
+		case "D":
 			// Move allow → deny (no-op on deny entries)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
@@ -353,7 +358,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
 				_ = clipboard.WriteAll(it.domain)
-				a.flashText = "📋 Copied: " + it.domain
+				return a, a.setFlash("📋 Copied: " + it.domain)
 			}
 		case "p": // paste (as new item)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
@@ -657,7 +662,7 @@ func (a *App) renderAllowDenyLists() string {
 
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  a: add  │  e: edit  │  c: copy  │  p: paste  │  d: →deny  │  A: →allow  │  x: del  │  L/Esc: back") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  a: add  │  e: edit  │  c: copy  │  p: paste  │  D: →deny  │  A: →allow  │  x: del  │  L/Esc: back") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
@@ -746,7 +751,7 @@ func (a *App) renderAllowDenyLists() string {
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
 						addCursorLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addCursorLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[a] add  [e] edit  [c] copy  [p] paste  [d] →deny  [x] remove"))
+						addCursorLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[a] add  [e] edit  [c] copy  [p] paste  [D] →deny  [x] remove"))
 					}
 				} else {
 					addLine(green.Render("      + " + d))
