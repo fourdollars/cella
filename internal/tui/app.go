@@ -285,6 +285,7 @@ type App struct {
 	auditShowLists    bool   // L: show allowlist/denylist instead of log
 	auditListCursor   int    // cursor position in allow/deny list view
 	auditListScroll   int    // scroll offset for allow/deny list viewport
+	auditAddMode      bool   // a: inline add new domain entry
 	auditEditMode     bool   // e: inline edit the selected domain entry
 	auditEditInput    string // current edit buffer
 	auditEditCursor   int    // cursor position within edit input (rune index)

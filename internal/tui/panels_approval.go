@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/atotto/clipboard"
 	"github.com/fourdoors/cella/internal/proxy"
 )
 
@@ -186,7 +187,63 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		items := a.buildListItems()
 		max := len(items) - 1
 
-		// ── edit sub-mode ──
+				// ── add sub-mode ──
+		if a.auditAddMode {
+			runes := []rune(a.auditEditInput)
+			switch msg.String() {
+			case "esc":
+				a.auditAddMode = false
+				a.auditEditInput = ""
+				a.auditEditCursor = 0
+			case "enter":
+				newDomain := strings.TrimSpace(strings.ToLower(a.auditEditInput))
+				original := a.auditEditOriginal // used to know which container/kind to add to
+				a.auditAddMode = false
+				a.auditEditInput = ""
+				a.auditEditCursor = 0
+				if newDomain != "" {
+					return a, a.addListItem(original.container, newDomain, original.kind)
+				}
+			case "left":
+				if a.auditEditCursor > 0 {
+					a.auditEditCursor--
+				}
+			case "right":
+				if a.auditEditCursor < len(runes) {
+					a.auditEditCursor++
+				}
+			case "backspace", "ctrl+h":
+				if a.auditEditCursor > 0 {
+					runes = append(runes[:a.auditEditCursor-1], runes[a.auditEditCursor:]...)
+					a.auditEditCursor--
+					a.auditEditInput = string(runes)
+				}
+			case "delete":
+				if a.auditEditCursor < len(runes) {
+					runes = append(runes[:a.auditEditCursor], runes[a.auditEditCursor+1:]...)
+					a.auditEditInput = string(runes)
+				}
+			case "ctrl+v":
+				text, err := clipboard.ReadAll()
+				if err == nil {
+					cleanText := strings.TrimSpace(text)
+					if len(cleanText) > 0 {
+						runes = append(runes[:a.auditEditCursor], append([]rune(cleanText), runes[a.auditEditCursor:]...)...)
+						a.auditEditCursor += len([]rune(cleanText))
+						a.auditEditInput = string(runes)
+					}
+				}
+
+				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
+					runes = append(runes[:a.auditEditCursor], append([]rune{rune(k[0])}, runes[a.auditEditCursor:]...)...)
+					a.auditEditCursor++
+					a.auditEditInput = string(runes)
+				}
+			}
+			return a, nil
+		}
+
+// ── edit sub-mode ──
 		if a.auditEditMode {
 			runes := []rune(a.auditEditInput)
 			switch msg.String() {
@@ -222,6 +279,17 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					runes = append(runes[:a.auditEditCursor], runes[a.auditEditCursor+1:]...)
 					a.auditEditInput = string(runes)
 				}
+			case "ctrl+v":
+				text, err := clipboard.ReadAll()
+				if err == nil {
+					cleanText := strings.TrimSpace(text)
+					if len(cleanText) > 0 {
+						runes = append(runes[:a.auditEditCursor], append([]rune(cleanText), runes[a.auditEditCursor:]...)...)
+						a.auditEditCursor += len([]rune(cleanText))
+						a.auditEditInput = string(runes)
+					}
+				}
+
 			default:
 				if k := msg.String(); len(k) == 1 && k[0] >= 32 && k[0] < 127 {
 					runes = append(runes[:a.auditEditCursor], append([]rune{rune(k[0])}, runes[a.auditEditCursor:]...)...)
@@ -264,12 +332,38 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return a, a.moveListItem(it, "deny")
 				}
 			}
-		case "a":
+		case "A":
 			// Move deny → allow (no-op on allow entries)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
 				if it.kind == "deny" {
 					return a, a.moveListItem(it, "allow")
+				}
+			}
+				case "a": // Add new domain to the current list type (allow/deny)
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				a.auditAddMode = true
+				a.auditEditInput = ""
+				a.auditEditCursor = 0
+				a.auditEditOriginal.container = it.container
+				a.auditEditOriginal.kind = it.kind
+			}
+		case "c", "y": // copy
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				_ = clipboard.WriteAll(it.domain)
+				a.flashText = "📋 Copied: " + it.domain
+			}
+		case "p": // paste (as new item)
+			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
+				it := items[a.auditListCursor]
+				text, err := clipboard.ReadAll()
+				if err == nil {
+					cleanText := strings.TrimSpace(text)
+					if cleanText != "" {
+						return a, a.addListItem(it.container, cleanText, it.kind)
+					}
 				}
 			}
 		case "e":
@@ -563,7 +657,7 @@ func (a *App) renderAllowDenyLists() string {
 
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  e: edit  │  d: →deny  │  a: →allow  │  x: remove  │  L/Esc: back") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  a: add  │  e: edit  │  c: copy  │  p: paste  │  d: →deny  │  A: →allow  │  x: del  │  L/Esc: back") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
@@ -627,7 +721,19 @@ func (a *App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "allow", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
-					if a.auditEditMode {
+										if a.auditAddMode && a.auditEditOriginal.kind == "allow" {
+						addStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
+						eRunes := []rune(a.auditEditInput)
+						before := string(eRunes[:a.auditEditCursor])
+						cursorChar := "█"
+						after := ""
+						if a.auditEditCursor < len(eRunes) {
+							cursorChar = string(eRunes[a.auditEditCursor])
+							after = string(eRunes[a.auditEditCursor+1:])
+						}
+						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
+						addCursorLine(addStyle.Render("    ✨ + "+before) + cursorRender + addStyle.Render(after) + "  " + dim.Render("Enter: add  Esc: cancel  Ctrl+V: paste"))
+					} else if a.auditEditMode {
 						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a3a5a")).Foreground(lipgloss.Color("#79c0ff")).Bold(true)
 						eRunes := []rune(a.auditEditInput)
 						before := string(eRunes[:a.auditEditCursor])
@@ -640,7 +746,7 @@ func (a *App) renderAllowDenyLists() string {
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
 						addCursorLine(editStyle.Render("    ✏ + "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addCursorLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[e] edit  [d] →deny  [x] remove"))
+						addCursorLine(cursorStyle.Render("    ▶ + "+d) + "  " + dim.Render("[a] add  [e] edit  [c] copy  [p] paste  [d] →deny  [x] remove"))
 					}
 				} else {
 					addLine(green.Render("      + " + d))
@@ -653,7 +759,19 @@ func (a *App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "deny", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
-					if a.auditEditMode {
+										if a.auditAddMode && a.auditEditOriginal.kind == "deny" {
+						addStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
+						eRunes := []rune(a.auditEditInput)
+						before := string(eRunes[:a.auditEditCursor])
+						cursorChar := "█"
+						after := ""
+						if a.auditEditCursor < len(eRunes) {
+							cursorChar = string(eRunes[a.auditEditCursor])
+							after = string(eRunes[a.auditEditCursor+1:])
+						}
+						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
+						addCursorLine(addStyle.Render("    ✨ - "+before) + cursorRender + addStyle.Render(after) + "  " + dim.Render("Enter: add  Esc: cancel  Ctrl+V: paste"))
+					} else if a.auditEditMode {
 						editStyle := lipgloss.NewStyle().Background(lipgloss.Color("#2a1a3a")).Foreground(lipgloss.Color("#d2a8ff")).Bold(true)
 						eRunes := []rune(a.auditEditInput)
 						before := string(eRunes[:a.auditEditCursor])
@@ -666,7 +784,7 @@ func (a *App) renderAllowDenyLists() string {
 						cursorRender := lipgloss.NewStyle().Background(lipgloss.Color("#ffffff")).Foreground(lipgloss.Color("#000000")).Render(cursorChar)
 						addCursorLine(editStyle.Render("    ✏ - "+before) + cursorRender + editStyle.Render(after) + "  " + dim.Render("Enter: confirm  Esc: cancel"))
 					} else {
-						addCursorLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[e] edit  [a] →allow  [x] remove"))
+						addCursorLine(cursorStyle.Render("    ▶ - "+d) + "  " + dim.Render("[a] add  [e] edit  [c] copy  [p] paste  [A] →allow  [x] remove"))
 					}
 				} else {
 					addLine(red.Render("      - " + d))
@@ -1216,5 +1334,30 @@ func (a *App) removeProxySetup(container string) tea.Cmd {
 			text:     fmt.Sprintf("🔧 proxy removed from %s", container),
 			extraKey: container, // signal removal: extra is empty string
 		}
+	}
+}
+
+// addListItem adds a domain to its allow/deny list.
+func (a *App) addListItem(container, domain, kind string) tea.Cmd {
+	return func() tea.Msg {
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
+		}
+		dataDir := os.ExpandEnv("$HOME/.cella")
+		switch kind {
+		case "allow":
+			globalProxyServer.GetAllowlist(container).Add(domain)
+			if err := globalProxyServer.SaveAllowlistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save allowlist: %w", err)}
+			}
+			return asyncResultMsg{text: fmt.Sprintf("✅ added allow: %s → %s", container, domain)}
+		case "deny":
+			globalProxyServer.GetDenylist(container).Add(domain)
+			if err := globalProxyServer.SaveDenylistsToDir(dataDir); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("save denylist: %w", err)}
+			}
+			return asyncResultMsg{text: fmt.Sprintf("🚫 added deny: %s → %s", container, domain)}
+		}
+		return nil
 	}
 }
