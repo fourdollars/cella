@@ -227,6 +227,14 @@ func (a App) renderInferencePanel() string {
 	b.WriteString("\n")
 
 	// \u2500\u2500 Session breakdown (by container) \u2500\u2500
+	// Compute max container name width across all recent requests (min 12)
+	contW := 12
+	for _, r := range recentReqs {
+		if len(r.Container) > contW {
+			contW = len(r.Container)
+		}
+	}
+
 	if len(recentReqs) > 0 {
 		b.WriteString(bright.Render("  Session Breakdown") + "\n")
 		b.WriteString(sep + "\n")
@@ -272,14 +280,9 @@ func (a App) renderInferencePanel() string {
 				topModel = topModel[:17] + "..."
 			}
 
-			contName := cs.container
-			if len(contName) > 16 {
-				contName = contName[:13] + "..."
-			}
-
 			b.WriteString(fmt.Sprintf("  %s %s  %s  in:%-6s out:%-6s  %s  \u2192 %s\n",
 				green.Render("\u25cf"),
-				bright.Render(padRight(contName, 16)),
+				bright.Render(padRight(cs.container, contW)),
 				dim.Render(padLeft(fmt.Sprintf("%d", cs.requests), 4)+" reqs"),
 				proxy.FormatTokens(cs.tokIn),
 				proxy.FormatTokens(cs.tokOut),
@@ -333,9 +336,6 @@ func (a App) renderInferencePanel() string {
 			}
 
 			contShort := req.Container
-			if len(contShort) > 12 {
-				contShort = contShort[:9] + "..."
-			}
 
 			tokInfo := ""
 			costInfo := ""
@@ -352,7 +352,7 @@ func (a App) renderInferencePanel() string {
 			b.WriteString("  " +
 				dim.Render(req.Time.Format("15:04:05")) + " " +
 				statusIcon + " " +
-				dim.Render(padRight(contShort, 12)) + " " +
+				dim.Render(padRight(contShort, contW)) + " " +
 				purple.Render(padRight(modelShort, 22)) + " " +
 				blue.Render(padRight(req.Path, 24)) + " " +
 				dim.Render(fmt.Sprintf("[%3d]", req.StatusCode)) + " " +
