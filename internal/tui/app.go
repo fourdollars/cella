@@ -1580,17 +1580,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Watch CancelCh: auto-dismiss overlay when proxy times out
 		reqID := req.ID
 		cancelCh := req.CancelCh
-		return a, func() tea.Msg {
+		cancelWatcher := func() tea.Msg {
 			<-cancelCh
 			return approvalCancelMsg(reqID)
 		}
+		// Re-arm approval listener so the next request is not missed
+		return a, tea.Batch(cancelWatcher, a.listenApprovalsContinue())
 
 	case approvalCancelMsg:
 		if a.pendingApproval != nil && a.pendingApproval.ID == string(msg) {
 			a.addEvent(fmt.Sprintf("⏱ approval timeout: %s → %s (auto-dismissed)", a.pendingApproval.Container, a.pendingApproval.Domain))
 			a.pendingApproval = nil
 		}
-		return a, nil
+		// Re-arm after timeout dismiss so future requests are still handled
+		return a, a.listenApprovalsContinue()
 
 	case seccompApprovalMsg:
 		req := SeccompApprovalRequest(msg)
