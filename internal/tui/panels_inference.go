@@ -210,7 +210,7 @@ func (a App) renderInferencePanel() string {
 		b.WriteString(line + "\n")
 
 		// TPM sparkline
-		if len(ms.TPMHistory) > 1 {
+		if ms.TotalTokens > 0 {
 			spark := renderInferenceSparkline(ms.TPMHistory, 30)
 			lastSeen := ""
 			if !ms.LastSeen.IsZero() {
