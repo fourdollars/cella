@@ -86,6 +86,22 @@ func (a *App) exportInferenceJSON() tea.Cmd {
 	}
 }
 
+// padRight pads a string to width with spaces (ANSI-safe: pad BEFORE styling).
+func padRight(s string, w int) string {
+	if len(s) >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-len(s))
+}
+
+// padLeft pads a string to width with leading spaces (ANSI-safe: pad BEFORE styling).
+func padLeft(s string, w int) string {
+	if len(s) >= w {
+		return s
+	}
+	return strings.Repeat(" ", w-len(s)) + s
+}
+
 // renderInferencePanel renders the inference stats panel
 func (a App) renderInferencePanel() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
@@ -98,7 +114,7 @@ func (a App) renderInferencePanel() string {
 	gold := lipgloss.NewStyle().Foreground(lipgloss.Color("#f39c12"))
 
 	if globalProxyServer == nil {
-		return dim.Render("  Interception not active. Press Esc, then A → p to start.") + "\n"
+		return dim.Render("  Interception not active. Press Esc, then A \u2192 p to start.") + "\n"
 	}
 
 	stats := globalProxyServer.InferenceStats()
@@ -113,14 +129,13 @@ func (a App) renderInferencePanel() string {
 	var b strings.Builder
 
 	// Title + global cost
-	title := blue.Render("📊 Inference Stats ◆")
+	title := blue.Render("\U0001f4ca Inference Stats \u25c6")
 	if totalCostToday > 0 {
 		title += gold.Render(fmt.Sprintf("  Today: %s", proxy.FormatCost(totalCostToday)))
 	}
-	// Budget alert
 	if stats.DailyCostBudget > 0 && totalCostToday >= stats.DailyCostBudget*0.8 {
 		pct := totalCostToday / stats.DailyCostBudget * 100
-		title += red.Render(fmt.Sprintf("  ⚠ Budget %.0f%%", pct))
+		title += red.Render(fmt.Sprintf("  \u26a0 Budget %.0f%%", pct))
 	}
 	b.WriteString(title + "\n\n")
 
@@ -131,14 +146,36 @@ func (a App) renderInferencePanel() string {
 		return b.String()
 	}
 
-	// ── Model table ──
+	// \u2500\u2500 Column widths \u2500\u2500
+	const (
+		colModel  = 26
+		colReqs   = 6
+		colTokIn  = 8
+		colTokOut = 8
+		colToks   = 8
+		colRPM    = 5
+		colRPH    = 5
+		colTPM    = 8
+		colCost   = 10
+	)
+	totalW := colModel + colReqs + colTokIn + colTokOut + colToks + colRPM + colRPH + colTPM + colCost + 10
+
+	// \u2500\u2500 Model table \u2500\u2500
 	b.WriteString(bright.Render("  Models") + "\n")
-	sep := dim.Render("  " + strings.Repeat("─", 88))
+	sep := dim.Render("  " + strings.Repeat("\u2500", totalW))
 	b.WriteString(sep + "\n")
 
-	hdr := fmt.Sprintf("  %-28s %6s %8s %8s %8s %6s %6s %8s %10s",
-		"MODEL", "REQS", "TOK IN", "TOK OUT", "TOKENS", "RPM", "RPH", "TPM", "COST")
-	b.WriteString(dim.Render(hdr) + "\n")
+	hdr := "  " +
+		dim.Render(padRight("MODEL", colModel)) + "  " +
+		dim.Render(padLeft("REQS", colReqs)) + " " +
+		dim.Render(padLeft("TOK IN", colTokIn)) + " " +
+		dim.Render(padLeft("TOK OUT", colTokOut)) + " " +
+		dim.Render(padLeft("TOKENS", colToks)) + " " +
+		dim.Render(padLeft("RPM", colRPM)) + " " +
+		dim.Render(padLeft("RPH", colRPH)) + " " +
+		dim.Render(padLeft("TPM", colTPM)) + " " +
+		dim.Render(padLeft("COST", colCost))
+	b.WriteString(hdr + "\n")
 	b.WriteString(sep + "\n")
 
 	for _, ms := range modelStats {
@@ -151,8 +188,8 @@ func (a App) renderInferencePanel() string {
 		}
 
 		modelName := ms.Model
-		if len(modelName) > 26 {
-			modelName = modelName[:23] + "..."
+		if len(modelName) > colModel {
+			modelName = modelName[:colModel-3] + "..."
 		}
 
 		costStr := "-"
@@ -160,17 +197,16 @@ func (a App) renderInferencePanel() string {
 			costStr = proxy.FormatCost(ms.Cost)
 		}
 
-		line := fmt.Sprintf("  %-28s %6d %8s %8s %8s %6s %6d %8s %10s",
-			purple.Render(modelName),
-			ms.TotalRequests,
-			green.Render(proxy.FormatTokens(ms.TotalTokensIn)),
-			bright.Render(proxy.FormatTokens(ms.TotalTokensOut)),
-			dim.Render(proxy.FormatTokens(ms.TotalTokens)),
-			rpmStyle.Render(fmt.Sprintf("%d", ms.RPM)),
-			ms.RPH,
-			green.Render(proxy.FormatTokens(ms.TPM)),
-			gold.Render(costStr),
-		)
+		line := "  " +
+			purple.Render(padRight(modelName, colModel)) + "  " +
+			padLeft(fmt.Sprintf("%d", ms.TotalRequests), colReqs) + " " +
+			green.Render(padLeft(proxy.FormatTokens(ms.TotalTokensIn), colTokIn)) + " " +
+			bright.Render(padLeft(proxy.FormatTokens(ms.TotalTokensOut), colTokOut)) + " " +
+			dim.Render(padLeft(proxy.FormatTokens(ms.TotalTokens), colToks)) + " " +
+			rpmStyle.Render(padLeft(fmt.Sprintf("%d", ms.RPM), colRPM)) + " " +
+			padLeft(fmt.Sprintf("%d", ms.RPH), colRPH) + " " +
+			green.Render(padLeft(proxy.FormatTokens(ms.TPM), colTPM)) + " " +
+			gold.Render(padLeft(costStr, colCost))
 		b.WriteString(line + "\n")
 
 		// TPM sparkline
@@ -180,8 +216,9 @@ func (a App) renderInferencePanel() string {
 			if !ms.LastSeen.IsZero() {
 				lastSeen = fmt.Sprintf("  last: %s", time.Since(ms.LastSeen).Truncate(time.Second))
 			}
-			b.WriteString(fmt.Sprintf("  %28s TPM: %s%s\n",
-				"",
+			sparkPad := strings.Repeat(" ", colModel+4)
+			b.WriteString(fmt.Sprintf("  %sTPM: %s%s\n",
+				sparkPad,
 				dim.Render(spark),
 				dim.Render(lastSeen),
 			))
@@ -189,12 +226,11 @@ func (a App) renderInferencePanel() string {
 	}
 	b.WriteString("\n")
 
-	// ── Session breakdown (by container) ──
+	// \u2500\u2500 Session breakdown (by container) \u2500\u2500
 	if len(recentReqs) > 0 {
 		b.WriteString(bright.Render("  Session Breakdown") + "\n")
 		b.WriteString(sep + "\n")
 
-		// Aggregate by container
 		type contStats struct {
 			container string
 			requests  int
@@ -217,7 +253,6 @@ func (a App) renderInferencePanel() string {
 			cs.models[r.Model]++
 		}
 
-		// Sort by requests
 		var contList []*contStats
 		for _, cs := range contMap {
 			contList = append(contList, cs)
@@ -227,7 +262,6 @@ func (a App) renderInferencePanel() string {
 		})
 
 		for _, cs := range contList {
-			// Top model for this container
 			topModel, topCount := "", 0
 			for m, c := range cs.models {
 				if c > topCount {
@@ -238,21 +272,25 @@ func (a App) renderInferencePanel() string {
 				topModel = topModel[:17] + "..."
 			}
 
-			b.WriteString(fmt.Sprintf("  %s %s  %s reqs  %s  %s  → %s\n",
-				green.Render("●"),
-				bright.Render(cs.container),
-				dim.Render(fmt.Sprintf("%d", cs.requests)),
-				dim.Render(fmt.Sprintf("in:%s out:%s",
-					proxy.FormatTokens(cs.tokIn),
-					proxy.FormatTokens(cs.tokOut))),
-				gold.Render(proxy.FormatCost(cs.cost)),
+			contName := cs.container
+			if len(contName) > 16 {
+				contName = contName[:13] + "..."
+			}
+
+			b.WriteString(fmt.Sprintf("  %s %s  %s  in:%-6s out:%-6s  %s  \u2192 %s\n",
+				green.Render("\u25cf"),
+				bright.Render(padRight(contName, 16)),
+				dim.Render(padLeft(fmt.Sprintf("%d", cs.requests), 4)+" reqs"),
+				proxy.FormatTokens(cs.tokIn),
+				proxy.FormatTokens(cs.tokOut),
+				gold.Render(padLeft(proxy.FormatCost(cs.cost), 8)),
 				purple.Render(topModel),
 			))
 		}
 		b.WriteString("\n")
 	}
 
-	// ── Recent requests ──
+	// \u2500\u2500 Recent requests \u2500\u2500
 	if len(recentReqs) > 0 {
 		b.WriteString(bright.Render("  Recent Calls") + "\n")
 		b.WriteString(sep + "\n")
@@ -275,18 +313,18 @@ func (a App) renderInferencePanel() string {
 		}
 
 		if scroll > 0 {
-			b.WriteString(dim.Render(fmt.Sprintf("  ▲ %d more", scroll)) + "\n")
+			b.WriteString(dim.Render(fmt.Sprintf("  \u25b2 %d more", scroll)) + "\n")
 		}
 
 		for i := scroll; i < scroll+visibleH && i < len(recentReqs); i++ {
 			req := recentReqs[i]
 
-			statusIcon := green.Render("✅")
+			statusIcon := green.Render("\u2705")
 			if req.StatusCode >= 400 || req.StatusCode == 0 {
-				statusIcon = red.Render("❌")
+				statusIcon = red.Render("\u274c")
 			}
 			if req.Error != "" {
-				statusIcon = red.Render("💥")
+				statusIcon = red.Render("\U0001f4a5")
 			}
 
 			modelShort := req.Model
@@ -294,34 +332,39 @@ func (a App) renderInferencePanel() string {
 				modelShort = modelShort[:19] + "..."
 			}
 
+			contShort := req.Container
+			if len(contShort) > 12 {
+				contShort = contShort[:9] + "..."
+			}
+
 			tokInfo := ""
 			costInfo := ""
 			if req.TokensIn > 0 || req.TokensOut > 0 {
-				tokInfo = fmt.Sprintf(" %s→%s",
+				tokInfo = fmt.Sprintf("%s\u2192%s",
 					proxy.FormatTokens(req.TokensIn),
 					proxy.FormatTokens(req.TokensOut))
 				c := proxy.CalcCost(req.Model, req.TokensIn, req.TokensOut)
 				if c > 0 {
-					costInfo = " " + proxy.FormatCost(c)
+					costInfo = proxy.FormatCost(c)
 				}
 			}
 
-			b.WriteString(fmt.Sprintf("  %s %s %s %s %s [%d]%s%s %s\n",
-				dim.Render(req.Time.Format("15:04:05")),
-				statusIcon,
-				dim.Render(req.Container),
-				purple.Render(modelShort),
-				blue.Render(req.Path),
-				req.StatusCode,
-				green.Render(tokInfo),
-				gold.Render(costInfo),
-				dim.Render(req.Latency.Truncate(time.Millisecond).String()),
-			))
+			b.WriteString("  " +
+				dim.Render(req.Time.Format("15:04:05")) + " " +
+				statusIcon + " " +
+				dim.Render(padRight(contShort, 12)) + " " +
+				purple.Render(padRight(modelShort, 22)) + " " +
+				blue.Render(padRight(req.Path, 24)) + " " +
+				dim.Render(fmt.Sprintf("[%3d]", req.StatusCode)) + " " +
+				green.Render(padRight(tokInfo, 14)) + " " +
+				gold.Render(padRight(costInfo, 8)) + " " +
+				dim.Render(req.Latency.Truncate(time.Millisecond).String()) +
+				"\n")
 		}
 
 		remaining := len(recentReqs) - (scroll + visibleH)
 		if remaining > 0 {
-			b.WriteString(dim.Render(fmt.Sprintf("  ▼ %d more", remaining)) + "\n")
+			b.WriteString(dim.Render(fmt.Sprintf("  \u25bc %d more", remaining)) + "\n")
 		}
 	}
 
