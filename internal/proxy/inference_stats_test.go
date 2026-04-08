@@ -334,3 +334,49 @@ func TestInferenceStats_GetRecentRequests(t *testing.T) {
 		t.Errorf("reqs[0].Model = %q, want model-4", reqs[0].Model)
 	}
 }
+
+// ── OpenAI Responses API (GitHub Copilot /responses) SSE ──
+
+func TestParseSSETokens_CopilotResponsesAPI(t *testing.T) {
+	// Simulates the GitHub Copilot /responses SSE stream.
+	// The final event is "response.completed" which wraps model + usage under "response".
+	body := []byte(
+		"event: response.created\n" +
+			"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_abc\",\"model\":\"gpt-5-mini\",\"status\":\"in_progress\"}}\n\n" +
+			"event: response.output_item.added\n" +
+			"data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"message\",\"role\":\"assistant\"}}\n\n" +
+			"event: response.content_part.added\n" +
+			"data: {\"type\":\"response.content_part.added\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"part\":{\"type\":\"output_text\",\"text\":\"\"}}\n\n" +
+			"event: response.output_text.delta\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"Hello\"}\n\n" +
+			"event: response.output_text.delta\n" +
+			"data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\" World\"}\n\n" +
+			"event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_abc\",\"model\":\"gpt-5-mini\",\"status\":\"completed\",\"usage\":{\"input_tokens\":25,\"output_tokens\":100,\"total_tokens\":125}}}\n\n",
+	)
+	model, in, out := ParseSSETokens(body)
+	if model != "gpt-5-mini" {
+		t.Errorf("model = %q, want gpt-5-mini", model)
+	}
+	if in != 25 {
+		t.Errorf("tokensIn = %d, want 25", in)
+	}
+	if out != 100 {
+		t.Errorf("tokensOut = %d, want 100", out)
+	}
+}
+
+func TestParseSSETokens_CopilotResponsesAPI_TotalOnly(t *testing.T) {
+	// Variant: only total_tokens provided (no breakdown) → split evenly
+	body := []byte(
+		"event: response.completed\n" +
+			"data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5-mini\",\"usage\":{\"total_tokens\":200}}}\n\n",
+	)
+	model, in, out := ParseSSETokens(body)
+	if model != "gpt-5-mini" {
+		t.Errorf("model = %q, want gpt-5-mini", model)
+	}
+	if in+out != 200 {
+		t.Errorf("total tokens = %d, want 200", in+out)
+	}
+}

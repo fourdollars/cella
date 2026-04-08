@@ -395,7 +395,17 @@ func ParseInferenceRequest(body []byte) (model string) {
 
 // ParseSSETokens extracts token usage from a Server-Sent Events (streaming) response.
 // Scans the event stream for the final [DONE] marker and the last usage chunk.
-// Supports OpenAI, Anthropic, and GitHub Copilot streaming formats.
+// Supports OpenAI chat/completions, OpenAI Responses API (/responses), and Anthropic formats.
+//
+// Formats handled:
+//   OpenAI /chat/completions:
+//     data: {"model":"gpt-4o","usage":{"prompt_tokens":100,"completion_tokens":50}}
+//   OpenAI /responses (GitHub Copilot):
+//     event: response.completed
+//     data: {"type":"response.completed","response":{"model":"gpt-5-mini","usage":{"input_tokens":25,"output_tokens":100}}}
+//   Anthropic /v1/messages:
+//     data: {"type":"message_start","message":{"model":"claude-...","usage":{"input_tokens":120}}}
+//     data: {"type":"message_delta","usage":{"output_tokens":45}}
 func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
 	lines := splitLines(body)
 	for _, line := range lines {
@@ -423,18 +433,29 @@ func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
 				Model string       `json:"model"`
 				Usage *usageFields `json:"usage"`
 			} `json:"message"`
+			// OpenAI Responses API: response.completed event wraps everything in "response"
+			// e.g. {"type":"response.completed","response":{"model":"gpt-5-mini","usage":{...}}}
+			Response *struct {
+				Model string       `json:"model"`
+				Usage *usageFields `json:"usage"`
+			} `json:"response"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
-		// Extract model (top-level or nested in Anthropic message_start)
+		// Extract model: top-level > Responses API response{} > Anthropic message{}
 		if chunk.Model != "" {
 			model = chunk.Model
+		} else if chunk.Response != nil && chunk.Response.Model != "" {
+			model = chunk.Response.Model
 		} else if chunk.Message != nil && chunk.Message.Model != "" {
 			model = chunk.Message.Model
 		}
-		// Extract usage (top-level or nested)
+		// Extract usage: top-level > Responses API response{} > Anthropic message{}
 		usage := chunk.Usage
+		if usage == nil && chunk.Response != nil {
+			usage = chunk.Response.Usage
+		}
 		if usage == nil && chunk.Message != nil {
 			usage = chunk.Message.Usage
 		}
@@ -459,7 +480,6 @@ func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
 	}
 	return
 }
-
 // IsStreamingResponse returns true if the Content-Type indicates SSE streaming.
 func IsStreamingResponse(contentType string) bool {
 	return hasPrefix(strings.ToLower(contentType), "text/event-stream")
