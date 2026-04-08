@@ -380,3 +380,15 @@ func TestParseSSETokens_CopilotResponsesAPI_TotalOnly(t *testing.T) {
 		t.Errorf("total tokens = %d, want 200", in+out)
 	}
 }
+
+func TestGetPricing_NormalizedMatch(t *testing.T) {
+	_, ok := GetPricing("claude-opus-4.6")
+	if !ok {
+		t.Error("expected normalized match for claude-opus-4.6 (against claude-opus-4-6)")
+	}
+
+	_, ok = GetPricing("gpt-5.3-codex")
+	if !ok {
+		t.Error("expected exact/normalized match for gpt-5.3-codex")
+	}
+}

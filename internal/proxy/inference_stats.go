@@ -75,6 +75,7 @@ var knownPricing = map[string]ModelPricing{
 	"gpt-4o-mini":  {InputPer1M: 0.15, OutputPer1M: 0.60},
 	"gpt-4.1":      {InputPer1M: 2.00, OutputPer1M: 8.00},
 	"gpt-4.1-mini": {InputPer1M: 0.40, OutputPer1M: 1.60},
+	"gpt-5.3-codex": {InputPer1M: 2.00, OutputPer1M: 8.00},
 	// Claude
 	"claude-sonnet-4-5": {InputPer1M: 3.00, OutputPer1M: 15.00},
 	"claude-sonnet-3-5": {InputPer1M: 3.00, OutputPer1M: 15.00},
@@ -95,8 +96,10 @@ func GetPricing(model string) (ModelPricing, bool) {
 	}
 	// Fuzzy: check if model name contains a known key
 	modelLower := strings.ToLower(model)
+	modelNormalized := strings.ReplaceAll(modelLower, ".", "-")
 	for k, p := range knownPricing {
-		if strings.Contains(modelLower, strings.ToLower(k)) {
+		kNormalized := strings.ReplaceAll(strings.ToLower(k), ".", "-")
+		if strings.Contains(modelNormalized, kNormalized) {
 			return p, true
 		}
 	}
