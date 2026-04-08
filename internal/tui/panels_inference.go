@@ -209,16 +209,23 @@ func (a App) renderInferencePanel() string {
 			gold.Render(padLeft(costStr, colCost))
 		b.WriteString(line + "\n")
 
-		// TPM sparkline
-		if ms.TotalTokens > 0 {
-			spark := renderInferenceSparkline(ms.TPMHistory, 30)
+		// Sparkline: show TPM if token data available, otherwise show RPM
+		if ms.TotalRequests > 0 {
+			sparkLabel := "TPM"
+			sparkData := ms.TPMHistory
+			if ms.TotalTokens == 0 {
+				sparkLabel = "RPM"
+				sparkData = ms.RPMHistory
+			}
+			spark := renderInferenceSparkline(sparkData, 30)
 			lastSeen := ""
 			if !ms.LastSeen.IsZero() {
 				lastSeen = fmt.Sprintf("  last: %s", time.Since(ms.LastSeen).Truncate(time.Second))
 			}
 			sparkPad := strings.Repeat(" ", colModel+4)
-			b.WriteString(fmt.Sprintf("  %sTPM: %s%s\n",
+			b.WriteString(fmt.Sprintf("  %s%s: %s%s\n",
 				sparkPad,
+				sparkLabel,
 				dim.Render(spark),
 				dim.Render(lastSeen),
 			))
