@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sort"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type TransparentListener struct {
 	listener         net.Listener
 	pendingApprovals map[string]chan bool // domain → result channel (dedup concurrent approvals)
 	mitmFailed       map[string]bool      // domains where MITM handshake failed (cert pinning)
+	infraBypass      map[string]bool      // domains that should always use tunnel passthrough (no MITM)
 	mu               sync.RWMutex
 	// onPermanentAllow is called whenever a domain is permanently added to an
 	// allowlist (i.e. operator pressed [Y]). Use it to persist the allowlist.
@@ -39,6 +41,7 @@ func NewTransparentListener(port int, server *Server) *TransparentListener {
 		server:           server,
 		pendingApprovals: make(map[string]chan bool),
 		mitmFailed:       make(map[string]bool),
+		infraBypass:      defaultInfraBypass(),
 	}
 }
 
@@ -229,6 +232,25 @@ func (t *TransparentListener) handleTLS(
 
 	// Wrap reader back into a net.Conn
 	bufferedConn := &bufferedConn{Conn: clientConn, reader: reader}
+
+	// Infrastructure bypass: domains that use cert pinning or custom protocols
+	// (e.g. Tailscale controlplane) always go through tunnel passthrough.
+	t.mu.RLock()
+	bypassed := t.infraBypass[domain]
+	if !bypassed {
+		// Also check suffix match (e.g. *.tailscale.com)
+		for d := range t.infraBypass {
+			if len(d) > 0 && d[0] == '.' && strings.HasSuffix(domain, d) {
+				bypassed = true
+				break
+			}
+		}
+	}
+	t.mu.RUnlock()
+	if bypassed {
+		t.tunnelPassthrough(clientConn, reader, container, domain, start)
+		return
+	}
 
 	// MITM mode: intercept TLS (only for pre-allowed domains where CA cert is trusted)
 	// Freshly-approved connections use plain tunnel (CA cert may not be trusted yet)
@@ -515,4 +537,87 @@ func (bc *bufferedConn) Read(b []byte) (int, error) {
 func hasPort(addr string) bool {
 	_, _, err := net.SplitHostPort(addr)
 	return err == nil
+}
+
+// defaultInfraBypass returns the built-in set of domains that should
+// always bypass MITM interception. These use cert pinning, custom
+// protocols (Noise/DERP), or break when TLS is terminated by a proxy.
+func defaultInfraBypass() map[string]bool {
+	domains := []string{
+		// Tailscale control plane (Noise protocol over /ts2021)
+		"controlplane.tailscale.com",
+		"login.tailscale.com",
+		".tailscale.com",
+		// DERP relay servers
+		"derp1.tailscale.com",
+		"derp2.tailscale.com",
+		// Common cert-pinned services
+		"mtalk.google.com",       // FCM/GCM push
+		"alt1-mtalk.google.com",
+		"courier.push.apple.com", // APNs
+	}
+	m := make(map[string]bool, len(domains))
+	for _, d := range domains {
+		m[d] = true
+	}
+	return m
+}
+
+// tunnelPassthrough relays a TLS connection without MITM, logging it
+// as a bypass. Used for infrastructure domains with cert pinning.
+func (t *TransparentListener) tunnelPassthrough(
+	clientConn net.Conn,
+	reader *bufio.Reader,
+	container, domain string,
+	start time.Time,
+) {
+	bufferedConn := &bufferedConn{Conn: clientConn, reader: reader}
+
+	upstream, err := net.DialTimeout("tcp", domain+":443", 10*time.Second)
+	if err != nil {
+		t.server.audit.Add(AuditEntry{
+			Time: start, Container: container, Domain: domain,
+			Method: "BYPASS", Status: "error-connect", TLS: true,
+			Latency: time.Since(start),
+		})
+		return
+	}
+	defer upstream.Close()
+
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(upstream, bufferedConn); done <- struct{}{} }()
+	go func() { io.Copy(bufferedConn, upstream); done <- struct{}{} }()
+	<-done
+
+	t.server.audit.Add(AuditEntry{
+		Time: start, Container: container, Domain: domain,
+		Method: "BYPASS", URL: domain + ":443", Status: "allowed", TLS: true,
+		Latency: time.Since(start),
+	})
+}
+
+// AddInfraBypass adds a domain to the infrastructure bypass list.
+func (t *TransparentListener) AddInfraBypass(domain string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.infraBypass[domain] = true
+}
+
+// RemoveInfraBypass removes a domain from the infrastructure bypass list.
+func (t *TransparentListener) RemoveInfraBypass(domain string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.infraBypass, domain)
+}
+
+// InfraBypassList returns a sorted list of bypassed domains.
+func (t *TransparentListener) InfraBypassList() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var list []string
+	for d := range t.infraBypass {
+		list = append(list, d)
+	}
+	sort.Strings(list)
+	return list
 }

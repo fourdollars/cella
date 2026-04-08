@@ -114,6 +114,8 @@ func FormatEntry(e AuditEntry) string {
 		statusIcon = "👤+"
 	case e.Status == "error-cert" || e.Status == "error-handshake" || e.Status == "error-upstream":
 		statusIcon = "💥"
+	case e.Method == "BYPASS":
+		statusIcon = "🔀"
 	}
 
 	// TLS indicator
