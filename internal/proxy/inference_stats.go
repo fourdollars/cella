@@ -3,10 +3,14 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // InferenceStats tracks model usage statistics
@@ -95,8 +99,52 @@ var knownPricing = map[string]ModelPricing{
 	"gemini-2-5-flash":       {InputPer1M: 0.075, OutputPer1M: 0.30},
 }
 
+var (
+	pricingMu     sync.RWMutex
+	pricingLoaded bool
+)
+
+func loadPricing() {
+	pricingMu.Lock()
+	defer pricingMu.Unlock()
+	if pricingLoaded {
+		return
+	}
+	defer func() { pricingLoaded = true }()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	configDir := filepath.Join(home, ".cella")
+	configPath := filepath.Join(configDir, "pricing.yaml")
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Generate default config
+		os.MkdirAll(configDir, 0755)
+		data, _ := yaml.Marshal(knownPricing)
+		os.WriteFile(configPath, data, 0644)
+	} else if data, err := os.ReadFile(configPath); err == nil {
+		// Load existing user config and merge over defaults
+		var customPricing map[string]ModelPricing
+		if err := yaml.Unmarshal(data, &customPricing); err == nil {
+			for k, p := range customPricing {
+				knownPricing[k] = p
+			}
+		}
+	}
+}
+
 // GetPricing returns pricing for a model (fuzzy match)
 func GetPricing(model string) (ModelPricing, bool) {
+	if !pricingLoaded {
+		loadPricing()
+	}
+
+	pricingMu.RLock()
+	defer pricingMu.RUnlock()
+
 	// Exact match
 	if p, ok := knownPricing[model]; ok {
 		return p, true
