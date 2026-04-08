@@ -186,22 +186,33 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse inference stats (model, tokens)
+	// Model name priority: request > response > path
+	// Upstream providers (e.g. Azure CAPI, GitHub Copilot) may return internal
+	// deployment IDs (e.g. capi-noe-ptuc-h200-ib-gpt-5-mini-2025-08-07) in the
+	// response "model" field. We prefer the user-facing model name from the
+	// original request, and only fall back to the response model for token counts.
 	var model string
 	var tokensIn, tokensOut int64
 	if isInferencePath(r.URL.Path) {
 		contentType := resp.Header.Get("Content-Type")
+
+		// Always parse response for token counts; also get response model as fallback
+		var respModel string
 		if IsStreamingResponse(contentType) {
 			// SSE streaming — scan event stream for usage chunks
-			model, tokensIn, tokensOut = ParseSSETokens(respBody)
+			respModel, tokensIn, tokensOut = ParseSSETokens(respBody)
 		} else {
-			model, tokensIn, tokensOut = ParseInferenceResponse(respBody)
+			respModel, tokensIn, tokensOut = ParseInferenceResponse(respBody)
 		}
-		// Fall back to request body for model name if response didn't include it
-		if model == "" && len(reqBody) > 0 {
-			model = ParseInferenceRequest(reqBody)
+
+		// Use request model (origModel) as primary source — it reflects what the
+		// client actually requested and avoids exposing provider-internal IDs.
+		// Fall back to response model only if request didn't carry a model field.
+		model = origModel
+		if model == "" {
+			model = respModel
 		}
-		// Fall back to model name embedded in path:
-		// e.g. /models/claude-sonnet-4.6/chat/completions
+		// Last resort: extract from URL path (e.g. /models/<name>/chat/completions)
 		if model == "" {
 			model = extractModelFromPath(r.URL.Path)
 		}
@@ -271,8 +282,9 @@ func isInferencePath(path string) bool {
 }
 
 // extractModelFromPath tries to pull a model name from paths like:
-//   /models/<model>/chat/completions
-//   /openai/deployments/<model>/chat/completions  (Azure)
+//
+//	/models/<model>/chat/completions
+//	/openai/deployments/<model>/chat/completions  (Azure)
 func extractModelFromPath(path string) string {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	for i, p := range parts {
