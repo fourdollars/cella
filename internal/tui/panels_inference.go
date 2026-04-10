@@ -166,7 +166,7 @@ func (a App) renderInferencePanel() string {
 		colTokOut = 8
 		colToks   = 8
 		colRPM    = 5
-		colRPH    = 5
+		colRPH    = 10
 		colTPM    = 8
 		colCost   = 10
 	)
@@ -216,7 +216,7 @@ func (a App) renderInferencePanel() string {
 			bright.Render(padLeft(proxy.FormatTokens(ms.TotalTokensOut), colTokOut)) + " " +
 			dim.Render(padLeft(proxy.FormatTokens(ms.TotalTokens), colToks)) + " " +
 			rpmStyle.Render(padLeft(fmt.Sprintf("%d", ms.RPM), colRPM)) + " " +
-			padLeft(formatRPH(ms.RPH, ms.RPHLimit), colRPH) + " " +
+			formatRPH(ms.RPH, ms.RPHLimit, colRPH) + " " +
 			green.Render(padLeft(proxy.FormatTokens(ms.TPM), colTPM)) + " " +
 			gold.Render(padLeft(costStr, colCost))
 		b.WriteString(line + "\n")
@@ -422,17 +422,37 @@ func renderInferenceSparkline(data []int64, width int) string {
 	return string(result)
 }
 
-func formatRPH(rph, limit int64) string {
+func formatRPH(rph, limit int64, width int) string {
 	if limit <= 0 {
-		return fmt.Sprintf("%d", rph)
+		return padLeft(fmt.Sprintf("%d", rph), width)
 	}
+
+	var visibleStr string
+	var style lipgloss.Style
+	var hasStyle bool
+
 	if rph >= limit {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Render(fmt.Sprintf("%d/%d🔴", rph, limit))
+		visibleStr = fmt.Sprintf("%d/%d🔴", rph, limit)
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
+		hasStyle = true
+	} else if float64(rph)/float64(limit) >= 0.8 {
+		visibleStr = fmt.Sprintf("%d/%d⚠", rph, limit)
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1c40f"))
+		hasStyle = true
+	} else {
+		visibleStr = fmt.Sprintf("%d/%d", rph, limit)
 	}
-	if float64(rph)/float64(limit) >= 0.8 {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#f1c40f")).Render(fmt.Sprintf("%d/%d⚠", rph, limit))
+
+	w := lipgloss.Width(visibleStr)
+	pad := ""
+	if w < width {
+		pad = strings.Repeat(" ", width-w)
 	}
-	return fmt.Sprintf("%d", rph)
+
+	if hasStyle {
+		return pad + style.Render(visibleStr)
+	}
+	return pad + visibleStr
 }
 
 
