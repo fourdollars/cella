@@ -1987,7 +1987,10 @@ func (a App) renderStatusBar() string {
 	case panelEvents:
 		return " EVENTS │ ↑↓ scroll │ c: clear │ Esc/q: back"
 	case panelInference:
-		return " INFERENCE STATS │ ↑↓ scroll │ S: export │ Esc: back"
+		if a.rphEditMode {
+			return " RPH LIMITS │ ↑↓ select │ a: add │ e: edit │ d: delete │ 0: disable │ Esc: close"
+		}
+		return " INFERENCE STATS │ ↑↓ scroll │ S: export │ L: set limits │ Esc: back"
 	case panelRouting:
 		if a.routingInputMode {
 			return " ROUTING │ type value → Enter │ Esc: cancel"
