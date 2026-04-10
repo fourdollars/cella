@@ -16,6 +16,10 @@ import (
 
 // handleInferencePanel handles keypresses in the inference stats panel
 func (a *App) handleInferencePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.rphEditMode {
+		return a.handleRPHEdit(msg)
+	}
+	
 	switch msg.String() {
 	case "esc", "q":
 		a.focus = panelSidebar
@@ -53,6 +57,14 @@ func (a *App) handleInferencePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if globalProxyServer != nil {
 			return a, a.exportInferenceJSON()
 		}
+	case "L", "l":
+		// Enter RPH limit management mode
+		a.rphEditMode = true
+		a.rphEditStep = 0 // List mode
+		a.rphEditBuf = ""
+		a.rphEditCursor = 0
+		a.rphEditModels = a.buildRPHModelList()
+		return a, nil
 	}
 	return a, nil
 }
@@ -421,4 +433,280 @@ func formatRPH(rph, limit int64) string {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#f1c40f")).Render(fmt.Sprintf("%d/%d⚠", rph, limit))
 	}
 	return fmt.Sprintf("%d", rph)
+}
+
+
+// ── RPH Limit Editor Rendering ──
+
+func (a App) renderRPHEditor() string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22"))
+	blue := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c"))
+	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#8e44ad"))
+	bgGray := lipgloss.NewStyle().Background(lipgloss.Color("#30363d")).Foreground(lipgloss.Color("#ffffff"))
+
+	var b strings.Builder
+	
+	if a.rphEditStep == 0 { // rphStepList
+		b.WriteString(blue.Render("⚙️ RPH Limits Configuration ◆") + "\n\n")
+		
+		const colPattern = 28
+		b.WriteString("  " + dim.Render(padRight("PATTERN", colPattern)) + "  " + dim.Render("LIMIT (reqs/hr)") + "\n")
+		sep := dim.Render("  " + strings.Repeat("─", colPattern+20))
+		b.WriteString(sep + "\n")
+		
+		if len(a.rphEditModels) == 0 {
+			b.WriteString(dim.Render("  (No custom limits configured)") + "\n")
+		} else {
+			for i, e := range a.rphEditModels {				
+				patStr := e.Pattern
+				if patStr == "*" {
+					patStr = "* (default fallback)"
+				}
+				
+				limStr := fmt.Sprintf("%d", e.Limit)
+				if e.Limit == 0 {
+					limStr += dim.Render("       (0 = disabled)")
+				}
+				
+				if i == a.rphEditCursor {
+					b.WriteString(bgGray.Render(fmt.Sprintf("  %-28s  %s", patStr, fmt.Sprintf("%d", e.Limit))) + "\n")
+				} else {
+					b.WriteString("  " + purple.Render(padRight(patStr, colPattern)) + "  " + green.Render(fmt.Sprintf("%d", e.Limit)) + "\n")
+				}
+			}
+		}
+		
+		b.WriteString("\n")
+		b.WriteString(dim.Render("  ─────────────────────────────────────────────────────────────") + "\n")
+		b.WriteString(dim.Render("  ↑↓ select │ a: add │ e: edit │ d: delete │ 0: disable │ Esc: close") + "\n")
+		
+		return b.String()
+	}
+	
+	if a.rphEditStep == 3 { // rphStepConfirm
+		b.WriteString(blue.Render("⚙️ RPH Limits Configuration ◆") + "\n\n")
+		
+		const colPattern = 28
+		b.WriteString("  " + dim.Render(padRight("PATTERN", colPattern)) + "  " + dim.Render("LIMIT (reqs/hr)") + "\n")
+		sep := dim.Render("  " + strings.Repeat("─", colPattern+20))
+		b.WriteString(sep + "\n")
+		
+		for i, e := range a.rphEditModels {
+			patStr := e.Pattern
+			if patStr == "*" {
+				patStr = "* (default fallback)"
+			}
+			
+			if i == a.rphEditCursor {
+				b.WriteString("  " + red.Render(padRight(patStr, colPattern)) + "  " + red.Render(fmt.Sprintf("%-6d  ← Delete this limit? (y/N)", e.Limit)) + "\n")
+			} else {
+				b.WriteString("  " + purple.Render(padRight(patStr, colPattern)) + "  " + green.Render(fmt.Sprintf("%d", e.Limit)) + "\n")
+			}
+		}
+		
+		b.WriteString("\n")
+		b.WriteString(dim.Render("  ─────────────────────────────────────────────────────────────") + "\n")
+		b.WriteString(dim.Render("  y: confirm delete │ Esc/other: cancel") + "\n")
+		return b.String()
+	}
+	
+	// Input modes (Model or Value)
+	b.WriteString(blue.Render("⚙️ Add RPH Limit ◆") + "\n\n")
+	
+	if a.rphEditStep == 1 { // rphStepModel
+		b.WriteString(bright.Render("  Model Pattern (fuzzy match, * for default):") + "\n")
+		b.WriteString("  " + green.Render(a.rphEditBuf+"█") + "\n\n")
+		b.WriteString(dim.Render("  ─────────────────────────────────────────────────────────────") + "\n")
+		b.WriteString(dim.Render("  Enter: next │ Esc: cancel") + "\n")
+	} else if a.rphEditStep == 2 { // rphStepValue
+		b.WriteString(dim.Render("  Model Pattern: ") + purple.Render(a.rphNewPattern) + "\n\n")
+		b.WriteString(bright.Render("  Limit (requests per hour, 0 to disable):") + "\n")
+		b.WriteString("  " + green.Render(a.rphEditBuf+"█") + "\n\n")
+		b.WriteString(dim.Render("  ─────────────────────────────────────────────────────────────") + "\n")
+		b.WriteString(dim.Render("  Enter: save │ Esc: cancel") + "\n")
+	}
+
+	return b.String()
+}
+
+// ── RPH Limit Editor Events ──
+
+type rphModelEntry struct {
+	Pattern string
+	Limit   int64
+	IsNew   bool
+}
+
+func (a *App) buildRPHModelList() []rphModelEntry {
+	limits := proxy.GetAllRPHLimits()
+	var entries []rphModelEntry
+	for pattern, lim := range limits {
+		entries = append(entries, rphModelEntry{Pattern: pattern, Limit: lim})
+	}
+	// Sort: * last, rest alphabetical
+	for i := 0; i < len(entries); i++ {
+		for j := i + 1; j < len(entries); j++ {
+			swap := false
+			if entries[i].Pattern == "*" && entries[j].Pattern != "*" {
+				swap = true
+			} else if entries[i].Pattern != "*" && entries[j].Pattern != "*" && entries[i].Pattern > entries[j].Pattern {
+				swap = true
+			}
+			if swap {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+	return entries
+}
+
+func (a *App) handleRPHEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch a.rphEditStep {
+	case 0: // List
+		return a.handleRPHList(msg)
+	case 1: // Model input
+		return a.handleRPHInput(msg)
+	case 2: // Value input
+		return a.handleRPHInput(msg)
+	case 3: // Confirm
+		return a.handleRPHConfirm(msg)
+	}
+	return a, nil
+}
+
+func (a *App) handleRPHList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		a.rphEditMode = false
+		return a, nil
+	case "up", "k":
+		if a.rphEditCursor > 0 {
+			a.rphEditCursor--
+		}
+	case "down", "j":
+		if a.rphEditCursor < len(a.rphEditModels)-1 {
+			a.rphEditCursor++
+		}
+	case "a":
+		// Add new limit
+		a.rphEditStep = 1
+		a.rphEditBuf = ""
+		return a, nil
+	case "e", "enter":
+		// Edit selected limit's value
+		if a.rphEditCursor < len(a.rphEditModels) {
+			entry := a.rphEditModels[a.rphEditCursor]
+			a.rphEditStep = 2
+			a.rphEditBuf = fmt.Sprintf("%d", entry.Limit)
+			a.rphNewPattern = entry.Pattern
+		}
+		return a, nil
+	case "d":
+		// Delete selected limit
+		if a.rphEditCursor < len(a.rphEditModels) {
+			a.rphEditStep = 3
+		}
+		return a, nil
+	case "0":
+		// Quick disable: set limit to 0 (disabled)
+		if a.rphEditCursor < len(a.rphEditModels) {
+			entry := a.rphEditModels[a.rphEditCursor]
+			proxy.SetRPHLimit(entry.Pattern, 0)
+			a.rphEditModels = a.buildRPHModelList()
+			a.addEvent(fmt.Sprintf("⏱ RPH limit disabled: %s", entry.Pattern))
+		}
+		return a, nil
+	}
+	return a, nil
+}
+
+func (a *App) handleRPHInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		a.rphEditStep = 0
+		a.rphEditBuf = ""
+		return a, nil
+	case "enter":
+		if a.rphEditStep == 1 {
+			// Save pattern, move to value
+			pattern := strings.TrimSpace(a.rphEditBuf)
+			if pattern == "" {
+				return a, nil
+			}
+			a.rphNewPattern = pattern
+			a.rphEditStep = 2
+			a.rphEditBuf = ""
+			return a, nil
+		}
+		if a.rphEditStep == 2 {
+			// Parse value and save
+			val := strings.TrimSpace(a.rphEditBuf)
+			if val == "" {
+				return a, nil
+			}
+			var limit int64
+			fmt.Sscanf(val, "%d", &limit)
+			if limit < 0 {
+				limit = 0
+			}
+			proxy.SetRPHLimit(a.rphNewPattern, limit)
+			a.rphEditModels = a.buildRPHModelList()
+			a.rphEditStep = 0
+			a.rphEditBuf = ""
+			if limit == 0 {
+				a.addEvent(fmt.Sprintf("⏱ RPH limit disabled: %s", a.rphNewPattern))
+			} else {
+				a.addEvent(fmt.Sprintf("⏱ RPH limit set: %s → %d/hr", a.rphNewPattern, limit))
+			}
+			// Move cursor to the new/edited entry
+			for i, e := range a.rphEditModels {
+				if e.Pattern == a.rphNewPattern {
+					a.rphEditCursor = i
+					break
+				}
+			}
+			return a, nil
+		}
+	case "backspace":
+		if len(a.rphEditBuf) > 0 {
+			a.rphEditBuf = a.rphEditBuf[:len(a.rphEditBuf)-1]
+		}
+	default:
+		k := msg.String()
+		if len(k) == 1 {
+			// For value step, only accept digits
+			if a.rphEditStep == 2 {
+				if k >= "0" && k <= "9" {
+					a.rphEditBuf += k
+				}
+			} else {
+				a.rphEditBuf += k
+			}
+		}
+	}
+	return a, nil
+}
+
+func (a *App) handleRPHConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		if a.rphEditCursor < len(a.rphEditModels) {
+			entry := a.rphEditModels[a.rphEditCursor]
+			proxy.DeleteRPHLimit(entry.Pattern)
+			a.rphEditModels = a.buildRPHModelList()
+			if a.rphEditCursor >= len(a.rphEditModels) && a.rphEditCursor > 0 {
+				a.rphEditCursor--
+			}
+			a.addEvent(fmt.Sprintf("🗑 RPH limit removed: %s", entry.Pattern))
+		}
+		a.rphEditStep = 0
+		return a, nil
+	default:
+		// Any other key cancels
+		a.rphEditStep = 0
+		return a, nil
+	}
 }

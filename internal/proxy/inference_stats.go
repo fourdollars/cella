@@ -684,3 +684,56 @@ func (s *InferenceStats) IsRPHExceeded(model string) (bool, int64, int64) {
 
 	return rph >= lim, rph, lim
 }
+
+// GetAllRPHLimits returns a copy of all configured RPH limits
+func GetAllRPHLimits() map[string]int64 {
+	if !rphLoaded {
+		loadRPHLimits()
+	}
+	rphLimitsMu.RLock()
+	defer rphLimitsMu.RUnlock()
+	
+	res := make(map[string]int64)
+	for k, v := range rphLimits {
+		res[k] = v
+	}
+	return res
+}
+
+// saveRPHLimits writes the current in-memory limits to the YAML config file
+func saveRPHLimits() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	configPath := filepath.Join(home, ".cella", "rph_limits.yaml")
+	data, err := yaml.Marshal(rphLimits)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, data, 0644)
+}
+
+// SetRPHLimit sets and saves a new RPH limit
+func SetRPHLimit(pattern string, limit int64) error {
+	if !rphLoaded {
+		loadRPHLimits()
+	}
+	rphLimitsMu.Lock()
+	defer rphLimitsMu.Unlock()
+	
+	rphLimits[pattern] = limit
+	return saveRPHLimits()
+}
+
+// DeleteRPHLimit removes a limit and saves
+func DeleteRPHLimit(pattern string) error {
+	if !rphLoaded {
+		loadRPHLimits()
+	}
+	rphLimitsMu.Lock()
+	defer rphLimitsMu.Unlock()
+	
+	delete(rphLimits, pattern)
+	return saveRPHLimits()
+}

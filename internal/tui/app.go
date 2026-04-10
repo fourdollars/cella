@@ -296,6 +296,14 @@ type App struct {
 		kind      string
 	}
 	inferenceScroll   int
+
+	// RPH editor state
+	rphEditMode   bool
+	rphEditStep   int
+	rphEditCursor int
+	rphEditBuf    string
+	rphNewPattern string
+	rphEditModels []rphModelEntry
 	routingCursor    int
 	routingInputMode bool
 	routingInputStep int
@@ -1844,7 +1852,11 @@ func (a App) View() string {
 	case panelEvents:
 		dashboard = a.renderEventsPanel()
 	case panelInference:
-		dashboard = a.renderInferencePanel()
+		if a.rphEditMode {
+			dashboard = a.renderRPHEditor()
+		} else {
+			dashboard = a.renderInferencePanel()
+		}
 	case panelRouting:
 		dashboard = a.renderRoutingPanel()
 	case panelAudit:
