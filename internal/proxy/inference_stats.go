@@ -222,8 +222,12 @@ func (s *InferenceStats) Record(req InferenceRequest) {
 	}
 
 	tt := timeToken{t: req.Time, tokensIn: req.TokensIn, tokensOut: req.TokensOut}
-	ms.minuteRequests = append(ms.minuteRequests, tt)
-	ms.dayRequests = append(ms.dayRequests, tt)
+	
+	// Exclude local proxy 429 blocks from the RPM/RPH arrays so they don't artificially keep limits exceeded
+	if req.StatusCode != 429 || req.Error != "rph_limit_exceeded" {
+		ms.minuteRequests = append(ms.minuteRequests, tt)
+		ms.dayRequests = append(ms.dayRequests, tt)
+	}
 
 	// Update sparkline buckets
 	bucket := req.Time.Truncate(time.Minute)
