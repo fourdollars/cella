@@ -153,6 +153,35 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward to real upstream
+	// Check RPH limit before forwarding
+	if h.stats != nil && origModel != "" {
+		if exceeded, cur, lim := h.stats.IsRPHExceeded(origModel); exceeded {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprintf(w, "{\"error\":{\"message\":\"RPH limit exceeded (%d/%d)\",\"type\":\"rate_limit_error\",\"code\":\"rph_limit_exceeded\"}}", cur, lim)
+
+			// Record as blocked
+			h.stats.Record(InferenceRequest{
+				Time:       reqStart,
+				Container:  h.container,
+				Domain:     h.domain,
+				Model:      origModel,
+				Path:       r.URL.Path,
+				Method:     r.Method,
+				StatusCode: http.StatusTooManyRequests,
+				Error:      "rph_limit_exceeded",
+				Latency:    time.Since(reqStart),
+			})
+
+			h.server.audit.Add(AuditEntry{
+				Time: reqStart, Container: h.container, Domain: h.domain,
+				Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
+				Status: "blocked-rph", TLS: true,
+				Latency: time.Since(reqStart),
+			})
+			return
+		}
+	}
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(r)
 	if err != nil {

@@ -302,6 +302,7 @@ func (s *InferenceStats) GetModelStats() []ModelStatsSummary {
 				summary.RPH++
 			}
 		}
+		summary.RPHLimit = s.GetRPHLimit(ms.Model)
 
 		// TPM
 		for _, tt := range fresh1m {
@@ -367,6 +368,7 @@ type ModelStatsSummary struct {
 	Errors         int64
 	RPM            int64
 	RPH            int64
+	RPHLimit       int64
 	RPD            int64
 	TPM            int64
 	Cost           float64 // total estimated cost
@@ -577,4 +579,108 @@ func FormatTokens(n int64) string {
 		return fmt.Sprintf("%.1fK", float64(n)/1_000)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+
+var (
+	rphLimitsMu sync.RWMutex
+	rphLimits   map[string]int64
+	rphLoaded   bool
+)
+
+func loadRPHLimits() {
+	rphLimitsMu.Lock()
+	defer rphLimitsMu.Unlock()
+	if rphLoaded {
+		return
+	}
+	rphLimits = make(map[string]int64)
+	defer func() { rphLoaded = true }()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+
+	configDir := filepath.Join(home, ".cella")
+	configPath := filepath.Join(configDir, "rph_limits.yaml")
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Generate default config
+		os.MkdirAll(configDir, 0755)
+		defaultLimits := map[string]int64{
+			"*": 0, // 0 = disabled
+		}
+		data, _ := yaml.Marshal(defaultLimits)
+		os.WriteFile(configPath, data, 0644)
+	} else if data, err := os.ReadFile(configPath); err == nil {
+		var customLimits map[string]int64
+		if err := yaml.Unmarshal(data, &customLimits); err == nil {
+			for k, v := range customLimits {
+				rphLimits[k] = v
+			}
+		}
+	}
+}
+
+// GetRPHLimit returns the max RPH for a model. 0 means no limit.
+func (s *InferenceStats) GetRPHLimit(model string) int64 {
+	if !rphLoaded {
+		loadRPHLimits()
+	}
+
+	rphLimitsMu.RLock()
+	defer rphLimitsMu.RUnlock()
+
+	// Exact match
+	if lim, ok := rphLimits[model]; ok {
+		return lim
+	}
+
+	// Fuzzy match
+	modelLower := strings.ToLower(model)
+	modelNormalized := strings.ReplaceAll(modelLower, ".", "-")
+	for k, lim := range rphLimits {
+		if k == "*" {
+			continue
+		}
+		kNormalized := strings.ReplaceAll(strings.ToLower(k), ".", "-")
+		if strings.Contains(modelNormalized, kNormalized) {
+			return lim
+		}
+	}
+
+	// Fallback to wildcard
+	if lim, ok := rphLimits["*"]; ok {
+		return lim
+	}
+
+	return 0
+}
+
+// IsRPHExceeded checks if the current requests per hour for a model exceeds its limit.
+// Returns (exceeded, current, limit).
+func (s *InferenceStats) IsRPHExceeded(model string) (bool, int64, int64) {
+	lim := s.GetRPHLimit(model)
+	if lim <= 0 {
+		return false, 0, 0
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ms, ok := s.models[model]
+	if !ok {
+		return false, 0, lim
+	}
+
+	oneHourAgo := time.Now().Add(-1 * time.Hour)
+	var rph int64
+	for _, tt := range ms.dayRequests {
+		if tt.t.After(oneHourAgo) {
+			rph++
+		}
+	}
+
+	return rph >= lim, rph, lim
 }

@@ -392,3 +392,60 @@ func TestGetPricing_NormalizedMatch(t *testing.T) {
 		t.Error("expected exact/normalized match for gpt-5.3-codex")
 	}
 }
+
+
+// ── RPH Limits ──
+
+func TestInferenceStats_RPHLimit(t *testing.T) {
+	// Setup custom limits for test
+	rphLimitsMu.Lock()
+	rphLimits = map[string]int64{
+		"claude-opus-4-6": 2,
+		"gpt-":           5,
+		"*":               10, // Default fallback
+	}
+	rphLoaded = true
+	rphLimitsMu.Unlock()
+
+	s := NewInferenceStats()
+	
+	// Test Exact Match
+	if lim := s.GetRPHLimit("claude-opus-4-6"); lim != 2 {
+		t.Errorf("GetRPHLimit(claude-opus-4-6) = %d, want 2", lim)
+	}
+	
+	// Test Fuzzy Match
+	if lim := s.GetRPHLimit("gpt-5-mini"); lim != 5 {
+		t.Errorf("GetRPHLimit(gpt-5-mini) = %d, want 5", lim)
+	}
+	
+	// Test Fallback Match
+	if lim := s.GetRPHLimit("unknown-model"); lim != 10 {
+		t.Errorf("GetRPHLimit(unknown-model) = %d, want 10", lim)
+	}
+
+	now := time.Now()
+	
+	// Record requests to hit the limit
+	s.Record(InferenceRequest{Time: now, Model: "claude-opus-4-6"})
+	s.Record(InferenceRequest{Time: now, Model: "claude-opus-4-6"})
+	
+	// Should be exceeded
+	exceeded, cur, lim := s.IsRPHExceeded("claude-opus-4-6")
+	if !exceeded {
+		t.Errorf("IsRPHExceeded = %v, want true", exceeded)
+	}
+	if cur != 2 {
+		t.Errorf("cur = %d, want 2", cur)
+	}
+	if lim != 2 {
+		t.Errorf("lim = %d, want 2", lim)
+	}
+
+	// Should not be exceeded yet
+	s.Record(InferenceRequest{Time: now, Model: "gpt-5-mini"})
+	exceeded, _, _ = s.IsRPHExceeded("gpt-5-mini")
+	if exceeded {
+		t.Errorf("IsRPHExceeded for gpt-5-mini should be false")
+	}
+}

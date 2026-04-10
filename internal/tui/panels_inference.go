@@ -204,7 +204,7 @@ func (a App) renderInferencePanel() string {
 			bright.Render(padLeft(proxy.FormatTokens(ms.TotalTokensOut), colTokOut)) + " " +
 			dim.Render(padLeft(proxy.FormatTokens(ms.TotalTokens), colToks)) + " " +
 			rpmStyle.Render(padLeft(fmt.Sprintf("%d", ms.RPM), colRPM)) + " " +
-			padLeft(fmt.Sprintf("%d", ms.RPH), colRPH) + " " +
+			padLeft(formatRPH(ms.RPH, ms.RPHLimit), colRPH) + " " +
 			green.Render(padLeft(proxy.FormatTokens(ms.TPM), colTPM)) + " " +
 			gold.Render(padLeft(costStr, colCost))
 		b.WriteString(line + "\n")
@@ -408,4 +408,17 @@ func renderInferenceSparkline(data []int64, width int) string {
 		result[offset+i] = bars[idx]
 	}
 	return string(result)
+}
+
+func formatRPH(rph, limit int64) string {
+	if limit <= 0 {
+		return fmt.Sprintf("%d", rph)
+	}
+	if rph >= limit {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Render(fmt.Sprintf("%d/%d🔴", rph, limit))
+	}
+	if float64(rph)/float64(limit) >= 0.8 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#f1c40f")).Render(fmt.Sprintf("%d/%d⚠", rph, limit))
+	}
+	return fmt.Sprintf("%d", rph)
 }
