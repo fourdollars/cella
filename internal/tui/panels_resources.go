@@ -87,6 +87,53 @@ func (a App) handleResourcesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Confirm mode — intercept y/n for R(estore) and D(elete)
+	if a.snapConfirmDelete || a.snapConfirmRestore {
+		switch msg.String() {
+		case "y", "Y":
+			snapName := a.snapConfirmName
+			name := a.snapTarget
+			if a.snapConfirmDelete {
+				a.snapConfirmDelete = false
+				a.snapConfirmName = ""
+				rt := a.runtimeFor(name)
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel()
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.DeleteSnapshot(ctx, name, snapName)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("delete snapshot: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("🗑 deleted snapshot '%s' from %s", snapName, name)}
+				}
+			}
+			if a.snapConfirmRestore {
+				a.snapConfirmRestore = false
+				a.snapConfirmName = ""
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+					defer cancel()
+					lxdClient, _ := lxd.NewClient("")
+					if lxdClient != nil {
+						err := lxdClient.RestoreSnapshot(ctx, name, snapName)
+						if err != nil {
+							return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
+						}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("⏪ restored %s to snapshot '%s'", name, snapName)}
+				}
+			}
+		default:
+			a.snapConfirmDelete = false
+			a.snapConfirmRestore = false
+			a.snapConfirmName = ""
+		}
+		return a, nil
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		a.focus = a.prevFocus
@@ -415,46 +462,20 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		sanitized := strings.ReplaceAll(a.snapTarget, ".", "-")
 		a.snapInput = sanitized + "-clone"
 	case "R":
-		// Restore snapshot (LXD only)
+		// Restore snapshot (LXD only) — ask for confirmation first
 		if a.snapCursor < len(a.snapshots) {
-			snapName := a.snapshots[a.snapCursor].Name
-			name := a.snapTarget
-			if a.containerRuntime(name) == "docker" {
+			if a.containerRuntime(a.snapTarget) == "docker" {
 				a.addEvent("⚠ Docker doesn't support snapshot restore")
 				return a, nil
 			}
-			return a, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-				defer cancel()
-				// RestoreSnapshot is LXD-specific, use client directly
-				lxdClient, _ := lxd.NewClient("")
-				if lxdClient != nil {
-					err := lxdClient.RestoreSnapshot(ctx, name, snapName)
-					if err != nil {
-						return asyncResultMsg{err: fmt.Errorf("restore: %w", err)}
-					}
-				}
-				return asyncResultMsg{text: fmt.Sprintf("⏪ restored %s to snapshot '%s'", name, snapName)}
-			}
+			a.snapConfirmRestore = true
+			a.snapConfirmName = a.snapshots[a.snapCursor].Name
 		}
 	case "D":
-		// Delete snapshot
+		// Delete snapshot — ask for confirmation first
 		if a.snapCursor < len(a.snapshots) {
-			snapName := a.snapshots[a.snapCursor].Name
-			name := a.snapTarget
-			rt := a.runtimeFor(name)
-			return a, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				defer cancel()
-				if rt == nil {
-					return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
-				}
-				err := rt.DeleteSnapshot(ctx, name, snapName)
-				if err != nil {
-					return asyncResultMsg{err: fmt.Errorf("delete snapshot: %w", err)}
-				}
-				return asyncResultMsg{text: fmt.Sprintf("🗑 deleted snapshot '%s' from %s", snapName, name)}
-			}
+			a.snapConfirmDelete = true
+			a.snapConfirmName = a.snapshots[a.snapCursor].Name
 		}
 	case "r":
 		// Rename selected snapshot
@@ -576,6 +597,16 @@ func (a App) renderSnapshotsPanel() string {
 				}
 			}
 		}
+	}
+
+	// Confirm prompts
+	if a.snapConfirmDelete {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Bold(true).
+			Render(fmt.Sprintf("  ⚠  Delete snapshot '%s'? (y/n)", a.snapConfirmName)) + "\n")
+	}
+	if a.snapConfirmRestore {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true).
+			Render(fmt.Sprintf("  ⚠  Restore to '%s'? Container will stop. (y/n)", a.snapConfirmName)) + "\n")
 	}
 
 	// Input mode prompts

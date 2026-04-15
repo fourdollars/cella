@@ -193,7 +193,10 @@ type App struct {
 	snapNaming   bool // entering snapshot name
 	snapCloning  bool // entering clone target name
 	snapRenaming bool // entering new name for rename
-	snapRenameOld string // old name being renamed
+	snapRenameOld         string // old name being renamed
+	snapConfirmDelete     bool   // waiting y/n to confirm delete
+	snapConfirmRestore    bool   // waiting y/n to confirm restore
+	snapConfirmName       string // snapshot name pending confirm
 
 	// Help overlay
 	showHelp bool
