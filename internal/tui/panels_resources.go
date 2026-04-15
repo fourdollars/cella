@@ -446,14 +446,22 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // ── Snapshots panel render ──
 
+// fmtSnapTime converts RFC3339 / arbitrary timestamp to "2006-01-02 15:04" for display.
+func fmtSnapTime(s string) string {
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Local().Format("2006-01-02 15:04")
+		}
+	}
+	return s // fallback: show as-is
+}
+
 func (a App) renderSnapshotsPanel() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
 	blue := lipgloss.NewStyle().Bold(true).Foreground(ColorBlue)
 	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#8e44ad"))
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
 
-	// Split layout: left=list, right=detail
-	// We'll just render them stacked (works for any width)
 	var b strings.Builder
 
 	b.WriteString(TitleStyle.Render(fmt.Sprintf("📸 Snapshots — %s ◆", a.snapTarget)) + "\n")
@@ -467,84 +475,85 @@ func (a App) renderSnapshotsPanel() string {
 	if len(a.snapshots) == 0 {
 		b.WriteString(dim.Render("\n  No snapshots yet.\n"))
 	} else {
-		// ── Left column: snapshot list ──
-		b.WriteString("\n")
-		const colName = 22
+		const colName = 24
 		const colSize = 9
-		b.WriteString(dim.Render(fmt.Sprintf("  %-*s  %-*s  %s\n", colName, "NAME", colSize, "SIZE", "CREATED")))
-		b.WriteString(dim.Render("  "+strings.Repeat("─", colName+colSize+26)+"\n"))
+		const sep = "  " + "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
+
+		// Header (plain strings, no ANSI inside fmt.Sprintf)
+		b.WriteString("\n")
+		b.WriteString(dim.Render(fmt.Sprintf("  %-*s  %-*s  %s", colName, "NAME", colSize, "SIZE", "CREATED")) + "\n")
+		b.WriteString(dim.Render(sep) + "\n")
+
 		for i, snap := range a.snapshots {
 			cursor := "  "
-			style := lipgloss.NewStyle().Foreground(ColorText)
 			if i == a.snapCursor {
 				cursor = "▸ "
-				style = blue
 			}
 			stateful := ""
 			if snap.Stateful {
 				stateful = " ✦"
 			}
 			sizeStr := formatSnapshotSize(snap.Size)
-			b.WriteString(cursor + style.Render(fmt.Sprintf("%-*s  %-*s  %s%s",
-				colName, snap.Name, colSize, sizeStr, snap.CreatedAt, stateful)) + "\n")
+			row := fmt.Sprintf("%-*s  %-*s  %s%s", colName, snap.Name, colSize, sizeStr, fmtSnapTime(snap.CreatedAt), stateful)
+			if i == a.snapCursor {
+				b.WriteString(cursor + blue.Render(row) + "\n")
+			} else {
+				b.WriteString(cursor + row + "\n")
+			}
 		}
 
-		// ── Right detail panel: show focused snapshot info ──
+		// Detail panel for focused snapshot
 		if a.snapCursor >= 0 && a.snapCursor < len(a.snapshots) {
 			snap := a.snapshots[a.snapCursor]
 			b.WriteString("\n")
-			b.WriteString(dim.Render("  "+strings.Repeat("─", colName+colSize+26)+"\n"))
+			b.WriteString(dim.Render(sep) + "\n")
 			b.WriteString(blue.Render(fmt.Sprintf("  ◆ %s", snap.Name)) + "\n\n")
 
-			// Basic info
-			b.WriteString(fmt.Sprintf("  %-16s %s\n", dim.Render("Created"), snap.CreatedAt))
+			// Helper: render a detail row with fixed-width plain label
+			detailRow := func(label, value string) string {
+				return fmt.Sprintf("  %s  %s\n", dim.Render(fmt.Sprintf("%-12s", label)), value)
+			}
+
+			b.WriteString(detailRow("Created", fmtSnapTime(snap.CreatedAt)))
+
 			sizeStr := formatSnapshotSize(snap.Size)
 			if sizeStr == "-" {
 				sizeStr = dim.Render("unknown (dir backend)")
 			}
-			b.WriteString(fmt.Sprintf("  %-16s %s\n", dim.Render("Size"), sizeStr))
-			statefulStr := dim.Render("no")
+			b.WriteString(detailRow("Size", sizeStr))
+
 			if snap.Stateful {
-				statefulStr = green.Render("yes (memory included)")
+				b.WriteString(detailRow("Stateful", green.Render("yes (memory included)")))
+			} else {
+				b.WriteString(detailRow("Stateful", dim.Render("no")))
 			}
-			b.WriteString(fmt.Sprintf("  %-16s %s\n", dim.Render("Stateful"), statefulStr))
 
-			// Profiles
 			if len(snap.Profiles) > 0 {
-				b.WriteString(fmt.Sprintf("  %-16s %s\n", dim.Render("Profiles"),
-					purple.Render(strings.Join(snap.Profiles, ", "))))
+				b.WriteString(detailRow("Profiles", purple.Render(strings.Join(snap.Profiles, ", "))))
 			}
 
-			// Key config values worth showing
+			// Key config values
 			keyConfigs := []string{
-				"limits.cpu",
-				"limits.memory",
-				"security.privileged",
-				"security.nesting",
-				"security.idmap.isolated",
-				"boot.autostart",
-				"image.os",
-				"image.release",
-				"image.version",
-				"image.description",
+				"limits.cpu", "limits.memory",
+				"security.privileged", "security.nesting", "security.idmap.isolated",
+				"image.os", "image.release", "image.description",
 			}
 			if len(snap.Config) > 0 {
-				b.WriteString("\n  " + dim.Render("Config (snapshot time)") + "\n")
 				shown := 0
 				for _, k := range keyConfigs {
 					if v, ok := snap.Config[k]; ok && v != "" {
-						b.WriteString(fmt.Sprintf("    %-30s %s\n", dim.Render(k), green.Render(v)))
+						if shown == 0 {
+							b.WriteString("\n  " + dim.Render("Config") + "\n")
+						}
+						b.WriteString(fmt.Sprintf("    %s  %s\n", dim.Render(fmt.Sprintf("%-30s", k)), green.Render(v)))
 						shown++
 					}
-				}
-				if shown == 0 {
-					b.WriteString(dim.Render("    (all defaults)\n"))
 				}
 			}
 		}
 	}
 
-	// Input mode
+	// Input mode prompts
 	if a.snapNaming {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
 			Render(fmt.Sprintf("  New snapshot name: %s▌", a.snapInput)) + "\n")
