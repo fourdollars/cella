@@ -271,16 +271,6 @@ func (a App) renderResourcesPanel() string {
 		}
 	}
 
-	// Flash message
-	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
-		b.WriteString("\n" + lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0d1117")).
-			Background(ColorGreen).
-			Bold(true).
-			Padding(0, 1).
-			Render(a.flashText) + "\n")
-	}
-
 	return b.String()
 }
 
@@ -393,7 +383,12 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		default:
 			if len(msg.String()) == 1 {
-				a.snapInput += msg.String()
+				ch := msg.String()
+				// LXD rejects container/snapshot names containing '.'
+				if ch == "." && a.snapCloning {
+					return a, nil // silently drop '.' in clone name
+				}
+				a.snapInput += ch
 			}
 			return a, nil
 		}
@@ -416,7 +411,9 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.snapInput = fmt.Sprintf("snap-%s", time.Now().Format("20060102-1504"))
 	case "c":
 		a.snapCloning = true
-		a.snapInput = a.snapTarget + "-clone"
+		// Sanitize: replace '.' with '-' so LXD won't reject the name
+		sanitized := strings.ReplaceAll(a.snapTarget, ".", "-")
+		a.snapInput = sanitized + "-clone"
 	case "R":
 		// Restore snapshot (LXD only)
 		if a.snapCursor < len(a.snapshots) {
