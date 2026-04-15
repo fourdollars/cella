@@ -1422,7 +1422,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case asyncResultMsg:
 		if msg.err != nil {
 			a.addEvent(fmt.Sprintf("⚠ %v", msg.err))
-			return a, a.setFlash(fmt.Sprintf("❌ %v", msg.err))
+			return a, a.setFlashDur(fmt.Sprintf("❌ %v", msg.err), 6*time.Second)
 		}
 		a.addEvent(msg.text)
 		cmds := []tea.Cmd{a.setFlash(fmt.Sprintf("✅ %s", msg.text))}
@@ -1685,9 +1685,13 @@ func saveToFile(path, content string) error {
 }
 
 func (a *App) setFlash(text string) tea.Cmd {
+	return a.setFlashDur(text, 3*time.Second)
+}
+
+func (a *App) setFlashDur(text string, dur time.Duration) tea.Cmd {
 	a.flashText = text
-	a.flashExpiry = time.Now().Add(3 * time.Second)
-	return tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+	a.flashExpiry = time.Now().Add(dur)
+	return tea.Tick(dur, func(t time.Time) tea.Msg {
 		return flashExpireMsg{}
 	})
 }

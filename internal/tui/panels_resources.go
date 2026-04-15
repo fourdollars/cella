@@ -336,9 +336,25 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 					err := rt.RenameSnapshot(ctx, name, oldName, val)
 					if err != nil {
-						return asyncResultMsg{err: fmt.Errorf("rename snapshot: %w", err)}
+						return asyncResultMsg{err: fmt.Errorf("rename failed: %w", err)}
 					}
-					return asyncResultMsg{text: fmt.Sprintf("✏️ renamed snapshot '%s' → '%s'", oldName, val)}
+					// Verify: re-fetch snapshot list and confirm new name exists
+					snaps, verifyErr := rt.ListSnapshots(ctx, name)
+					if verifyErr != nil {
+						// API rename succeeded but can't verify — report both
+						return asyncResultMsg{text: fmt.Sprintf("✏️ renamed '%s' → '%s' (verify failed: %v)", oldName, val, verifyErr)}
+					}
+					found := false
+					for _, s := range snaps {
+						if s.Name == val {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return asyncResultMsg{err: fmt.Errorf("rename rejected by LXD: '%s' not found after rename (name may contain invalid characters like '.')", val)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("✏️ renamed '%s' → '%s'", oldName, val)}
 				}
 			}
 			if a.snapCloning {
