@@ -36,10 +36,12 @@ type InstanceConfig struct {
 
 // SnapshotInfo holds snapshot metadata
 type SnapshotInfo struct {
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
-	Stateful  bool   `json:"stateful"`
-	Size      int64  `json:"size"` // bytes; 0 if storage driver doesn't track (e.g. dir)
+	Name      string            `json:"name"`
+	CreatedAt string            `json:"created_at"`
+	Stateful  bool              `json:"stateful"`
+	Size      int64             `json:"size"`               // bytes; 0 if storage driver doesn't track (e.g. dir)
+	Config    map[string]string `json:"config,omitempty"`   // expanded_config from LXD
+	Profiles  []string          `json:"profiles,omitempty"` // profiles applied at snapshot time
 }
 
 // ExecResult holds the result of an exec operation

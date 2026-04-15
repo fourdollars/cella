@@ -47,10 +47,12 @@ type InstanceConfig struct {
 
 // SnapshotInfo holds snapshot metadata
 type SnapshotInfo struct {
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
-	Stateful  bool   `json:"stateful"`
-	Size      int64  `json:"size"` // bytes; 0 for dir-backed storage
+	Name      string            `json:"name"`
+	CreatedAt string            `json:"created_at"`
+	Stateful  bool              `json:"stateful"`
+	Size      int64             `json:"size"` // bytes; 0 for dir-backed storage
+	Config    map[string]string `json:"config,omitempty"`
+	Profiles  []string          `json:"profiles,omitempty"`
 }
 
 // ExecResult holds the result of an exec operation
@@ -418,10 +420,13 @@ func (c *Client) UpdateContainerConfig(ctx context.Context, name string, config 
 // lxdSnapshotRaw is used to unmarshal snapshot entries from the LXD API,
 // capturing the size field which may not exist in the runtime.SnapshotInfo type.
 type lxdSnapshotRaw struct {
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
-	Stateful  bool   `json:"stateful"`
-	Size      int64  `json:"size"` // bytes; 0 for dir-backed storage
+	Name           string            `json:"name"`
+	CreatedAt      string            `json:"created_at"`
+	Stateful       bool              `json:"stateful"`
+	Size           int64             `json:"size"` // bytes; 0 for dir-backed storage
+	Config         map[string]string `json:"config,omitempty"`
+	ExpandedConfig map[string]string `json:"expanded_config,omitempty"`
+	Profiles       []string          `json:"profiles,omitempty"`
 }
 
 // ListSnapshots returns all snapshots for a container
@@ -442,6 +447,8 @@ func (c *Client) ListSnapshots(ctx context.Context, name string) ([]SnapshotInfo
 			CreatedAt: r.CreatedAt,
 			Stateful:  r.Stateful,
 			Size:      r.Size,
+			Config:    r.ExpandedConfig,
+			Profiles:  r.Profiles,
 		}
 	}
 
