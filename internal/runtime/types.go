@@ -87,6 +87,9 @@ type Runtime interface {
 	// DeleteSnapshot removes a snapshot
 	DeleteSnapshot(ctx context.Context, containerName, snapshotName string) error
 
+	// RenameSnapshot renames a snapshot
+	RenameSnapshot(ctx context.Context, containerName, oldName, newName string) error
+
 	// CopyContainer clones a container
 	CopyContainer(ctx context.Context, source, target string) error
 

@@ -445,6 +445,10 @@ func (d *DockerClient) DeleteSnapshot(ctx context.Context, containerName, snapsh
 	return d.doDelete(ctx, fmt.Sprintf("/images/%s:snapshot", snapshotName))
 }
 
+
+func (d *DockerClient) RenameSnapshot(ctx context.Context, containerName, oldName, newName string) error {
+	return fmt.Errorf("Docker does not support snapshot rename")
+}
 func (d *DockerClient) CopyContainer(ctx context.Context, source, target string) error {
 	// Docker: commit source to temp image, then create new container from it
 	commitBody, err := d.doPost(ctx,

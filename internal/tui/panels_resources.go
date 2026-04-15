@@ -288,11 +288,13 @@ func (a App) renderResourcesPanel() string {
 
 func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Text input mode for naming
-	if a.snapNaming || a.snapCloning {
+	if a.snapNaming || a.snapCloning || a.snapRenaming {
 		switch msg.String() {
 		case "esc":
 			a.snapNaming = false
 			a.snapCloning = false
+			a.snapRenaming = false
+			a.snapRenameOld = ""
 			a.snapInput = ""
 			return a, nil
 		case "enter":
@@ -320,6 +322,24 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return asyncResultMsg{text: fmt.Sprintf("📸 snapshot '%s' created for %s", val, name)}
 				}
 			}
+			if a.snapRenaming {
+			a.snapRenaming = false
+			oldName := a.snapRenameOld
+			a.snapRenameOld = ""
+			rt := a.runtimeFor(name)
+			return a, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+				if rt == nil {
+					return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+				}
+				err := rt.RenameSnapshot(ctx, name, oldName, val)
+				if err != nil {
+					return asyncResultMsg{err: fmt.Errorf("rename snapshot: %w", err)}
+				}
+				return asyncResultMsg{text: fmt.Sprintf("✏️ renamed snapshot '%s' → '%s'", oldName, val)}
+			}
+		}
 			if a.snapCloning {
 				a.snapCloning = false
 				rt := a.runtimeFor(name)
@@ -411,7 +431,14 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "r":
-		return a, fetchSnapshots(a.runtimeFor(a.snapTarget), a.snapTarget)
+		// Rename selected snapshot
+		if a.snapCursor < len(a.snapshots) {
+			snap := a.snapshots[a.snapCursor]
+			a.snapRenaming = true
+			a.snapRenameOld = snap.Name
+			a.snapInput = snap.Name
+			return a, nil
+		}
 	}
 	return a, nil
 }
@@ -458,6 +485,10 @@ func (a App) renderSnapshotsPanel() string {
 	if a.snapCloning {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
 			Render(fmt.Sprintf("  Clone target name: %s▌", a.snapInput)) + "\n")
+	}
+	if a.snapRenaming {
+		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true).
+			Render(fmt.Sprintf("  Rename '%s' → %s▌", a.snapRenameOld, a.snapInput)) + "\n")
 	}
 
 	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))

@@ -192,6 +192,8 @@ type App struct {
 	snapInput    string
 	snapNaming   bool // entering snapshot name
 	snapCloning  bool // entering clone target name
+	snapRenaming bool // entering new name for rename
+	snapRenameOld string // old name being renamed
 
 	// Help overlay
 	showHelp bool
@@ -2008,7 +2010,7 @@ func (a App) renderStatusBar() string {
 	case panelResources:
 		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
 	case panelSnapshots:
-		return " SNAPSHOTS │ ↑↓ select │ n: new │ c: clone │ R: restore │ D: delete │ Esc/q: back"
+		return " SNAPSHOTS │ ↑↓ select │ n: new │ r: rename │ c: clone │ R: restore │ D: delete │ Esc/q: back"
 	default:
 		searchIndicator := ""
 		if a.searchFilter != "" {
