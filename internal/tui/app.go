@@ -193,7 +193,10 @@ type App struct {
 	snapNaming   bool // entering snapshot name
 	snapCloning  bool // entering clone target name
 	snapRenaming bool // entering new name for rename
-	snapRenameOld string // old name being renamed
+	snapRenameOld         string // old name being renamed
+	snapConfirmDelete     bool   // waiting y/n to confirm snapshot delete
+	snapConfirmRestore    bool   // waiting y/n to confirm snapshot restore
+	snapConfirmName       string // snapshot name pending confirm
 
 	// Help overlay
 	showHelp bool
@@ -2035,6 +2038,9 @@ func (a App) renderStatusBar() string {
 	case panelResources:
 		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
 	case panelSnapshots:
+		if a.snapConfirmDelete || a.snapConfirmRestore {
+			return " SNAPSHOTS │ y: confirm │ any other key: cancel"
+		}
 		return " SNAPSHOTS │ ↑↓ select │ n: new │ r: rename │ c: clone │ R: restore │ D: delete │ Esc/q: back"
 	default:
 		searchIndicator := ""
