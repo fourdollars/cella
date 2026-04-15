@@ -287,7 +287,7 @@ func (a App) renderResourcesPanel() string {
 // ── Snapshots panel handler ──
 
 func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Text input mode for naming
+	// Text input mode for naming/renaming/cloning
 	if a.snapNaming || a.snapCloning || a.snapRenaming {
 		switch msg.String() {
 		case "esc":
@@ -303,6 +303,7 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if val == "" {
 				a.snapNaming = false
 				a.snapCloning = false
+				a.snapRenaming = false
 				return a, nil
 			}
 			name := a.snapTarget
@@ -323,23 +324,23 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if a.snapRenaming {
-			a.snapRenaming = false
-			oldName := a.snapRenameOld
-			a.snapRenameOld = ""
-			rt := a.runtimeFor(name)
-			return a, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				defer cancel()
-				if rt == nil {
-					return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+				a.snapRenaming = false
+				oldName := a.snapRenameOld
+				a.snapRenameOld = ""
+				rt := a.runtimeFor(name)
+				return a, func() tea.Msg {
+					ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel()
+					if rt == nil {
+						return asyncResultMsg{err: fmt.Errorf("no runtime for %s", name)}
+					}
+					err := rt.RenameSnapshot(ctx, name, oldName, val)
+					if err != nil {
+						return asyncResultMsg{err: fmt.Errorf("rename snapshot: %w", err)}
+					}
+					return asyncResultMsg{text: fmt.Sprintf("✏️ renamed snapshot '%s' → '%s'", oldName, val)}
 				}
-				err := rt.RenameSnapshot(ctx, name, oldName, val)
-				if err != nil {
-					return asyncResultMsg{err: fmt.Errorf("rename snapshot: %w", err)}
-				}
-				return asyncResultMsg{text: fmt.Sprintf("✏️ renamed snapshot '%s' → '%s'", oldName, val)}
 			}
-		}
 			if a.snapCloning {
 				a.snapCloning = false
 				rt := a.runtimeFor(name)
