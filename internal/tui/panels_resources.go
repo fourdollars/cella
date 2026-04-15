@@ -370,7 +370,19 @@ func (a App) handleSnapshotsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if err != nil {
 						return asyncResultMsg{err: fmt.Errorf("clone: %w", err)}
 					}
-					return asyncResultMsg{text: fmt.Sprintf("🐑 cloned %s → %s", name, val)}
+					// Verify: check the cloned container actually exists
+					// (LXD rejects names containing '.' or other invalid chars)
+					containers, verifyErr := rt.ListContainers(ctx)
+					if verifyErr != nil {
+						// Can't verify — report the ambiguity
+						return asyncResultMsg{text: fmt.Sprintf("🐑 cloned %s → %s (verify failed: %v)", name, val, verifyErr)}
+					}
+					for _, c := range containers {
+						if c.Name == val {
+							return asyncResultMsg{text: fmt.Sprintf("🐑 cloned %s → %s", name, val)}
+						}
+					}
+					return asyncResultMsg{err: fmt.Errorf("clone failed: '%s' not found after operation (name may contain invalid characters like '.')", val)}
 				}
 			}
 			return a, nil
@@ -584,16 +596,6 @@ func (a App) renderSnapshotsPanel() string {
 	}
 
 	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))
-
-	// Flash message
-	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
-		b.WriteString("\n" + lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#0d1117")).
-			Background(ColorGreen).
-			Bold(true).
-			Padding(0, 1).
-			Render(a.flashText) + "\n")
-	}
 
 	return b.String()
 }
