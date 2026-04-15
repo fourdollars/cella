@@ -1443,6 +1443,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			globalListeningApprvals = true
 			cmds = append(cmds, listenApprovals(globalApprovalCh))
 		}
+		// Auto-refresh snapshot list after any snapshot operation
+		if a.focus == panelSnapshots && a.snapTarget != "" {
+			cmds = append(cmds, fetchSnapshots(a.runtimeFor(a.snapTarget), a.snapTarget))
+		}
 		return a, tea.Batch(cmds...)
 
 	case containersMsg:
