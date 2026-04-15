@@ -506,101 +506,149 @@ func fmtSnapTime(s string) string {
 func (a App) renderSnapshotsPanel() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
 	blue := lipgloss.NewStyle().Bold(true).Foreground(ColorBlue)
+	sel := lipgloss.NewStyle().Bold(true).Foreground(ColorBlue).Background(lipgloss.Color("#1a2a3a"))
 	purple := lipgloss.NewStyle().Foreground(lipgloss.Color("#8e44ad"))
 	green := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60"))
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Bold(true)
+	orange := lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true)
 
 	var b strings.Builder
-
 	b.WriteString(TitleStyle.Render(fmt.Sprintf("📸 Snapshots — %s ◆", a.snapTarget)) + "\n")
 
 	if a.snapshots == nil {
-		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).
-			Render("\n  ⏳ Loading snapshots...\n"))
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorYellow).Render("\n  ⏳ Loading snapshots...\n"))
 		return b.String()
 	}
 
+	// ── Layout: left list | right detail ──
+	// Total usable width: a.width minus outer borders (~4) and sidebar
+	totalW := a.width - 4
+	if totalW < 60 {
+		totalW = 60
+	}
+	listW := 36  // left column fixed width
+	divW := 1    // │ divider
+	detailW := totalW - listW - divW - 2
+	if detailW < 20 {
+		detailW = 20
+	}
+
+	// ── Left: snapshot list ──
+	var listB strings.Builder
 	if len(a.snapshots) == 0 {
-		b.WriteString(dim.Render("\n  No snapshots yet.\n"))
+		listB.WriteString(dim.Render("  No snapshots yet.") + "\n")
 	} else {
-		const colName = 24
-		const colSize = 9
-		const sep = "  " + "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500"
-
-		// Header (plain strings, no ANSI inside fmt.Sprintf)
-		b.WriteString("\n")
-		b.WriteString(dim.Render(fmt.Sprintf("  %-*s  %-*s  %s", colName, "NAME", colSize, "SIZE", "CREATED")) + "\n")
-		b.WriteString(dim.Render(sep) + "\n")
-
+		listB.WriteString(dim.Render(fmt.Sprintf("  %-24s  %s", "NAME", "CREATED")) + "\n")
+		listB.WriteString(dim.Render("  " + strings.Repeat("─", listW-2)) + "\n")
 		for i, snap := range a.snapshots {
-			cursor := "  "
-			if i == a.snapCursor {
-				cursor = "▸ "
+			name := snap.Name
+			if len(name) > 22 {
+				name = name[:21] + "…"
 			}
-			stateful := ""
-			if snap.Stateful {
-				stateful = " ✦"
-			}
-			sizeStr := formatSnapshotSize(snap.Size)
-			row := fmt.Sprintf("%-*s  %-*s  %s%s", colName, snap.Name, colSize, sizeStr, fmtSnapTime(snap.CreatedAt), stateful)
+			created := fmtSnapTime(snap.CreatedAt)
+			row := fmt.Sprintf("%-24s  %s", name, created)
 			if i == a.snapCursor {
-				b.WriteString(cursor + blue.Render(row) + "\n")
+				listB.WriteString("▸ " + sel.Render(row) + "\n")
 			} else {
-				b.WriteString(cursor + row + "\n")
+				listB.WriteString("  " + row + "\n")
 			}
 		}
+	}
 
-		// Detail panel for focused snapshot
-		if a.snapCursor >= 0 && a.snapCursor < len(a.snapshots) {
-			snap := a.snapshots[a.snapCursor]
-			b.WriteString("\n")
-			b.WriteString(dim.Render(sep) + "\n")
-			b.WriteString(blue.Render(fmt.Sprintf("  ◆ %s", snap.Name)) + "\n\n")
+	// ── Right: detail panel for focused snapshot ──
+	var detailB strings.Builder
+	if a.snapCursor >= 0 && a.snapCursor < len(a.snapshots) {
+		snap := a.snapshots[a.snapCursor]
 
-			// Helper: render a detail row with fixed-width plain label
-			detailRow := func(label, value string) string {
-				return fmt.Sprintf("  %s  %s\n", dim.Render(fmt.Sprintf("%-12s", label)), value)
-			}
+		detailRow := func(label, value string) string {
+			return fmt.Sprintf(" %s  %s\n", dim.Render(fmt.Sprintf("%-14s", label)), value)
+		}
 
-			b.WriteString(detailRow("Created", fmtSnapTime(snap.CreatedAt)))
+		detailB.WriteString(blue.Render(snap.Name) + "\n")
+		detailB.WriteString(dim.Render(strings.Repeat("─", detailW-1)) + "\n")
 
-			sizeStr := formatSnapshotSize(snap.Size)
-			if sizeStr == "-" {
-				sizeStr = dim.Render("unknown (dir backend)")
-			}
-			b.WriteString(detailRow("Size", sizeStr))
+		// Size
+		sizeStr := formatSnapshotSize(snap.Size)
+		if sizeStr == "-" {
+			sizeStr = dim.Render("unknown")
+		}
+		detailB.WriteString(detailRow("Size", sizeStr))
 
-			if snap.Stateful {
-				b.WriteString(detailRow("Stateful", green.Render("yes (memory included)")))
-			} else {
-				b.WriteString(detailRow("Stateful", dim.Render("no")))
-			}
+		// Stateful
+		if snap.Stateful {
+			detailB.WriteString(detailRow("Stateful", green.Render("✦ yes (with memory)")))
+		} else {
+			detailB.WriteString(detailRow("Stateful", dim.Render("no")))
+		}
 
-			if len(snap.Profiles) > 0 {
-				b.WriteString(detailRow("Profiles", purple.Render(strings.Join(snap.Profiles, ", "))))
-			}
+		// Profiles
+		if len(snap.Profiles) > 0 {
+			detailB.WriteString(detailRow("Profiles", purple.Render(strings.Join(snap.Profiles, ", "))))
+		}
 
-			// Key config values
-			keyConfigs := []string{
-				"limits.cpu", "limits.memory",
-				"security.privileged", "security.nesting", "security.idmap.isolated",
-				"image.os", "image.release", "image.description",
-			}
-			if len(snap.Config) > 0 {
-				shown := 0
-				for _, k := range keyConfigs {
-					if v, ok := snap.Config[k]; ok && v != "" {
-						if shown == 0 {
-							b.WriteString("\n  " + dim.Render("Config") + "\n")
-						}
-						b.WriteString(fmt.Sprintf("    %s  %s\n", dim.Render(fmt.Sprintf("%-30s", k)), green.Render(v)))
-						shown++
+		// Config keys of interest
+		keyConfigs := []struct{ key, label string }{
+			{"limits.cpu", "CPU limit"},
+			{"limits.memory", "Memory limit"},
+			{"security.privileged", "Privileged"},
+			{"security.nesting", "Nesting"},
+			{"security.idmap.isolated", "ID map isolated"},
+			{"image.os", "Image OS"},
+			{"image.release", "Image release"},
+			{"image.description", "Image desc"},
+			{"cloud-init.user-data", "cloud-init"},
+		}
+		if len(snap.Config) > 0 {
+			shown := 0
+			for _, kv := range keyConfigs {
+				if v, ok := snap.Config[kv.key]; ok && v != "" {
+					if shown == 0 {
+						detailB.WriteString(dim.Render(strings.Repeat("─", detailW-1)) + "\n")
 					}
+					// Truncate long values to fit column
+					display := v
+					maxV := detailW - 18
+					if maxV < 10 {
+						maxV = 10
+					}
+					if len(display) > maxV {
+						display = display[:maxV-1] + "…"
+					}
+					detailB.WriteString(detailRow(kv.label, green.Render(display)))
+					shown++
 				}
 			}
 		}
 	}
 
-	// Input mode prompts
+	// ── Join columns side by side ──
+	leftLines := strings.Split(strings.TrimRight(listB.String(), "\n"), "\n")
+	rightLines := strings.Split(strings.TrimRight(detailB.String(), "\n"), "\n")
+
+	maxLines := len(leftLines)
+	if len(rightLines) > maxLines {
+		maxLines = len(rightLines)
+	}
+
+	b.WriteString("\n")
+	for i := 0; i < maxLines; i++ {
+		left := ""
+		if i < len(leftLines) {
+			left = leftLines[i]
+		}
+		right := ""
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		// Pad left column to fixed width (strip ANSI for padding calc is complex;
+		// use lipgloss Width for visual width)
+		padded := lipgloss.NewStyle().Width(listW).Render(left)
+		b.WriteString(padded + dim.Render("│") + " " + right + "\n")
+	}
+
+	// ── Footer: count + input prompts + confirm ──
+	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))
+
 	if a.snapNaming {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).
 			Render(fmt.Sprintf("  New snapshot name: %s▌", a.snapInput)) + "\n")
@@ -614,15 +662,13 @@ func (a App) renderSnapshotsPanel() string {
 			Render(fmt.Sprintf("  Rename '%s' → %s▌", a.snapRenameOld, a.snapInput)) + "\n")
 	}
 
-	b.WriteString(fmt.Sprintf("\n  %d snapshot(s)\n", len(a.snapshots)))
-
 	// Confirmation prompts — always at the very bottom
 	if a.snapConfirmDelete {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Bold(true).
+		b.WriteString("\n" + red.
 			Render(fmt.Sprintf("  ⚠  Delete snapshot '%s'?  [y] yes  [n] cancel", a.snapConfirmName)) + "\n")
 	}
 	if a.snapConfirmRestore {
-		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true).
+		b.WriteString("\n" + orange.
 			Render(fmt.Sprintf("  ⚠  Restore to '%s'? Container will stop.  [y] yes  [n] cancel", a.snapConfirmName)) + "\n")
 	}
 

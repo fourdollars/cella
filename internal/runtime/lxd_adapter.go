@@ -112,6 +112,8 @@ func (r *LXDRuntime) ListSnapshots(ctx context.Context, name string) ([]Snapshot
 			CreatedAt: s.CreatedAt,
 			Stateful:  s.Stateful,
 			Size:      s.Size,
+			Config:    s.Config,
+			Profiles:  s.Profiles,
 		}
 	}
 	return result, nil
