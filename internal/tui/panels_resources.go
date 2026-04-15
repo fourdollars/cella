@@ -619,11 +619,11 @@ func (a App) renderSnapshotsPanel() string {
 	// Confirmation prompts — always at the very bottom
 	if a.snapConfirmDelete {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Bold(true).
-			Render(fmt.Sprintf("  ⚠  Delete snapshot '%s'?  [y] confirm  [any] cancel", a.snapConfirmName)) + "\n")
+			Render(fmt.Sprintf("  ⚠  Delete snapshot '%s'?  [y] yes  [n] cancel", a.snapConfirmName)) + "\n")
 	}
 	if a.snapConfirmRestore {
 		b.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#e67e22")).Bold(true).
-			Render(fmt.Sprintf("  ⚠  Restore to '%s'? Container will stop.  [y] confirm  [any] cancel", a.snapConfirmName)) + "\n")
+			Render(fmt.Sprintf("  ⚠  Restore to '%s'? Container will stop.  [y] yes  [n] cancel", a.snapConfirmName)) + "\n")
 	}
 
 	return b.String()

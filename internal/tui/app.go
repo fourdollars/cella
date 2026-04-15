@@ -2039,7 +2039,7 @@ func (a App) renderStatusBar() string {
 		return " RESOURCES │ ↑↓ select │ Enter: edit │ Esc/q: back"
 	case panelSnapshots:
 		if a.snapConfirmDelete || a.snapConfirmRestore {
-			return " SNAPSHOTS │ y: confirm │ any other key: cancel"
+			return " SNAPSHOTS │ y: confirm │ n: cancel"
 		}
 		return " SNAPSHOTS │ ↑↓ select │ n: new │ r: rename │ c: clone │ R: restore │ D: delete │ Esc/q: back"
 	default:
