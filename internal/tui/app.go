@@ -52,6 +52,7 @@ const (
 	panelAudit
 	panelInference
 	panelRouting
+	panelBroker
 )
 
 const tickInterval = 2 * time.Second
@@ -315,6 +316,20 @@ type App struct {
 	routingInputBuf  string
 	routingNewRoute  proxy.InferenceRoute
 
+	// Token Broker panel (Phase 1)
+	brokerTab          int // 0=groups 1=pools 2=policy 3=eevdf 4=health 5=preview
+	brokerGroupCursor  int
+	brokerTokenCursor  int
+	brokerPolicyCursor int
+	brokerEditMode     bool
+	brokerEditBuf      string
+	brokerDirty        bool
+	brokerPreviewLines []string
+	brokerGroups       []BrokerGroup
+	brokerPools        []BrokerPool
+	brokerPolicies     []BrokerPolicy
+	brokerLastApplied  *BrokerSnapshot
+
 	// Seccomp Notify Operator Approval
 	pendingSeccompApproval *SeccompApprovalRequest
 	seccompAllowlist       map[string]map[string]bool // container → syscall → permanently allowed
@@ -355,6 +370,7 @@ func NewApp() App {
 		tracers:        make(map[string]*trace.Tracer),
 		interceptedIPs: make(map[string]string),
 	}
+	app.initBrokerDefaults()
 
 	// Auto-start proxy if allowlist.json or denylist.json exist with container entries
 	dataDir := os.ExpandEnv("$HOME/.cella")
@@ -759,6 +775,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.focus == panelInference {
 			return a.handleInferencePanel(msg)
 		}
+		if a.focus == panelBroker {
+			return a.handleBrokerPanel(msg)
+		}
 		if a.focus == panelAudit {
 			return a.handleAuditPanel(msg)
 		}
@@ -1066,6 +1085,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.inferenceScroll = 0
 			a.prevFocus = a.focus
 			a.focus = panelInference
+			return a, nil
+		case "B":
+			// Token Broker panel
+			a.prevFocus = a.focus
+			a.focus = panelBroker
 			return a, nil
 		case "V":
 			// Events panel
@@ -1874,6 +1898,8 @@ func (a App) View() string {
 		dashboard = a.renderRoutingPanel()
 	case panelAudit:
 		dashboard = a.renderAuditPanel()
+	case panelBroker:
+		dashboard = a.renderBrokerPanel()
 	case panelCreate:
 		dashboard = a.renderCreatePanel()
 	case panelExport:
@@ -2026,6 +2052,11 @@ func (a App) renderStatusBar() string {
 			return " ROUTING │ type value → Enter │ Esc: cancel"
 		}
 		return " ROUTING │ ↑↓ select │ Enter: toggle │ a: add │ d: delete │ p: presets │ S: save │ Esc: back"
+	case panelBroker:
+		if a.brokerEditMode {
+			return fmt.Sprintf(" TOKEN BROKER EDIT │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditBuf)
+		}
+		return " TOKEN BROKER │ 1-6 tabs │ ↑↓ select │ Enter/edit │ P preview │ S apply │ U rollback │ Esc: back"
 	case panelAudit:
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)
