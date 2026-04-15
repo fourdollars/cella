@@ -1946,7 +1946,24 @@ func (a App) View() string {
 func (a App) renderStatusBar() string {
 	// Flash message takes priority over normal status bar
 	if a.flashText != "" && time.Now().Before(a.flashExpiry) {
-		return " " + a.flashText
+		switch {
+		case strings.HasPrefix(a.flashText, "❌"):
+			// Error: dark text on orange background
+			return lipgloss.NewStyle().
+				Background(lipgloss.Color("#e67e22")).
+				Foreground(lipgloss.Color("#0d1117")).
+				Bold(true).Padding(0, 1).
+				Render(a.flashText)
+		case strings.HasPrefix(a.flashText, "✅"):
+			// Success: dark text on green background
+			return lipgloss.NewStyle().
+				Background(lipgloss.Color("#27ae60")).
+				Foreground(lipgloss.Color("#0d1117")).
+				Bold(true).Padding(0, 1).
+				Render(a.flashText)
+		default:
+			return " " + a.flashText
+		}
 	}
 	if a.searchMode {
 		return fmt.Sprintf(" 🔍 SEARCH │ type name → Enter │ Esc: cancel │ > %s█", a.searchInput)
