@@ -1115,6 +1115,9 @@ func (a App) renderPolicyPanel() string {
 		right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
 		right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
 		right.WriteString(fmt.Sprintf("  (%s)dmapIso    %s %s\n", keyHint.Render("M"), boolIcon(a.policyIdmapIso), label(a.policyIdmapIso)))
+
+		right.WriteString("\n")
+		right.WriteString(SectionHeaderStyle.Render("Lifecycle") + "\n")
 		right.WriteString(fmt.Sprintf("  (%s)oot.autostart %s %s\n", keyHint.Render("b"), boolIcon(a.policyAutostart), label(a.policyAutostart)))
 
 		right.WriteString("\n")
