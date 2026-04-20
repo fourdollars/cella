@@ -859,8 +859,8 @@ func TestBrokerRuntimePreviewShowsCounters(t *testing.T) {
 			Tokens: []proxy.BrokerTokenState{{ID: "tok_a1", Enabled: true, Health: 0.90, RemainingRPH: 300, SessionState: "fresh", LastTest: "ok"}},
 		}},
 	})
-	globalProxyServer.SelectBrokerToken("unknown", "gpt-5-mini") // unmanaged
-	globalProxyServer.SelectBrokerToken("team-a", "gpt-5-mini")  // grouped
+	globalProxyServer.SelectBrokerToken("unknown", "gpt-5-mini", "") // unmanaged
+	globalProxyServer.SelectBrokerToken("team-a", "gpt-5-mini", "")  // grouped
 	globalProxyServer.MarkBrokerTokenRequestResult("tok_a1", 200, 100)
 
 	a.handleBrokerPanel(keyRune('R'))
@@ -891,7 +891,7 @@ func TestBrokerClearCountersKey(t *testing.T) {
 			Tokens: []proxy.BrokerTokenState{{ID: "tok_a1", Enabled: true, Health: 0.9, RemainingRPH: 100}},
 		}},
 	})
-	globalProxyServer.SelectBrokerToken("team-a", "gpt-5-mini")
+	globalProxyServer.SelectBrokerToken("team-a", "gpt-5-mini", "")
 	if len(globalProxyServer.BrokerCounters()) == 0 {
 		t.Fatalf("expected counters before clear")
 	}

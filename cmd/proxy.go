@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -42,6 +43,7 @@ func proxyCmd() *cobra.Command {
 		allowDomains []string
 		bridgeHostIP string
 		verbose      bool
+		useStateFile bool
 	)
 
 	cmd := &cobra.Command{
@@ -148,6 +150,14 @@ This command can:
 						}},
 					}},
 				})
+			} else if useStateFile {
+				// Load full broker state from ~/.cella/token_broker_state.json
+				// and inject secrets from ~/.cella/token_broker_secrets.json.
+				if err := proxyLoadBrokerState(srv, dataDir); err != nil {
+					fmt.Fprintf(os.Stderr, "[proxy] warn: broker state load failed: %v\n", err)
+				} else {
+					fmt.Println("[proxy] broker state loaded from", filepath.Join(dataDir, "token_broker_state.json"))
+				}
 			}
 
 			if len(allowDomains) > 0 {
@@ -263,6 +273,7 @@ This command can:
 	cmd.Flags().StringVar(&poolName, "pool", "pool_main", "Pool name used in minimal broker bootstrap")
 	cmd.Flags().StringArrayVar(&allowDomains, "allow-domain", []string{"api.github.com", "api.individual.githubcopilot.com", "api.business.githubcopilot.com"}, "Pre-allow domains (repeatable)")
 	cmd.Flags().BoolVar(&verbose, "verbose", false, "Print approvals and audit entries while running")
+	cmd.Flags().BoolVar(&useStateFile, "use-state", false, "Load broker state from ~/.cella/token_broker_state.json + secrets (ignores --pat-env)")
 
 	return cmd
 }
@@ -327,4 +338,84 @@ func resolveLXDContainerIPs(names []string) (map[string]string, string, error) {
 	}
 
 	return result, client.SocketPath(), nil
+}
+
+// proxyBrokerPersistState mirrors the TUI's brokerPersistState for JSON decoding.
+type proxyBrokerPersistState struct {
+	Groups           []proxy.BrokerGroupState  `json:"groups"`
+	Pools            []proxyBrokerPoolPersist  `json:"pools"`
+	Policies         []proxy.BrokerPolicyState `json:"policies"`
+	ExchangeEndpoint string                    `json:"exchange_endpoint,omitempty"`
+}
+
+type proxyBrokerPoolPersist struct {
+	Name   string                    `json:"Name"`
+	Tokens []proxyBrokerTokenPersist `json:"Tokens"`
+}
+
+type proxyBrokerTokenPersist struct {
+	ID           string  `json:"ID"`
+	Kind         string  `json:"Kind"`
+	Endpoint     string  `json:"Endpoint"`
+	Enabled      bool    `json:"Enabled"`
+	Health       float64 `json:"Health"`
+	RemainingRPH int     `json:"RemainingRPH"`
+	PATEnv       string  `json:"PATEnv"`
+	P95ms        int     `json:"P95ms"`
+}
+
+// proxyLoadBrokerState reads token_broker_state.json + token_broker_secrets.json
+// from dataDir and injects the full broker state into srv.
+func proxyLoadBrokerState(srv *proxy.Server, dataDir string) error {
+	stateFile := filepath.Join(dataDir, "token_broker_state.json")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", stateFile, err)
+	}
+	var ps proxyBrokerPersistState
+	if err := json.Unmarshal(data, &ps); err != nil {
+		return fmt.Errorf("parse %s: %w", stateFile, err)
+	}
+
+	// Load secrets and inject into env.
+	secretsFile := filepath.Join(dataDir, "token_broker_secrets.json")
+	if raw, err := os.ReadFile(secretsFile); err == nil {
+		var secrets map[string]string
+		if json.Unmarshal(raw, &secrets) == nil {
+			for k, v := range secrets {
+				if strings.TrimSpace(v) != "" {
+					_ = os.Setenv(k, v)
+				}
+			}
+			fmt.Printf("[proxy] injected %d secrets from %s\n", len(secrets), secretsFile)
+		}
+	}
+
+	// Convert persist → runtime state.
+	pools := make([]proxy.BrokerPoolState, 0, len(ps.Pools))
+	for _, p := range ps.Pools {
+		tokens := make([]proxy.BrokerTokenState, 0, len(p.Tokens))
+		for _, t := range p.Tokens {
+			tokens = append(tokens, proxy.BrokerTokenState{
+				ID:           t.ID,
+				Kind:         t.Kind,
+				Endpoint:     t.Endpoint,
+				Enabled:      t.Enabled,
+				Health:       t.Health,
+				RemainingRPH: t.RemainingRPH,
+				PATEnv:       t.PATEnv,
+				P95ms:        t.P95ms,
+			})
+		}
+		pools = append(pools, proxy.BrokerPoolState{Name: p.Name, Tokens: tokens})
+	}
+
+	srv.SetBrokerState(proxy.BrokerState{
+		AppliedAt:        time.Now(),
+		Groups:           ps.Groups,
+		Pools:            pools,
+		Policies:         ps.Policies,
+		ExchangeEndpoint: ps.ExchangeEndpoint,
+	})
+	return nil
 }

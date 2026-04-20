@@ -166,7 +166,7 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		admissionModel = extractModelFromPath(r.URL.Path)
 	}
 	if h.server != nil && (isInferenceReq || isCopilotExchangeReq || isGeminiReq) {
-		tok, matched, ok, reason := h.server.SelectBrokerToken(h.container, admissionModel)
+		tok, matched, ok, reason := h.server.SelectBrokerToken(h.container, admissionModel, h.domain)
 		if matched && !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)

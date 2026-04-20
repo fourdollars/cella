@@ -520,6 +520,36 @@ func brokerTokenHealthy(t BrokerTokenState) bool {
 	return true
 }
 
+// brokerTokenMatchesDomain returns true if the token's kind is compatible with
+// the target domain. This prevents cross-provider token mismatches (e.g. a
+// Gemini API key being injected into a Copilot request).
+//
+// Rules:
+//   - kind=gemini   → only matches generativelanguage.googleapis.com
+//   - kind=openai   → only matches openai-like domains (api.openai.com, azure, etc.)
+//   - kind=copilot  → only matches githubcopilot.com and api.github.com
+//   - kind="" (auto) → matches any domain (legacy / single-provider pools)
+func brokerTokenMatchesDomain(t BrokerTokenState, domain string) bool {
+	kind := strings.TrimSpace(t.Kind)
+	if kind == "" {
+		return true // auto: no filter
+	}
+	d := strings.ToLower(strings.TrimSpace(domain))
+	switch kind {
+	case BrokerTokenKindGemini:
+		return strings.Contains(d, "googleapis.com")
+	case BrokerTokenKindOpenAI:
+		return strings.Contains(d, "openai.com") ||
+			strings.Contains(d, "azure.com") ||
+			strings.Contains(d, "openai.azure")
+	case BrokerTokenKindCopilot:
+		return strings.Contains(d, "githubcopilot.com") ||
+			strings.Contains(d, "api.github.com")
+	default:
+		return true
+	}
+}
+
 func brokerTokenRankP95(t BrokerTokenState) int {
 	if t.P95ms <= 0 {
 		return 1 << 30
@@ -537,10 +567,12 @@ func clampBrokerHealth(v float64) float64 {
 	return v
 }
 
-// SelectBrokerToken returns a token candidate for the container/model.
+// SelectBrokerToken returns a token candidate for the container/model/domain.
 // matched=false means this container is not broker-managed (opt-in behavior).
 // matched=true and ok=false means broker applies and admission should be blocked.
-func (s *Server) SelectBrokerToken(container, model string) (token BrokerTokenState, matched bool, ok bool, reason string) {
+// domain is used to filter tokens by kind: copilot tokens are only selected for
+// Copilot domains; gemini tokens only for Gemini domains; etc.
+func (s *Server) SelectBrokerToken(container, model, domain string) (token BrokerTokenState, matched bool, ok bool, reason string) {
 	_ = model // model-aware selection is next phase
 	s.bumpBrokerCounter("select_attempt")
 
@@ -573,7 +605,7 @@ func (s *Server) SelectBrokerToken(container, model string) (token BrokerTokenSt
 
 	candidates := make([]BrokerTokenState, 0, len(pool.Tokens))
 	for _, t := range pool.Tokens {
-		if brokerTokenHealthy(t) {
+		if brokerTokenHealthy(t) && brokerTokenMatchesDomain(t, domain) {
 			candidates = append(candidates, t)
 		}
 	}
@@ -604,7 +636,7 @@ func (s *Server) SelectBrokerToken(container, model string) (token BrokerTokenSt
 // ShouldBlockByBroker evaluates current runtime broker state and reports whether
 // a request should be rejected at admission time.
 func (s *Server) ShouldBlockByBroker(container, model string) (blocked bool, reason string) {
-	_, matched, ok, reason := s.SelectBrokerToken(container, model)
+	_, matched, ok, reason := s.SelectBrokerToken(container, model, "")
 	if !matched {
 		return false, ""
 	}

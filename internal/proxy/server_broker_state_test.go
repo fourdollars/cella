@@ -111,7 +111,7 @@ func TestSelectBrokerToken_ChoosesBestHealthyCandidate(t *testing.T) {
 		}},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected matched+ok, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -134,7 +134,7 @@ func TestSelectBrokerToken_UsesPolicyPoolOverride(t *testing.T) {
 		Policies: []BrokerPolicyState{{Name: "policy-a", Group: "team-a", Pool: "pool_beta", Strategy: "weighted_least_load"}},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("team-a", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("team-a", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected matched+ok, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -153,7 +153,7 @@ func TestSelectBrokerToken_GroupPrefixPatternMatch(t *testing.T) {
 		}},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-17", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-17", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected prefix pattern match, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -172,7 +172,7 @@ func TestSelectBrokerToken_GroupGlobPatternMatch(t *testing.T) {
 		}},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected glob pattern match, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -194,7 +194,7 @@ func TestSelectBrokerToken_ExactMatchBeatsWildcard(t *testing.T) {
 		},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-1", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected exact match to win, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -214,7 +214,7 @@ func TestSelectBrokerToken_GroupIDAndMatchRuleSplit(t *testing.T) {
 		Policies: []BrokerPolicyState{{Name: "policy-ci", Group: "ci-batch", Pool: "pool_beta", Strategy: "weighted_least_load"}},
 	})
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-42", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-42", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected matched+ok with split id/match rule, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
@@ -397,7 +397,7 @@ func TestBrokerCounters_SelectionAndSessionFlow(t *testing.T) {
 	})
 	t.Setenv("PAT_BEST", "ghu_best_pat")
 
-	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-9", "gpt-5-mini")
+	tok, matched, ok, reason := s.SelectBrokerToken("ci-runner-9", "gpt-5-mini", "")
 	if !matched || !ok || reason != "" {
 		t.Fatalf("expected matched+ok, got matched=%v ok=%v reason=%q", matched, ok, reason)
 	}
