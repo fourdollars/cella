@@ -464,6 +464,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				globalProxyServer = srv
 				globalApprovalCh = approvalCh
 				globalTproxyListener = tl
+				// Auto-sync broker state to proxy runtime
+				a.brokerSyncRuntimeState()
 			}
 			a.addEvent(fmt.Sprintf("🔧 setting up interception on %s...", c.Name))
 			return a, a.autoSetupProxy(c.Name, globalProxyServer, a.client.SocketPath())

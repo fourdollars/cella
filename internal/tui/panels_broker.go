@@ -82,6 +82,57 @@ func brokerStatePath() (string, error) {
 	return filepath.Join(dir, "token_broker_state.json"), nil
 }
 
+func brokerSecretsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".cella")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "token_broker_secrets.json"), nil
+}
+
+func loadBrokerSecrets() (map[string]string, error) {
+	path, err := brokerSecretsPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]string), nil
+		}
+		return nil, err
+	}
+	var secrets map[string]string
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		return nil, err
+	}
+	return secrets, nil
+}
+
+func saveBrokerSecrets(secrets map[string]string) error {
+	path, err := brokerSecretsPath()
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(secrets, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
+}
+
+func injectBrokerSecrets(secrets map[string]string) {
+	for k, v := range secrets {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			_ = os.Setenv(k, v)
+		}
+	}
+}
+
 func brokerGroupID(g BrokerGroup) string {
 	if v := strings.TrimSpace(g.ID); v != "" {
 		return v
@@ -437,6 +488,12 @@ func (a *App) loadBrokerState() error {
 		a.brokerExchangeEndpoint = brokerDefaultExchangeEndpoint()
 	}
 	a.normalizeBrokerGroupsAndPolicies()
+
+	// Load and inject persisted secrets so proxy can resolve PATs
+	secrets, err := loadBrokerSecrets()
+	if err == nil && len(secrets) > 0 {
+		injectBrokerSecrets(secrets)
+	}
 	return nil
 }
 
@@ -754,6 +811,17 @@ func (a *App) brokerCommitEdit() bool {
 		}
 		patEnv := brokerSuggestedPATEnv(tokenID)
 		_ = os.Setenv(patEnv, pat)
+		// Persist PAT to secrets file
+		secrets, _ := loadBrokerSecrets()
+		if secrets == nil {
+			secrets = make(map[string]string)
+		}
+		secrets[patEnv] = pat
+		if err := saveBrokerSecrets(secrets); err != nil {
+			a.addEvent(fmt.Sprintf("⚠ PAT secret save failed: %v", err))
+		} else {
+			a.addEvent(fmt.Sprintf("🔐 PAT persisted to ~/.cella/token_broker_secrets.json (key=%s)", patEnv))
+		}
 		a.brokerPools[idx].Tokens = append(a.brokerPools[idx].Tokens, BrokerToken{
 			ID:           tokenID,
 			Enabled:      true,
@@ -769,7 +837,6 @@ func (a *App) brokerCommitEdit() bool {
 		}
 		a.brokerDirty = true
 		a.addEvent(fmt.Sprintf("✅ token %s added to %s (ID+PAT captured via inline input)", tokenID, poolName))
-		a.addEvent(fmt.Sprintf("🔐 PAT stored in process env %s (not persisted to broker state file)", patEnv))
 		a.brokerResetEditState()
 		return true
 	default:

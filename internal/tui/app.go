@@ -410,6 +410,8 @@ func NewApp() App {
 			globalProxyServer = srv
 			globalApprovalCh = approvalCh
 			globalTproxyListener = tl
+			// Auto-sync broker state to proxy runtime on startup
+			app.brokerSyncRuntimeState()
 			for c := range containersToSetup {
 				app.pendingAutoSetup = append(app.pendingAutoSetup, c)
 			}

@@ -74,9 +74,8 @@ func seedBrokerTestData(a *App) {
 
 func newBrokerTestApp(t *testing.T, isolateHome bool) App {
 	t.Helper()
-	if isolateHome {
-		t.Setenv("HOME", t.TempDir())
-	}
+	// Always isolate HOME in tests to prevent host ~/.cella/ pollution
+	t.Setenv("HOME", t.TempDir())
 	a := App{width: 140}
 	a.initBrokerDefaults()
 	seedBrokerTestData(&a)
