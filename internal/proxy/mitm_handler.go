@@ -40,9 +40,7 @@ func (t *TransparentListener) handleMITMTransparent(
 
 	tlsConn := tls.Server(clientConn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
-		t.mu.Lock()
-		t.mitmFailed[domain] = true
-		t.mu.Unlock()
+		t.markMITMFailure(domain)
 		t.server.audit.Add(AuditEntry{
 			Time: start, Container: container, Domain: domain,
 			Method: "MITM", Status: "pinned-fallback", TLS: true,
@@ -52,6 +50,8 @@ func (t *TransparentListener) handleMITMTransparent(
 		clientConn.Close()
 		return
 	}
+
+	t.clearMITMFailure(domain)
 
 	// Create a reverse proxy handler that forwards to the real upstream
 	handler := &mitmHandler{
@@ -153,9 +153,119 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward to real upstream
-	// Check RPH limit before forwarding
-	if h.stats != nil && origModel != "" {
-		if exceeded, cur, lim := h.stats.IsRPHExceeded(origModel); exceeded {
+	// Check broker admission before forwarding. Broker can manage:
+	// 1) inference requests (responses/chat/completions...)
+	// 2) Copilot auth exchange (/copilot_internal/v2/token)
+	selectedTokenID := ""
+	selectedAuthSource := ""
+	isInferenceReq := isInferencePath(r.URL.Path)
+	isCopilotExchangeReq := isCopilotExchangePath(r.URL.Path)
+	admissionModel := origModel
+	if admissionModel == "" {
+		admissionModel = extractModelFromPath(r.URL.Path)
+	}
+	if h.server != nil && (isInferenceReq || isCopilotExchangeReq) {
+		tok, matched, ok, reason := h.server.SelectBrokerToken(h.container, admissionModel)
+		if matched && !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker admission blocked (%s)\",\"type\":\"rate_limit_error\",\"code\":\"%s\"}}", reason, reason)
+
+			if h.stats != nil && admissionModel != "" {
+				h.stats.Record(InferenceRequest{
+					Time:       reqStart,
+					Container:  h.container,
+					Domain:     h.domain,
+					Model:      admissionModel,
+					Path:       r.URL.Path,
+					Method:     r.Method,
+					StatusCode: http.StatusTooManyRequests,
+					Error:      reason,
+					Latency:    time.Since(reqStart),
+				})
+			}
+
+			h.server.audit.Add(AuditEntry{
+				Time: reqStart, Container: h.container, Domain: h.domain,
+				Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
+				Status: "blocked-broker", TLS: true,
+				BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
+				Latency: time.Since(reqStart),
+			})
+			return
+		}
+		if matched && ok {
+			selectedTokenID = tok.ID
+			if tok.ID != "" {
+				r.Header.Set("X-Cella-Broker-Token-ID", tok.ID)
+			}
+			if tok.PATEnv != "" {
+				r.Header.Set("X-Cella-Broker-PAT-Env", tok.PATEnv)
+			}
+
+			switch {
+			case isCopilotExchangeReq:
+				// OpenClaw's Copilot exchange endpoint expects GitHub PAT, not session token.
+				pat, srcEnv, err := h.server.resolveBrokerPAT(tok)
+				src := normalizeBrokerAuthSource("pat:" + srcEnv)
+				selectedAuthSource = src
+				if err != nil {
+					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, src)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusTooManyRequests)
+					fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker PAT resolve failed (%v)\",\"type\":\"rate_limit_error\",\"code\":\"broker_exchange_failed\"}}", err)
+					h.server.audit.Add(AuditEntry{
+						Time: reqStart, Container: h.container, Domain: h.domain,
+						Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
+						Status: "blocked-broker-exchange", TLS: true,
+						BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
+						Latency: time.Since(reqStart),
+					})
+					return
+				}
+				r.Header.Set("Authorization", "Bearer "+pat)
+				r.Header.Set("X-Cella-Broker-Auth-Source", src)
+
+			case h.server.shouldUseBrokerSession(h.domain):
+				session, src, err := h.server.AcquireBrokerSessionToken(tok)
+				selectedAuthSource = normalizeBrokerAuthSource(src)
+				if err != nil {
+					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, selectedAuthSource)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusTooManyRequests)
+					fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker session exchange failed (%v)\",\"type\":\"rate_limit_error\",\"code\":\"broker_exchange_failed\"}}", err)
+
+					if h.stats != nil && admissionModel != "" {
+						h.stats.Record(InferenceRequest{
+							Time:       reqStart,
+							Container:  h.container,
+							Domain:     h.domain,
+							Model:      admissionModel,
+							Path:       r.URL.Path,
+							Method:     r.Method,
+							StatusCode: http.StatusTooManyRequests,
+							Error:      "broker_exchange_failed",
+							Latency:    time.Since(reqStart),
+						})
+					}
+					h.server.audit.Add(AuditEntry{
+						Time: reqStart, Container: h.container, Domain: h.domain,
+						Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
+						Status: "blocked-broker-exchange", TLS: true,
+						BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
+						Latency: time.Since(reqStart),
+					})
+					return
+				}
+				h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, selectedAuthSource)
+				r.Header.Set("Authorization", "Bearer "+session)
+				r.Header.Set("X-Cella-Broker-Auth-Source", selectedAuthSource)
+			}
+		}
+	}
+	if h.stats != nil && admissionModel != "" {
+		if exceeded, cur, lim := h.stats.IsRPHExceeded(admissionModel); exceeded {
+			h.server.MarkBrokerTokenRequestResult(selectedTokenID, http.StatusTooManyRequests, time.Since(reqStart))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			fmt.Fprintf(w, "{\"error\":{\"message\":\"RPH limit exceeded (%d/%d)\",\"type\":\"rate_limit_error\",\"code\":\"rph_limit_exceeded\"}}", cur, lim)
@@ -165,7 +275,7 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Time:       reqStart,
 				Container:  h.container,
 				Domain:     h.domain,
-				Model:      origModel,
+				Model:      admissionModel,
 				Path:       r.URL.Path,
 				Method:     r.Method,
 				StatusCode: http.StatusTooManyRequests,
@@ -177,6 +287,7 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Time: reqStart, Container: h.container, Domain: h.domain,
 				Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
 				Status: "blocked-rph", TLS: true,
+				BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
 				Latency: time.Since(reqStart),
 			})
 			return
@@ -185,10 +296,18 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(r)
 	if err != nil {
+		if selectedTokenID != "" {
+			if isInferenceReq {
+				h.server.MarkBrokerTokenRequestResult(selectedTokenID, http.StatusBadGateway, time.Since(reqStart))
+			} else if isCopilotExchangeReq {
+				h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, brokerExchangeResultSource(h.domain, selectedAuthSource))
+			}
+		}
 		h.server.audit.Add(AuditEntry{
 			Time: reqStart, Container: h.container, Domain: h.domain,
 			Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
 			Status: "error-upstream", TLS: true,
+			BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
 			Latency: time.Since(reqStart),
 		})
 		http.Error(w, "upstream error", http.StatusBadGateway)
@@ -222,7 +341,7 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// original request, and only fall back to the response model for token counts.
 	var model string
 	var tokensIn, tokensOut int64
-	if isInferencePath(r.URL.Path) {
+	if isInferenceReq {
 		contentType := resp.Header.Get("Content-Type")
 
 		// Always parse response for token counts; also get response model as fallback
@@ -248,10 +367,18 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit
+	if selectedTokenID != "" {
+		if isInferenceReq {
+			h.server.MarkBrokerTokenRequestResult(selectedTokenID, resp.StatusCode, time.Since(reqStart))
+		} else if isCopilotExchangeReq {
+			h.server.MarkBrokerTokenExchangeResult(selectedTokenID, resp.StatusCode >= 200 && resp.StatusCode < 300, brokerExchangeResultSource(h.domain, selectedAuthSource))
+		}
+	}
 	h.server.audit.Add(AuditEntry{
 		Time: reqStart, Container: h.container, Domain: h.domain,
 		Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
 		Status: "allowed", RespCode: resp.StatusCode, TLS: true,
+		BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
 		Latency: time.Since(reqStart),
 	})
 
@@ -280,6 +407,31 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
+}
+
+func normalizeBrokerAuthSource(source string) string {
+	s := strings.TrimSpace(source)
+	if s == "" {
+		return ""
+	}
+	if strings.Contains(s, ":") {
+		return s
+	}
+	return "pat:" + s
+}
+
+func brokerExchangeResultSource(domain, authSource string) string {
+	direct := "direct:" + strings.TrimSpace(domain)
+	auth := strings.TrimSpace(authSource)
+	if auth == "" {
+		return direct
+	}
+	return direct + "|" + auth
+}
+
+func isCopilotExchangePath(path string) bool {
+	p := strings.TrimSpace(path)
+	return p == "/copilot_internal/v2/token"
 }
 
 // isInferencePath checks if the path is a known inference endpoint.

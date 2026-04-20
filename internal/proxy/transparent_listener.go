@@ -1,17 +1,19 @@
 package proxy
 
 import (
-	"context"
-	"strings"
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"sync"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 )
+
+const mitmRetryBackoff = 5 * time.Second
 
 // TransparentListener handles connections redirected by nftables REDIRECT/DNAT.
 // These are raw TCP connections (not HTTP CONNECT), so we need to:
@@ -23,7 +25,7 @@ type TransparentListener struct {
 	server           *Server
 	listener         net.Listener
 	pendingApprovals map[string]chan bool // domain → result channel (dedup concurrent approvals)
-	mitmFailed       map[string]bool      // domains where MITM handshake failed (cert pinning)
+	mitmFailedUntil  map[string]time.Time // domain → temporarily bypass MITM until this time
 	infraBypass      map[string]bool      // domains that should always use tunnel passthrough (no MITM)
 	mu               sync.RWMutex
 	// onPermanentAllow is called whenever a domain is permanently added to an
@@ -40,7 +42,7 @@ func NewTransparentListener(port int, server *Server) *TransparentListener {
 		port:             port,
 		server:           server,
 		pendingApprovals: make(map[string]chan bool),
-		mitmFailed:       make(map[string]bool),
+		mitmFailedUntil:  make(map[string]time.Time),
 		infraBypass:      defaultInfraBypass(),
 	}
 }
@@ -253,11 +255,8 @@ func (t *TransparentListener) handleTLS(
 	}
 
 	// MITM mode: intercept TLS (only for pre-allowed domains where CA cert is trusted)
-	// Freshly-approved connections use plain tunnel (CA cert may not be trusted yet)
-	t.mu.RLock()
-	mitmBlocked := t.mitmFailed[domain]
-	t.mu.RUnlock()
-	if mitmCfg != nil && !mitmBlocked {
+	// On handshake failure we temporarily bypass MITM, then retry after backoff.
+	if mitmCfg != nil && !t.shouldBypassMITM(domain) {
 		t.handleMITMTransparent(bufferedConn, container, domain, mitmCfg, start)
 		return
 	}
@@ -380,6 +379,45 @@ func (t *TransparentListener) handlePlainHTTP(
 	})
 
 	resp.Write(clientConn)
+}
+
+func (t *TransparentListener) markMITMFailure(domain string) {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.mitmFailedUntil[d] = time.Now().Add(mitmRetryBackoff)
+}
+
+func (t *TransparentListener) clearMITMFailure(domain string) {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.mitmFailedUntil, d)
+}
+
+func (t *TransparentListener) shouldBypassMITM(domain string) bool {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return false
+	}
+	now := time.Now()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	until, ok := t.mitmFailedUntil[d]
+	if !ok {
+		return false
+	}
+	if now.After(until) {
+		delete(t.mitmFailedUntil, d)
+		return false
+	}
+	return true
 }
 
 // resolveContainerName resolves a source IP to a container name.
@@ -552,7 +590,7 @@ func defaultInfraBypass() map[string]bool {
 		"derp1.tailscale.com",
 		"derp2.tailscale.com",
 		// Common cert-pinned services
-		"mtalk.google.com",       // FCM/GCM push
+		"mtalk.google.com", // FCM/GCM push
 		"alt1-mtalk.google.com",
 		"courier.push.apple.com", // APNs
 	}

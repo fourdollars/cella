@@ -140,7 +140,12 @@ func FormatEntry(e AuditEntry) string {
 		respInfo = fmt.Sprintf(" [%d]", e.RespCode)
 	}
 
-	return fmt.Sprintf("%s %s%s %s %s → %s%s%s (%s)",
+	brokerInfo := ""
+	if e.BrokerTokenID != "" || e.BrokerAuthSource != "" {
+		brokerInfo = fmt.Sprintf(" broker[token=%s src=%s]", e.BrokerTokenID, e.BrokerAuthSource)
+	}
+
+	return fmt.Sprintf("%s %s%s %s %s → %s%s%s%s (%s)",
 		e.Time.Format("15:04:05"),
 		statusIcon,
 		tlsTag,
@@ -149,6 +154,7 @@ func FormatEntry(e AuditEntry) string {
 		e.Domain,
 		pathInfo,
 		respInfo,
+		brokerInfo,
 		e.Latency.Truncate(time.Millisecond),
 	)
 }

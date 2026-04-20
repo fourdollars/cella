@@ -30,8 +30,8 @@ func SetupTransparentRedirect(containerIP string, proxyPort int) error {
 	batch := fmt.Sprintf(
 		"add table ip %s\n"+
 			"add chain ip %s %s { type nat hook prerouting priority dstnat; policy accept; }\n"+
-			"add rule ip %s %s ip saddr %s tcp dport 443 redirect to :%d comment \"%s_443\"\n"+
-			"add rule ip %s %s ip saddr %s tcp dport 80  redirect to :%d comment \"%s_80\"",
+			"add rule ip %s %s ip saddr %s tcp dport 443 counter redirect to :%d comment \"%s_443\"\n"+
+			"add rule ip %s %s ip saddr %s tcp dport 80  counter redirect to :%d comment \"%s_80\"",
 		table,
 		table, chain,
 		table, chain, containerIP, proxyPort, tag,
@@ -95,8 +95,8 @@ func SetupHostRedirect(proxyPort, uid int) error {
 	batch := fmt.Sprintf(
 		"add table ip %s\n"+
 			"add chain ip %s %s { type nat hook output priority dstnat; policy accept; }\n"+
-			"add rule ip %s %s meta skuid != %d tcp dport 443 redirect to :%d comment \"%s_443\"\n"+
-			"add rule ip %s %s meta skuid != %d tcp dport 80  redirect to :%d comment \"%s_80\"",
+			"add rule ip %s %s meta skuid != %d tcp dport 443 counter redirect to :%d comment \"%s_443\"\n"+
+			"add rule ip %s %s meta skuid != %d tcp dport 80  counter redirect to :%d comment \"%s_80\"",
 		table,
 		table, chain,
 		table, chain, uid, proxyPort, tag,
