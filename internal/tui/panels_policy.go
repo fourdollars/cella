@@ -416,6 +416,30 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.selected--
 			a.policyScroll = 0
 			if a.selected < len(a.containers) {
+			// Clear stale policy data immediately -- show loading state until new data arrives
+			a.policyEgress = ""
+			a.policySeccomp = ""
+			a.policyAppArmor = ""
+			a.policyPrivileged = false
+			a.policyNesting = false
+			a.policyDenyList = nil
+			a.policyDevLXD = false
+			a.policyIdmapIso = false
+			a.policyAutostart = false
+			a.policyInterceptMknod = false
+			a.policyInterceptBpf = false
+			a.policyInterceptBpfDev = false
+			a.policyInterceptSetxattr = false
+			a.policyInterceptSched = false
+			a.policyInterceptSysinfo = false
+			a.policyInterceptMount = false
+			a.policyInterceptMountShift = false
+			a.policyInterceptMountFuse = ""
+			a.policyInterceptMountAllow = ""
+			a.policyProfiles = nil
+			a.policyProfileDetails = nil
+			a.policyContainerCfg = nil
+			a.policyLoading = true
 				return a, a.fetchPolicyInfo(a.containers[a.selected])
 			}
 		}
@@ -426,6 +450,30 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.selected++
 			a.policyScroll = 0
 			if a.selected < len(a.containers) {
+			// Clear stale policy data immediately -- show loading state until new data arrives
+			a.policyEgress = ""
+			a.policySeccomp = ""
+			a.policyAppArmor = ""
+			a.policyPrivileged = false
+			a.policyNesting = false
+			a.policyDenyList = nil
+			a.policyDevLXD = false
+			a.policyIdmapIso = false
+			a.policyAutostart = false
+			a.policyInterceptMknod = false
+			a.policyInterceptBpf = false
+			a.policyInterceptBpfDev = false
+			a.policyInterceptSetxattr = false
+			a.policyInterceptSched = false
+			a.policyInterceptSysinfo = false
+			a.policyInterceptMount = false
+			a.policyInterceptMountShift = false
+			a.policyInterceptMountFuse = ""
+			a.policyInterceptMountAllow = ""
+			a.policyProfiles = nil
+			a.policyProfileDetails = nil
+			a.policyContainerCfg = nil
+			a.policyLoading = true
 				return a, a.fetchPolicyInfo(a.containers[a.selected])
 			}
 		}
@@ -856,11 +904,14 @@ func (a App) renderPolicyPanel() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#666"))
 	on := lipgloss.NewStyle().Foreground(lipgloss.Color("#27ae60")).Render("🟢")
 	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("⚫")
+	pending := dim.Render("…") // shown while policyLoading is true
 	boolIcon := func(v bool) string {
+		if a.policyLoading { return pending }
 		if v { return on }
 		return off
 	}
 	strVal := func(v string) string {
+		if a.policyLoading { return pending }
 		if v == "" { return dim.Render("(unset)") }
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7ec8e3")).Render(v)
 	}
@@ -871,7 +922,9 @@ func (a App) renderPolicyPanel() string {
 	// Seccomp
 	left.WriteString(SectionHeaderStyle.Render("Seccomp") + "\n")
 	seccomp := a.policySeccomp
-	if seccomp == "" { seccomp = "(loading...)" }
+	if seccomp == "" {
+		if a.policyLoading { seccomp = "…" } else { seccomp = "(not set)" }
+	}
 	left.WriteString(fmt.Sprintf("  %s\n", seccomp))
 	for _, p := range []struct{ key, name string }{{"0", "default"}, {"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}} {
 		ind := "  "
@@ -900,7 +953,9 @@ func (a App) renderPolicyPanel() string {
 	// AppArmor
 	left.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
 	aa := a.policyAppArmor
-	if aa == "" { aa = "(loading...)" }
+	if aa == "" {
+		if a.policyLoading { aa = "…" } else { aa = "(not set)" }
+	}
 	left.WriteString(fmt.Sprintf("  %s\n", aa))
 	for _, p := range []struct{ key, name string }{{"4", "default"}, {"5", "hardened"}, {"6", "net-restricted"}, {"7", "read-only"}} {
 		ind := "  "
@@ -1028,8 +1083,9 @@ func (a App) renderPolicyPanel() string {
 	} else {
 		// ── Right column: Security Flags + Syscall Intercept ──
 		label := func(v bool) string {
-			if v { return "on" }
-			return dim.Render("off")
+			if a.policyLoading { return pending }
+			if v { return on }
+			return dim.Render(off)
 		}
 		right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
 		privLabel := label(a.policyPrivileged)

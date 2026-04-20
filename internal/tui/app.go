@@ -284,6 +284,7 @@ type App struct {
 	policyInterceptMountShift bool
 	policyInterceptMountFuse  string // e.g. "ext4=fuse2fs"
 	policyInterceptMountAllow string // e.g. "ext4,btrfs"
+	policyLoading     bool              // true while fetchPolicyInfo is in-flight
 	syscallBlocked   map[string]bool   // container name → syscall blocking active
 
 	// DNS monitor (H panel)
@@ -1390,6 +1391,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case policyInfoMsg:
+		a.policyLoading = false
 		if msg.err != nil {
 			a.addEvent(fmt.Sprintf("⚠ policy: %v", msg.err))
 		} else {
