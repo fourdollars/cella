@@ -160,11 +160,12 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	selectedAuthSource := ""
 	isInferenceReq := isInferencePath(r.URL.Path)
 	isCopilotExchangeReq := isCopilotExchangePath(r.URL.Path)
+	isGeminiReq := isGeminiDomain(h.domain)
 	admissionModel := origModel
 	if admissionModel == "" {
 		admissionModel = extractModelFromPath(r.URL.Path)
 	}
-	if h.server != nil && (isInferenceReq || isCopilotExchangeReq) {
+	if h.server != nil && (isInferenceReq || isCopilotExchangeReq || isGeminiReq) {
 		tok, matched, ok, reason := h.server.SelectBrokerToken(h.container, admissionModel)
 		if matched && !ok {
 			w.Header().Set("Content-Type", "application/json")
@@ -252,11 +253,15 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 				switch kind {
 				case BrokerTokenKindGemini:
-					// Gemini: API key injected directly, no exchange needed.
+					// Gemini: inject API key via header; remove ?key= query param
+					// so the dummy key from the container does not override the real one.
 					src := normalizeBrokerAuthSource("apikey:" + srcEnv)
 					selectedAuthSource = src
+					q := r.URL.Query()
+					q.Del("key")
+					r.URL.RawQuery = q.Encode()
 					r.Header.Set("x-goog-api-key", pat)
-					r.Header.Del("Authorization") // strip any dummy auth
+					r.Header.Del("Authorization") // strip any dummy Bearer auth
 					r.Header.Set("X-Cella-Broker-Auth-Source", src)
 					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, src)
 
@@ -504,7 +509,26 @@ func isInferencePath(path string) bool {
 			return true
 		}
 	}
+	// Gemini native action verbs: /v1beta/models/<model>:generateContent etc.
+	for _, action := range []string{
+		":generateContent",
+		":streamGenerateContent",
+		":generateText",
+		":generateMessage",
+		":embedContent",
+		":batchEmbedContents",
+	} {
+		if strings.HasSuffix(path, action) {
+			return true
+		}
+	}
 	return false
+}
+
+// isGeminiDomain reports whether the domain is a Google Gemini/generative AI endpoint.
+func isGeminiDomain(domain string) bool {
+	d := strings.ToLower(strings.TrimSpace(domain))
+	return strings.Contains(d, "generativelanguage.googleapis.com")
 }
 
 // extractModelFromPath tries to pull a model name from paths like:

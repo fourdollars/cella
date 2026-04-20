@@ -522,3 +522,86 @@ func TestMITMHandler_CopilotExchangePath_Upstream401KeepsSourceContext(t *testin
 		t.Fatalf("expected SessionState to include direct+pat source, got %s", tok.SessionState)
 	}
 }
+
+func TestMITMHandler_GeminiInjectsAPIKeyAndStripsQueryKey(t *testing.T) {
+	// Upstream fake Gemini server: checks that ?key= is gone and x-goog-api-key is present.
+	gotGoogHeader := ""
+	gotQueryKey := "not-checked"
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotGoogHeader = r.Header.Get("x-goog-api-key")
+		gotQueryKey = r.URL.Query().Get("key")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"hello"}]}}]}`))
+	}))
+	defer up.Close()
+
+	t.Setenv("GEMINI_KEY", "AIza_REAL_KEY")
+
+	backendHost := strings.TrimPrefix(up.URL, "http://")
+	srv := NewServer(9082, make(chan ApprovalRequest, 1))
+	srv.SetBrokerState(BrokerState{
+		Groups: []BrokerGroupState{{ID: "g1", Name: "test-container", Match: "test-container", Pool: "pool1"}},
+		Pools: []BrokerPoolState{{
+			Name: "pool1",
+			Tokens: []BrokerTokenState{
+				{ID: "tok-gemini", Kind: "gemini", Enabled: true, Health: 0.9, RemainingRPH: 500, PATEnv: "GEMINI_KEY"},
+			},
+		}},
+		Policies: []BrokerPolicyState{{Name: "pol1", Group: "g1", Pool: "pool1"}},
+	})
+
+	rt := NewRouteTable()
+	rt.Add(InferenceRoute{
+		SourceDomain:  "generativelanguage.googleapis.com",
+		BackendHost:   backendHost,
+		BackendScheme: "http",
+		Enabled:       true,
+	})
+	h := &mitmHandler{
+		domain:    "generativelanguage.googleapis.com",
+		container: "test-container",
+		server:    srv,
+		stats:     NewInferenceStats(),
+		routes:    rt,
+	}
+
+	// Request with dummy ?key= (as a container would send)
+	req := httptest.NewRequest("POST",
+		"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=DUMMY_KEY",
+		strings.NewReader(`{"contents":[{"parts":[{"text":"hi"}]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 from upstream, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if gotGoogHeader != "AIza_REAL_KEY" {
+		t.Fatalf("expected x-goog-api-key=AIza_REAL_KEY, got %q", gotGoogHeader)
+	}
+	if gotQueryKey != "" {
+		t.Fatalf("expected ?key= stripped from query, got %q", gotQueryKey)
+	}
+}
+
+func TestIsInferencePath_GeminiActions(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/v1beta/models/gemini-2.0-flash:generateContent", true},
+		{"/v1beta/models/gemini-pro:streamGenerateContent", true},
+		{"/v1beta/models/embedding-001:embedContent", true},
+		{"/v1beta/models/gemini-pro:generateText", true},
+		{"/v1/chat/completions", true},
+		{"/v1beta/models", false},
+		{"/v1beta/models/gemini-pro", false},
+	}
+	for _, c := range cases {
+		got := isInferencePath(c.path)
+		if got != c.want {
+			t.Errorf("isInferencePath(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
