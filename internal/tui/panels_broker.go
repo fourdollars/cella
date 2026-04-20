@@ -29,6 +29,7 @@ type BrokerGroup struct {
 type BrokerToken struct {
 	ID           string
 	Kind         string // "" = auto, "copilot", "gemini", "openai"
+	Endpoint     string // per-token upstream endpoint; "" = use kind default
 	Enabled      bool
 	Health       float64
 	RemainingRPH int
@@ -717,6 +718,7 @@ func (a *App) brokerResetEditState() {
 	a.brokerEditSecret = false
 	a.brokerEditPAT = ""
 	a.brokerEditPATEnv = ""
+	a.brokerEditTokenKind = ""
 }
 
 func brokerTokenIDExists(pool BrokerPool, tokenID string) bool {
@@ -842,8 +844,7 @@ func (a *App) brokerCommitEdit() bool {
 			a.brokerResetEditState()
 			return true
 		}
-		idx := a.brokerPoolIndexByName(poolName)
-		if idx < 0 {
+		if a.brokerPoolIndexByName(poolName) < 0 {
 			a.addEvent(fmt.Sprintf("❌ token add failed: pool %s not found", poolName))
 			a.brokerResetEditState()
 			return true
@@ -851,7 +852,6 @@ func (a *App) brokerCommitEdit() bool {
 		// Accept user input or fall back to auto-detected kind.
 		kindInput := strings.ToLower(strings.TrimSpace(a.brokerEditBuf))
 		pat := a.brokerEditPAT
-		patEnv := a.brokerEditPATEnv
 		var kind string
 		switch kindInput {
 		case "copilot", "gemini", "openai":
@@ -859,9 +859,35 @@ func (a *App) brokerCommitEdit() bool {
 		default:
 			kind = brokerDetectTokenKind(pat) // auto
 		}
+		a.brokerEditTokenKind = kind
+		a.brokerEditKind = "token-add-endpoint"
+		a.brokerEditBuf = ""
+		a.brokerEditSecret = false
+		defaultEP := brokerDefaultEndpointForKind(kind)
+		a.addEvent(fmt.Sprintf("🌐 default endpoint: %s — Enter to accept, or paste custom URL", defaultEP))
+		return false
+	case "token-add-endpoint":
+		poolName := strings.TrimSpace(a.brokerEditPoolName)
+		tokenID := strings.TrimSpace(a.brokerEditTokenID)
+		if poolName == "" || tokenID == "" {
+			a.addEvent("❌ token add failed: invalid edit context")
+			a.brokerResetEditState()
+			return true
+		}
+		idx := a.brokerPoolIndexByName(poolName)
+		if idx < 0 {
+			a.addEvent(fmt.Sprintf("❌ token add failed: pool %s not found", poolName))
+			a.brokerResetEditState()
+			return true
+		}
+		// Empty = use default for kind (stored as "", resolved at runtime).
+		endpoint := strings.TrimSpace(a.brokerEditBuf)
+		kind := a.brokerEditTokenKind
+		patEnv := a.brokerEditPATEnv
 		a.brokerPools[idx].Tokens = append(a.brokerPools[idx].Tokens, BrokerToken{
 			ID:           tokenID,
 			Kind:         kind,
+			Endpoint:     endpoint, // "" = proxy uses brokerDefaultEndpointForKind at runtime
 			Enabled:      true,
 			Health:       0.85,
 			RemainingRPH: 600,
@@ -874,7 +900,11 @@ func (a *App) brokerCommitEdit() bool {
 			a.brokerTokenCursor = len(pool.Tokens) - 1
 		}
 		a.brokerDirty = true
-		a.addEvent(fmt.Sprintf("✅ token %s (%s) added to %s", tokenID, brokerKindLabel(kind), poolName))
+		ep := endpoint
+		if ep == "" {
+			ep = brokerDefaultEndpointForKind(kind) + " (default)"
+		}
+		a.addEvent(fmt.Sprintf("✅ token %s (%s) → %s added to %s", tokenID, brokerKindLabel(kind), ep, poolName))
 		a.brokerResetEditState()
 		return true
 	default:
@@ -896,6 +926,18 @@ func brokerSuggestedPATEnv(tokenID string) string {
 		n = "TOKEN"
 	}
 	return "CELLA_BROKER_PAT_" + n
+}
+
+// brokerDefaultEndpointForKind returns the default upstream endpoint for a token kind.
+func brokerDefaultEndpointForKind(kind string) string {
+	switch kind {
+	case "gemini":
+		return "https://generativelanguage.googleapis.com"
+	case "openai":
+		return "https://api.openai.com"
+	default: // copilot
+		return "https://api.github.com/copilot_internal/v2/token"
+	}
 }
 
 // brokerDetectTokenKind infers the token kind from its value prefix.
@@ -1119,6 +1161,7 @@ func (a *App) brokerRuntimeState() proxy.BrokerState {
 			poolState.Tokens = append(poolState.Tokens, proxy.BrokerTokenState{
 				ID:           t.ID,
 				Kind:         t.Kind,
+				Endpoint:     t.Endpoint,
 				Enabled:      t.Enabled,
 				Health:       t.Health,
 				RemainingRPH: t.RemainingRPH,
@@ -1975,7 +2018,11 @@ func (a App) renderBrokerPanel() string {
 			if !t.Enabled {
 				flag = red.Render("disabled")
 			}
-			right.WriteString(fmt.Sprintf("Token: %s\nKind: %s\nStatus: %s\nHealth: %.2f\nRemaining RPH: %d\nSession: %s\nLast test: %s\nPAT env: %s\nP95: %dms\n", t.ID, brokerKindLabel(t.Kind), flag, t.Health, t.RemainingRPH, t.SessionState, t.LastTest, t.PATEnv, t.P95ms))
+			ep := t.Endpoint
+			if ep == "" {
+				ep = brokerDefaultEndpointForKind(t.Kind) + " (default)"
+			}
+			right.WriteString(fmt.Sprintf("Token: %s\nKind: %s\nEndpoint: %s\nStatus: %s\nHealth: %.2f\nRemaining RPH: %d\nSession: %s\nLast test: %s\nPAT env: %s\nP95: %dms\n", t.ID, brokerKindLabel(t.Kind), ep, flag, t.Health, t.RemainingRPH, t.SessionState, t.LastTest, t.PATEnv, t.P95ms))
 			if t.BreakerOpen {
 				right.WriteString(red.Render("Breaker: open") + "\n")
 			}

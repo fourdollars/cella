@@ -351,6 +351,7 @@ type App struct {
 	brokerEditSecret   bool
 	brokerEditPAT      string // temp: PAT value during token-add-kind step
 	brokerEditPATEnv   string // temp: secrets key name during token-add-kind step
+	brokerEditTokenKind string // temp: resolved kind during token-add-endpoint step
 	brokerDirty              bool
 	brokerApplyConfirm       bool
 	brokerClearGroupsConfirm bool
@@ -2101,6 +2102,10 @@ func (a App) renderStatusBar() string {
 			if strings.TrimSpace(a.brokerEditKind) == "token-add-kind" {
 				detected := brokerDetectTokenKind(a.brokerEditPAT)
 				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s │ Kind [%s] │ Enter: confirm │ or type copilot/gemini/openai │ > %s█", a.brokerEditTokenID, brokerKindLabel(detected), a.brokerEditBuf)
+			}
+			if strings.TrimSpace(a.brokerEditKind) == "token-add-endpoint" {
+				defaultEP := brokerDefaultEndpointForKind(a.brokerEditTokenKind)
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s (%s) │ Endpoint [%s] │ Enter: use default │ > %s█", a.brokerEditTokenID, brokerKindLabel(a.brokerEditTokenKind), defaultEP, a.brokerEditBuf)
 			}
 			if a.brokerEditSecret {
 				masked := strings.Repeat("*", len([]rune(a.brokerEditBuf)))

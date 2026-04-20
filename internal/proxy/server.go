@@ -78,6 +78,7 @@ const (
 type BrokerTokenState struct {
 	ID           string
 	Kind         BrokerTokenKind // auth strategy; "" = auto-detect from PAT prefix
+	Endpoint     string          // per-token upstream endpoint; "" = use kind default
 	Enabled      bool
 	Health       float64
 	RemainingRPH int
@@ -688,8 +689,37 @@ func (s *Server) MarkBrokerTokenRequestResult(tokenID string, statusCode int, la
 	})
 }
 
+// brokerDefaultEndpointForKind returns the default upstream endpoint for a given
+// token kind. This is used when the token has no explicit Endpoint set.
+func brokerDefaultEndpointForKind(kind BrokerTokenKind) string {
+	switch kind {
+	case BrokerTokenKindGemini:
+		return "https://generativelanguage.googleapis.com"
+	case BrokerTokenKindOpenAI:
+		return "https://api.openai.com"
+	default: // copilot
+		return "https://api.github.com/copilot_internal/v2/token"
+	}
+}
+
+// brokerTokenEndpoint returns the effective upstream endpoint for a token,
+// falling back to the kind default, then the global exchange endpoint.
+func brokerTokenEndpoint(tok BrokerTokenState, globalFallback string) string {
+	if e := strings.TrimSpace(tok.Endpoint); e != "" {
+		return e
+	}
+	if globalFallback != "" {
+		// Only use global fallback for copilot (legacy); ignore for other kinds.
+		if tok.Kind == BrokerTokenKindCopilot || tok.Kind == BrokerTokenKindAuto {
+			return globalFallback
+		}
+	}
+	return brokerDefaultEndpointForKind(tok.Kind)
+}
+
+// Deprecated: use brokerDefaultEndpointForKind(BrokerTokenKindCopilot) instead.
 func brokerDefaultExchangeEndpoint() string {
-	return "https://api.github.com/copilot_internal/v2/token"
+	return brokerDefaultEndpointForKind(BrokerTokenKindCopilot)
 }
 
 func (s *Server) shouldUseBrokerSession(domain string) bool {
@@ -799,10 +829,8 @@ func parseBrokerTokenExpiry(payload map[string]any, now time.Time) time.Time {
 func (s *Server) AcquireBrokerSessionToken(token BrokerTokenState) (session string, source string, err error) {
 	s.bumpBrokerCounter("session_acquire_attempt")
 	st := s.BrokerState()
-	endpoint := strings.TrimSpace(st.ExchangeEndpoint)
-	if endpoint == "" {
-		endpoint = brokerDefaultExchangeEndpoint()
-	}
+	globalFallback := strings.TrimSpace(st.ExchangeEndpoint)
+	endpoint := brokerTokenEndpoint(token, globalFallback)
 
 	cacheKey := brokerSessionCacheKey(token)
 	now := time.Now()
