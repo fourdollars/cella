@@ -60,9 +60,6 @@ func seedBrokerTestData(a *App) {
 			Retry:    1,
 		}}
 	}
-	if a.brokerExchangeMode == "" {
-		a.brokerExchangeMode = "mock"
-	}
 	if a.brokerExchangeEndpoint == "" {
 		a.brokerExchangeEndpoint = brokerDefaultExchangeEndpoint()
 	}
@@ -89,8 +86,8 @@ func TestBrokerInitDefaultsEmptyWhenNoState(t *testing.T) {
 	if len(a.brokerGroups) != 0 || len(a.brokerPools) != 0 || len(a.brokerPolicies) != 0 {
 		t.Fatalf("expected empty bootstrap defaults, got groups=%d pools=%d policies=%d", len(a.brokerGroups), len(a.brokerPools), len(a.brokerPolicies))
 	}
-	if a.brokerExchangeMode != "mock" || a.brokerExchangeEndpoint == "" {
-		t.Fatalf("expected exchange defaults set, mode=%s endpoint=%s", a.brokerExchangeMode, a.brokerExchangeEndpoint)
+	if a.brokerExchangeEndpoint == "" {
+		t.Fatalf("expected exchange defaults set, endpoint=%s", a.brokerExchangeEndpoint)
 	}
 }
 
@@ -99,7 +96,7 @@ func TestBrokerDefaultsAndRender(t *testing.T) {
 	if len(a.brokerGroups) == 0 || len(a.brokerPools) == 0 || len(a.brokerPolicies) == 0 {
 		t.Fatalf("broker seeded test data not initialized")
 	}
-	if a.brokerExchangeMode == "" || a.brokerExchangeEndpoint == "" {
+	if a.brokerExchangeEndpoint == "" {
 		t.Fatalf("exchange defaults not initialized")
 	}
 	out := a.renderBrokerPanel()
@@ -365,48 +362,10 @@ func TestBrokerPoolAddTokenRequiresUniqueID(t *testing.T) {
 	}
 }
 
-func TestBrokerExchangeModeToggleKey(t *testing.T) {
-	a := newBrokerTestApp(t, false)
-	a.focus = panelBroker
-	a.handleBrokerPanel(keyRune('2'))
-	initial := a.brokerExchangeMode
-	a.handleBrokerPanel(keyRune('m'))
-	if a.brokerExchangeMode == initial {
-		t.Fatalf("expected mode toggled")
-	}
-	a.handleBrokerPanel(keyRune('m'))
-	if a.brokerExchangeMode != initial {
-		t.Fatalf("expected mode toggled back")
-	}
-}
-
-func TestBrokerTokenExchangeTestKeyMock(t *testing.T) {
-	a := newBrokerTestApp(t, false)
-	a.focus = panelBroker
-	a.handleBrokerPanel(keyRune('2'))
-	pool := a.brokerCurrentPool()
-	if pool == nil || len(pool.Tokens) < 1 {
-		t.Fatalf("expected pool token")
-	}
-
-	pool.Tokens[a.brokerTokenCursor].BreakerOpen = true
-	a.handleBrokerPanel(keyRune('t'))
-	if pool.Tokens[a.brokerTokenCursor].LastTest != "fail" {
-		t.Fatalf("expected failed exchange test")
-	}
-
-	pool.Tokens[a.brokerTokenCursor].BreakerOpen = false
-	a.handleBrokerPanel(keyRune('t'))
-	if pool.Tokens[a.brokerTokenCursor].LastTest != "ok" {
-		t.Fatalf("expected successful exchange test")
-	}
-}
-
 func TestBrokerTokenExchangeTestKeyRealSuccess(t *testing.T) {
 	a := newBrokerTestApp(t, false)
 	a.focus = panelBroker
 	a.handleBrokerPanel(keyRune('2'))
-	a.brokerExchangeMode = "real"
 	pool := a.brokerCurrentPool()
 	if pool == nil || len(pool.Tokens) == 0 {
 		t.Fatalf("expected pool token")
@@ -440,7 +399,6 @@ func TestBrokerTokenExchangeTestKeyRealNoPAT(t *testing.T) {
 	a := newBrokerTestApp(t, false)
 	a.focus = panelBroker
 	a.handleBrokerPanel(keyRune('2'))
-	a.brokerExchangeMode = "real"
 	a.brokerExchangeEndpoint = "http://127.0.0.1:1/unreachable"
 
 	pool := a.brokerCurrentPool()
@@ -462,7 +420,6 @@ func TestBrokerStatePersistRoundTrip(t *testing.T) {
 	a.brokerGroups = []BrokerGroup{{ID: "team-a", Name: "team-a", Match: "team-a", Pool: "pool_1", Weight: 7, RPHLimit: 2000}}
 	a.brokerPools = []BrokerPool{{Name: "pool_1", Tokens: []BrokerToken{{ID: "tok_1", Enabled: true, Health: 0.9, RemainingRPH: 100}}}}
 	a.brokerPolicies = []BrokerPolicy{{Name: "policy_1", Group: "team-a", Pool: "pool_1", Strategy: "weighted_least_load", Sticky: true, Retry: 1}}
-	a.brokerExchangeMode = "real"
 	a.brokerExchangeEndpoint = "http://example.local/token"
 	if err := a.saveBrokerState(); err != nil {
 		t.Fatalf("save broker state: %v", err)
@@ -476,8 +433,8 @@ func TestBrokerStatePersistRoundTrip(t *testing.T) {
 	if len(b.brokerPools) != 1 || b.brokerPools[0].Name != "pool_1" {
 		t.Fatalf("unexpected loaded pools: %+v", b.brokerPools)
 	}
-	if b.brokerExchangeMode != "real" || b.brokerExchangeEndpoint != "http://example.local/token" {
-		t.Fatalf("unexpected exchange persisted state: mode=%s endpoint=%s", b.brokerExchangeMode, b.brokerExchangeEndpoint)
+	if b.brokerExchangeEndpoint != "http://example.local/token" {
+		t.Fatalf("unexpected exchange persisted state: endpoint=%s", b.brokerExchangeEndpoint)
 	}
 }
 
@@ -511,7 +468,7 @@ func TestBrokerLoadEmptyStateDoesNotFallbackToTemplates(t *testing.T) {
 	if err := os.MkdirAll(home+"/.cella", 0o755); err != nil {
 		t.Fatalf("mkdir .cella: %v", err)
 	}
-	emptyState := `{"groups":[],"pools":[],"policies":[],"exchange_mode":"mock"}`
+	emptyState := `{"groups":[],"pools":[],"policies":[]}`
 	if err := os.WriteFile(path, []byte(emptyState), 0o644); err != nil {
 		t.Fatalf("write empty state: %v", err)
 	}
@@ -534,8 +491,7 @@ func TestBrokerLoadLegacyStateNormalizesGroupSchema(t *testing.T) {
 	legacy := `{
   "groups": [{"name":"prefix:ci-runner-","pool":"pool_ci","weight":1,"rph_limit":1200}],
   "pools": [{"name":"pool_ci","tokens":[{"id":"tok-ci","enabled":true,"health":0.9,"remaining_rph":100}]}],
-  "policies": [{"name":"policy-ci","group":"prefix:ci-runner-","pool":"pool_ci","strategy":"weighted_least_load"}],
-  "exchange_mode": "mock"
+  "policies": [{"name":"policy-ci","group":"prefix:ci-runner-","pool":"pool_ci","strategy":"weighted_least_load"}]
 }`
 	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
 		t.Fatalf("write legacy state: %v", err)
@@ -699,7 +655,6 @@ func TestBrokerTokenExchangeRealUsesTokenSpecificPATEnv(t *testing.T) {
 	a := newBrokerTestApp(t, false)
 	a.focus = panelBroker
 	a.handleBrokerPanel(keyRune('2'))
-	a.brokerExchangeMode = "real"
 
 	pool := a.brokerCurrentPool()
 	if pool == nil || len(pool.Tokens) == 0 {
@@ -736,7 +691,6 @@ func TestBrokerApplySyncsRuntimeStateToProxyServer(t *testing.T) {
 	globalProxyServer = proxy.NewServer(19081, make(chan proxy.ApprovalRequest, 1))
 	defer func() { globalProxyServer = oldProxy }()
 
-	a.brokerExchangeMode = "real"
 	a.brokerExchangeEndpoint = "https://example.test/token"
 	a.brokerGroups[0].Weight = 5
 	a.brokerDirty = true
@@ -748,7 +702,7 @@ func TestBrokerApplySyncsRuntimeStateToProxyServer(t *testing.T) {
 	a.handleBrokerPanel(keyRune('y'))
 
 	st := globalProxyServer.BrokerState()
-	if st.ExchangeMode != "real" || st.ExchangeEndpoint != "https://example.test/token" {
+	if st.ExchangeEndpoint != "https://example.test/token" {
 		t.Fatalf("unexpected runtime exchange state: %+v", st)
 	}
 	if len(st.Groups) == 0 || st.Groups[0].Weight != 5 {
@@ -756,17 +710,13 @@ func TestBrokerApplySyncsRuntimeStateToProxyServer(t *testing.T) {
 	}
 }
 
-func TestBrokerRenderShowsExchangeModeAndEndpoint(t *testing.T) {
+func TestBrokerRenderShowsExchangeEndpoint(t *testing.T) {
 	a := newBrokerTestApp(t, false)
 	a.focus = panelBroker
 	a.handleBrokerPanel(keyRune('2')) // Pools tab
-	a.brokerExchangeMode = "real"
 	a.brokerExchangeEndpoint = "https://example.test/token"
 
 	out := a.renderBrokerPanel()
-	if !strings.Contains(out, "Exchange mode: real") {
-		t.Fatalf("render should show exchange mode, got: %s", out)
-	}
 	if !strings.Contains(out, "https://example.test/token") {
 		t.Fatalf("render should show exchange endpoint, got: %s", out)
 	}
@@ -781,7 +731,6 @@ func TestBrokerRuntimePreviewKey(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		ExchangeMode: "real",
 		Groups:       []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
 		Pools: []proxy.BrokerPoolState{{
 			Name:   "pool_alpha",
@@ -807,7 +756,6 @@ func TestBrokerRuntimeDriftKeyDetectsChanges(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		ExchangeMode:     "real",
 		ExchangeEndpoint: "https://example.runtime/token",
 		Groups: []proxy.BrokerGroupState{{
 			ID: "team-a", Match: "prefix:team-a-", Pool: "pool_beta", Weight: 9, RPHLimit: 9999,
@@ -823,9 +771,6 @@ func TestBrokerRuntimeDriftKeyDetectsChanges(t *testing.T) {
 	preview := strings.Join(a.brokerPreviewLines, "\n")
 	if !strings.Contains(preview, "Drift detected:") {
 		t.Fatalf("expected drift detection output, got: %s", preview)
-	}
-	if !strings.Contains(preview, "exchange mode") {
-		t.Fatalf("expected exchange mode drift detail, got: %s", preview)
 	}
 	if !strings.Contains(preview, "group team-a") {
 		t.Fatalf("expected group drift detail, got: %s", preview)
@@ -858,7 +803,6 @@ func TestBrokerRenderShowsRuntimePoolSnapshot(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		ExchangeMode: "real",
 		Pools: []proxy.BrokerPoolState{{
 			Name:   "pool_alpha",
 			Tokens: []proxy.BrokerTokenState{{ID: "tok_a1", Enabled: true, Health: 0.95, RemainingRPH: 222, SessionState: "in-use", LastTest: "ok"}},
@@ -887,7 +831,6 @@ func TestBrokerRuntimePreviewShowsCounters(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		ExchangeMode: "real",
 		Groups:       []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
 		Pools: []proxy.BrokerPoolState{{
 			Name:   "pool_alpha",

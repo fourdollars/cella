@@ -352,7 +352,6 @@ type App struct {
 	brokerDirty              bool
 	brokerApplyConfirm       bool
 	brokerClearGroupsConfirm bool
-	brokerExchangeMode       string // mock|real
 	brokerExchangeEndpoint string
 	brokerCounterWindowIdx int // 0=5m,1=15m,2=1h
 	brokerPreviewLines []string

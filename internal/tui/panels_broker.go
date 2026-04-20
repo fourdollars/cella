@@ -62,7 +62,6 @@ type brokerPersistState struct {
 	Groups           []BrokerGroup  `json:"groups"`
 	Pools            []BrokerPool   `json:"pools"`
 	Policies         []BrokerPolicy `json:"policies"`
-	ExchangeMode     string         `json:"exchange_mode,omitempty"`
 	ExchangeEndpoint string         `json:"exchange_endpoint,omitempty"`
 }
 
@@ -479,10 +478,6 @@ func (a *App) loadBrokerState() error {
 		a.brokerPools[i] = BrokerPool{Name: p.Name, Tokens: append([]BrokerToken(nil), p.Tokens...)}
 	}
 	a.brokerPolicies = append([]BrokerPolicy(nil), st.Policies...)
-	a.brokerExchangeMode = st.ExchangeMode
-	if a.brokerExchangeMode == "" {
-		a.brokerExchangeMode = "mock"
-	}
 	a.brokerExchangeEndpoint = st.ExchangeEndpoint
 	if a.brokerExchangeEndpoint == "" {
 		a.brokerExchangeEndpoint = brokerDefaultExchangeEndpoint()
@@ -503,7 +498,7 @@ func (a *App) saveBrokerState() error {
 	if err != nil {
 		return err
 	}
-	st := brokerPersistState{Groups: a.brokerGroups, Pools: a.brokerPools, Policies: a.brokerPolicies, ExchangeMode: a.brokerExchangeMode, ExchangeEndpoint: a.brokerExchangeEndpoint}
+	st := brokerPersistState{Groups: a.brokerGroups, Pools: a.brokerPools, Policies: a.brokerPolicies, ExchangeEndpoint: a.brokerExchangeEndpoint}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
@@ -513,9 +508,6 @@ func (a *App) saveBrokerState() error {
 
 func (a *App) initBrokerDefaults() {
 	if len(a.brokerGroups) > 0 || len(a.brokerPools) > 0 || len(a.brokerPolicies) > 0 {
-		if a.brokerExchangeMode == "" {
-			a.brokerExchangeMode = "mock"
-		}
 		if a.brokerExchangeEndpoint == "" {
 			a.brokerExchangeEndpoint = brokerDefaultExchangeEndpoint()
 		}
@@ -539,7 +531,6 @@ func (a *App) initBrokerDefaults() {
 	a.brokerGroups = nil
 	a.brokerPools = nil
 	a.brokerPolicies = nil
-	a.brokerExchangeMode = "mock"
 	a.brokerExchangeEndpoint = brokerDefaultExchangeEndpoint()
 	a.brokerPreviewLines = []string{"Broker draft is empty. Add pool/group/token to start."}
 	a.brokerDiffLines = []string{"No draft changes."}
@@ -846,38 +837,7 @@ func (a *App) brokerCommitEdit() bool {
 }
 
 func (a *App) brokerTestExchangeToken(t *BrokerToken) {
-	if a.brokerExchangeMode == "real" {
 		a.brokerTestExchangeTokenReal(t)
-		return
-	}
-	a.brokerTestExchangeTokenMock(t)
-}
-
-func (a *App) brokerTestExchangeTokenMock(t *BrokerToken) {
-	if !t.Enabled {
-		t.LastTest = "fail"
-		t.SessionState = "disabled"
-		a.addEvent(fmt.Sprintf("❌ exchange test failed for %s: token disabled", t.ID))
-		if t.Health > 0.05 {
-			t.Health -= 0.05
-		}
-		return
-	}
-	if t.BreakerOpen || strings.Contains(strings.ToLower(t.ID), "bad") {
-		t.LastTest = "fail"
-		t.SessionState = "test-fail"
-		a.addEvent(fmt.Sprintf("❌ exchange test failed for %s", t.ID))
-		if t.Health > 0.05 {
-			t.Health -= 0.05
-		}
-		return
-	}
-	t.LastTest = "ok"
-	t.SessionState = "tested-ok-mock"
-	if t.Health < 0.98 {
-		t.Health += 0.03
-	}
-	a.addEvent(fmt.Sprintf("✅ mock exchange test passed for %s", t.ID))
 }
 
 func brokerSuggestedPATEnv(tokenID string) string {
@@ -1025,7 +985,6 @@ func (a *App) brokerBuildPreview() []string {
 	if endpoint == "" {
 		endpoint = brokerDefaultExchangeEndpoint()
 	}
-	lines = append(lines, fmt.Sprintf("- exchange mode: %s", a.brokerExchangeMode))
 	lines = append(lines, fmt.Sprintf("- exchange endpoint: %s", endpoint))
 	lines = append(lines, "Note: apply updates runtime broker state via TUI (no manual config editing).")
 	return lines
@@ -1072,7 +1031,6 @@ func (a *App) brokerRuntimeState() proxy.BrokerState {
 	a.normalizeBrokerGroupsAndPolicies()
 	state := proxy.BrokerState{
 		AppliedAt:        time.Now().UTC(),
-		ExchangeMode:     a.brokerExchangeMode,
 		ExchangeEndpoint: strings.TrimSpace(a.brokerExchangeEndpoint),
 	}
 	for _, g := range a.brokerGroups {
@@ -1116,7 +1074,7 @@ func (a *App) brokerSyncRuntimeState() {
 	}
 	state := a.brokerRuntimeState()
 	globalProxyServer.SetBrokerState(state)
-	a.addEvent(fmt.Sprintf("✅ token broker runtime synced: groups=%d pools=%d mode=%s", len(state.Groups), len(state.Pools), state.ExchangeMode))
+	a.addEvent(fmt.Sprintf("✅ token broker runtime synced: groups=%d pools=%d", len(state.Groups), len(state.Pools)))
 }
 
 func (a *App) brokerRuntimeSnapshot() (proxy.BrokerState, bool) {
@@ -1226,7 +1184,7 @@ func (a *App) brokerBuildRuntimePreview() []string {
 	if !ok {
 		return []string{"Runtime broker state unavailable (proxy not active)."}
 	}
-	lines := []string{fmt.Sprintf("Runtime broker state: groups=%d pools=%d mode=%s", len(st.Groups), len(st.Pools), st.ExchangeMode)}
+	lines := []string{fmt.Sprintf("Runtime broker state: groups=%d pools=%d", len(st.Groups), len(st.Pools))}
 	if counters, ok := a.brokerRuntimeCounters(); ok {
 		topAll := brokerTopCounters(counters, "", 6)
 		if len(topAll) > 0 {
@@ -1294,9 +1252,6 @@ func (a *App) brokerBuildRuntimeDrift() []string {
 	runtimeEndpoint := strings.TrimSpace(st.ExchangeEndpoint)
 	if runtimeEndpoint == "" {
 		runtimeEndpoint = brokerDefaultExchangeEndpoint()
-	}
-	if strings.TrimSpace(a.brokerExchangeMode) != strings.TrimSpace(st.ExchangeMode) {
-		drift = append(drift, fmt.Sprintf("exchange mode draft=%s runtime=%s", a.brokerExchangeMode, st.ExchangeMode))
 	}
 	if !strings.EqualFold(draftEndpoint, runtimeEndpoint) {
 		drift = append(drift, fmt.Sprintf("exchange endpoint draft=%s runtime=%s", draftEndpoint, runtimeEndpoint))
@@ -1683,13 +1638,6 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				t.Health += 0.05
 			}
 			a.brokerDirty = true
-		case "m", "M":
-			if a.brokerExchangeMode == "real" {
-				a.brokerExchangeMode = "mock"
-			} else {
-				a.brokerExchangeMode = "real"
-			}
-			a.brokerDirty = true
 		case "e", "E":
 			t := &pool.Tokens[a.brokerTokenCursor]
 			t.PATEnv = brokerSuggestedPATEnv(t.ID)
@@ -1927,7 +1875,7 @@ func (a App) renderBrokerPanel() string {
 		if endpoint == "" {
 			endpoint = brokerDefaultExchangeEndpoint()
 		}
-		right.WriteString(fmt.Sprintf("Exchange mode: %s\nExchange endpoint: %s\n\n", a.brokerExchangeMode, endpoint))
+		right.WriteString(fmt.Sprintf("Exchange endpoint: %s\n\n", endpoint))
 		if pool != nil && len(pool.Tokens) > 0 {
 			t := pool.Tokens[a.brokerTokenCursor]
 			flag := green.Render("enabled")
@@ -1947,7 +1895,7 @@ func (a App) renderBrokerPanel() string {
 		} else if pool == nil {
 			right.WriteString(dim.Render("No pools configured. Press N to add a pool first.") + "\n")
 		}
-		right.WriteString("\nKeys: N add-pool, Z del-pool, A add-token(ID+PAT), D del-token, Enter/X toggle, B breaker, F refresh, M mode, E set-token-env, G global-env, T test, R runtime-preview, V drift-check, W window, C clear-counters\n")
+		right.WriteString("\nKeys: N add-pool, Z del-pool, A add-token(ID+PAT), D del-token, Enter/X toggle, B breaker, F refresh, E set-token-env, G global-env, T test, R runtime-preview, V drift-check, W window, C clear-counters\n")
 	case 2:
 		for i, p := range a.brokerPolicies {
 			row := fmt.Sprintf("%s: %s -> %s (%s/%s)", p.Name, p.Group, p.Pool, p.Strategy, brokerPolicyProfileLabel(p))

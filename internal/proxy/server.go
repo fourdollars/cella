@@ -87,7 +87,6 @@ type BrokerPolicyState struct {
 
 type BrokerState struct {
 	AppliedAt        time.Time
-	ExchangeMode     string
 	ExchangeEndpoint string
 	Groups           []BrokerGroupState
 	Pools            []BrokerPoolState

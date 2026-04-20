@@ -12,7 +12,6 @@ func TestServerBrokerStateRoundTripAndCopyIsolation(t *testing.T) {
 	s := NewServer(9081, make(chan ApprovalRequest, 1))
 	in := BrokerState{
 		AppliedAt:        time.Now().UTC(),
-		ExchangeMode:     "real",
 		ExchangeEndpoint: "https://api.github.com/copilot_internal/v2/token",
 		Groups:           []BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 2, RPHLimit: 5000}},
 		Pools: []BrokerPoolState{{
@@ -24,7 +23,7 @@ func TestServerBrokerStateRoundTripAndCopyIsolation(t *testing.T) {
 
 	s.SetBrokerState(in)
 	got := s.BrokerState()
-	if got.ExchangeMode != "real" || got.ExchangeEndpoint == "" {
+	if got.ExchangeEndpoint == "" {
 		t.Fatalf("unexpected broker state headers: %+v", got)
 	}
 	if len(got.Groups) != 1 || len(got.Pools) != 1 || len(got.Policies) != 1 {
@@ -265,7 +264,7 @@ func TestAcquireBrokerSessionToken_ExchangesAndCaches(t *testing.T) {
 	defer srvExchange.Close()
 
 	s := NewServer(9081, make(chan ApprovalRequest, 1))
-	s.SetBrokerState(BrokerState{ExchangeMode: "real", ExchangeEndpoint: srvExchange.URL})
+	s.SetBrokerState(BrokerState{ExchangeEndpoint: srvExchange.URL})
 	t.Setenv("PAT_BEST", "ghu_best_pat")
 
 	tok := BrokerTokenState{ID: "tok-best", PATEnv: "PAT_BEST"}
@@ -291,7 +290,6 @@ func TestAcquireBrokerSessionToken_ExchangesAndCaches(t *testing.T) {
 
 func TestAcquireBrokerSessionToken_FailsWhenPATMissing(t *testing.T) {
 	s := NewServer(9081, make(chan ApprovalRequest, 1))
-	s.SetBrokerState(BrokerState{ExchangeMode: "real"})
 	tok := BrokerTokenState{ID: "tok-best", PATEnv: "MISSING_PAT_ENV"}
 	_, _, err := s.AcquireBrokerSessionToken(tok)
 	if err == nil || !strings.Contains(err.Error(), "empty") {
@@ -390,7 +388,6 @@ func TestBrokerCounters_SelectionAndSessionFlow(t *testing.T) {
 
 	s := NewServer(9081, make(chan ApprovalRequest, 1))
 	s.SetBrokerState(BrokerState{
-		ExchangeMode:     "real",
 		ExchangeEndpoint: srvExchange.URL,
 		Groups:           []BrokerGroupState{{Name: "ci-*", Pool: "pool_ci", Weight: 1}},
 		Pools: []BrokerPoolState{{

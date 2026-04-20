@@ -151,7 +151,6 @@ func TestMITMHandler_MappedContainerForwardsSelectedBrokerTokenHeader(t *testing
 
 	srv := NewServer(9081, make(chan ApprovalRequest, 1))
 	srv.SetBrokerState(BrokerState{
-		ExchangeMode:     "real",
 		ExchangeEndpoint: exchange.URL,
 		Groups:           []BrokerGroupState{{Name: "ci-runner-1", Pool: "pool_ci", Weight: 1}},
 		Pools: []BrokerPoolState{{
@@ -344,7 +343,6 @@ func TestMITMHandler_BlocksWhenBrokerSessionExchangeFails(t *testing.T) {
 
 	srv := NewServer(9081, make(chan ApprovalRequest, 1))
 	srv.SetBrokerState(BrokerState{
-		ExchangeMode:     "real",
 		ExchangeEndpoint: exchange.URL,
 		Groups:           []BrokerGroupState{{Name: "ci-runner-1", Pool: "pool_ci", Weight: 1}},
 		Pools: []BrokerPoolState{{
