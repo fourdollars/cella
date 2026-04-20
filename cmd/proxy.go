@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +18,15 @@ import (
 	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/spf13/cobra"
 )
+
+func proxyCellaDataDir() string {
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		if u, err := user.Lookup(sudoUser); err == nil {
+			return filepath.Join(u.HomeDir, ".cella")
+		}
+	}
+	return os.ExpandEnv("$HOME/.cella")
+}
 
 func proxyCmd() *cobra.Command {
 	var (
@@ -53,7 +64,7 @@ This command can:
 				return err
 			}
 
-			dataDir := os.ExpandEnv("$HOME/.cella")
+			dataDir := proxyCellaDataDir()
 			approvalCh := make(chan proxy.ApprovalRequest, 128)
 			srv := proxy.NewServer(port, approvalCh)
 

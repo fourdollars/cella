@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"os/exec"
 	goruntime "runtime"
@@ -23,6 +24,27 @@ import (
 	"github.com/fourdoors/cella/internal/trace"
 	"github.com/fourdoors/cella/internal/proxy"
 )
+
+// cellaUserHomeDir returns the real user's home directory, even under sudo.
+// When running as root via sudo, it uses SUDO_USER to look up the invoking
+// user's home instead of /root.
+func cellaUserHomeDir() (string, error) {
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		if u, err := user.Lookup(sudoUser); err == nil {
+			return u.HomeDir, nil
+		}
+	}
+	return os.UserHomeDir()
+}
+
+// cellaDataDir returns the path to ~/.cella/ for the real invoking user.
+func cellaDataDir() string {
+	home, err := cellaUserHomeDir()
+	if err != nil {
+		home = os.ExpandEnv("$HOME")
+	}
+	return filepath.Join(home, ".cella")
+}
 
 // Panel focus
 type panel int
@@ -383,7 +405,7 @@ func NewApp() App {
 	app.initBrokerDefaults()
 
 	// Auto-start proxy if allowlist.json or denylist.json exist with container entries
-	dataDir := os.ExpandEnv("$HOME/.cella")
+	dataDir := cellaDataDir()
 	containersToSetup := map[string]bool{}
 	if al, err := proxy.LoadAllowlists(dataDir); err == nil {
 		for c := range al {
@@ -1705,7 +1727,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // cellaConfigDir returns ~/.config/cella/<subdir> and ensures it exists.
 func cellaConfigDir(subdir string) (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := cellaUserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home dir: %w", err)
 	}

@@ -430,7 +430,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if globalProxyServer == nil {
 				approvalCh := make(chan proxy.ApprovalRequest, 10)
 				srv := proxy.NewServer(9081, approvalCh)
-				dataDir := os.ExpandEnv("$HOME/.cella")
+				dataDir := cellaDataDir()
 				mitmCfg, err := proxy.NewMITMConfig(dataDir)
 				if err != nil {
 					return a, a.setFlash(fmt.Sprintf("❌ CA gen: %v", err))
@@ -621,7 +621,7 @@ func (a *App) removeListItem(item listItem) tea.Cmd {
 		if globalProxyServer == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
 		}
-		dataDir := os.ExpandEnv("$HOME/.cella")
+		dataDir := cellaDataDir()
 		switch item.kind {
 		case "allow":
 			globalProxyServer.GetAllowlist(item.container).Remove(item.domain)
@@ -870,7 +870,7 @@ func (a *App) renderAllowDenyLists() string {
 	}
 
 	// Show file paths
-	dataDir := os.ExpandEnv("$HOME/.cella")
+	dataDir := cellaDataDir()
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 	b.WriteString(dim.Render(fmt.Sprintf("  Persisted: %s/allowlist.json  %s/denylist.json", dataDir, dataDir)))
 	return b.String()
@@ -882,7 +882,7 @@ func (a *App) moveListItem(item listItem, toKind string) tea.Cmd {
 		if globalProxyServer == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
 		}
-		dataDir := os.ExpandEnv("$HOME/.cella")
+		dataDir := cellaDataDir()
 		// Remove from source list
 		switch item.kind {
 		case "allow":
@@ -927,7 +927,7 @@ func (a *App) editListItem(old listItem, newDomain string) tea.Cmd {
 		if globalProxyServer == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
 		}
-		dataDir := os.ExpandEnv("$HOME/.cella")
+		dataDir := cellaDataDir()
 		switch old.kind {
 		case "allow":
 			al := globalProxyServer.GetAllowlist(old.container)
@@ -1339,7 +1339,7 @@ func (a *App) addListItem(container, domain, kind string) tea.Cmd {
 		if globalProxyServer == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not active")}
 		}
-		dataDir := os.ExpandEnv("$HOME/.cella")
+		dataDir := cellaDataDir()
 		switch kind {
 		case "allow":
 			globalProxyServer.GetAllowlist(container).Add(domain)

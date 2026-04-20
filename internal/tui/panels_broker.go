@@ -71,7 +71,7 @@ func brokerDefaultExchangeEndpoint() string {
 }
 
 func brokerStatePath() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := cellaUserHomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -83,7 +83,7 @@ func brokerStatePath() (string, error) {
 }
 
 func brokerSecretsPath() (string, error) {
-	home, err := os.UserHomeDir()
+	home, err := cellaUserHomeDir()
 	if err != nil {
 		return "", err
 	}
