@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -690,16 +692,56 @@ func brokerSessionCacheKey(t BrokerTokenState) string {
 	return ""
 }
 
+// proxyDataDir returns the ~/.cella/ path for the real invoking user,
+// handling the case where the process runs as root via sudo.
+func proxyDataDir() string {
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		if u, err := user.Lookup(sudoUser); err == nil {
+			return filepath.Join(u.HomeDir, ".cella")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.ExpandEnv("$HOME")
+	}
+	return filepath.Join(home, ".cella")
+}
+
+// loadBrokerSecretsFile reads ~/.cella/token_broker_secrets.json and returns
+// the key→value map. Returns an empty map on any error (non-fatal).
+func loadBrokerSecretsFile() map[string]string {
+	secretsPath := filepath.Join(proxyDataDir(), "token_broker_secrets.json")
+	data, err := os.ReadFile(secretsPath)
+	if err != nil {
+		return map[string]string{}
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return map[string]string{}
+	}
+	return m
+}
+
 func (s *Server) resolveBrokerPAT(token BrokerTokenState) (pat string, sourceEnv string, err error) {
 	env := strings.TrimSpace(token.PATEnv)
 	if env == "" {
 		env = "CELLA_BROKER_TEST_PAT"
 	}
+
+	// 1. Try env var first (allows CI/headless override via export).
 	pat = strings.TrimSpace(os.Getenv(env))
-	if pat == "" {
-		return "", env, fmt.Errorf("pat env %s is empty", env)
+	if pat != "" {
+		return pat, env, nil
 	}
-	return pat, env, nil
+
+	// 2. Fallback: read from ~/.cella/token_broker_secrets.json.
+	//    PATEnv is used as the key name in the secrets file.
+	secrets := loadBrokerSecretsFile()
+	if val := strings.TrimSpace(secrets[env]); val != "" {
+		return val, env, nil
+	}
+
+	return "", env, fmt.Errorf("broker PAT not found: env %s is empty and not in secrets file", env)
 }
 
 func parseBrokerTokenExpiry(payload map[string]any, now time.Time) time.Time {
