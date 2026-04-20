@@ -61,8 +61,23 @@ type BrokerGroupState struct {
 	RPHLimit int
 }
 
+// BrokerTokenKind identifies the auth strategy for a broker token.
+// ""        → auto-detect from PAT value prefix.
+// "copilot" → GitHub PAT (ghu_...) exchanged for a Copilot session token.
+// "gemini"  → Google Gemini API key injected as x-goog-api-key header.
+// "openai"  → OpenAI-compatible API key injected as Authorization: Bearer.
+type BrokerTokenKind = string
+
+const (
+	BrokerTokenKindAuto    BrokerTokenKind = ""
+	BrokerTokenKindCopilot BrokerTokenKind = "copilot"
+	BrokerTokenKindGemini  BrokerTokenKind = "gemini"
+	BrokerTokenKindOpenAI  BrokerTokenKind = "openai"
+)
+
 type BrokerTokenState struct {
 	ID           string
+	Kind         BrokerTokenKind // auth strategy; "" = auto-detect from PAT prefix
 	Enabled      bool
 	Health       float64
 	RemainingRPH int
@@ -720,6 +735,29 @@ func loadBrokerSecretsFile() map[string]string {
 		return map[string]string{}
 	}
 	return m
+}
+
+// resolveBrokerTokenKind returns the effective auth kind for a token.
+// If Kind is set explicitly, it is used as-is.
+// Otherwise the PAT value prefix is used for auto-detection:
+//   ghu_  → copilot
+//   AIza  → gemini
+//   sk-   → openai
+//   (else) → copilot (default)
+func resolveBrokerTokenKind(tok BrokerTokenState, pat string) BrokerTokenKind {
+	if k := strings.TrimSpace(tok.Kind); k != "" {
+		return k
+	}
+	switch {
+	case strings.HasPrefix(pat, "ghu_"):
+		return BrokerTokenKindCopilot
+	case strings.HasPrefix(pat, "AIza"):
+		return BrokerTokenKindGemini
+	case strings.HasPrefix(pat, "sk-"):
+		return BrokerTokenKindOpenAI
+	default:
+		return BrokerTokenKindCopilot
+	}
 }
 
 func (s *Server) resolveBrokerPAT(token BrokerTokenState) (pat string, sourceEnv string, err error) {

@@ -28,6 +28,7 @@ type BrokerGroup struct {
 
 type BrokerToken struct {
 	ID           string
+	Kind         string // "" = auto, "copilot", "gemini", "openai"
 	Enabled      bool
 	Health       float64
 	RemainingRPH int
@@ -714,6 +715,8 @@ func (a *App) brokerResetEditState() {
 	a.brokerEditPoolName = ""
 	a.brokerEditTokenID = ""
 	a.brokerEditSecret = false
+	a.brokerEditPAT = ""
+	a.brokerEditPATEnv = ""
 }
 
 func brokerTokenIDExists(pool BrokerPool, tokenID string) bool {
@@ -789,7 +792,7 @@ func (a *App) brokerCommitEdit() bool {
 		a.brokerEditKind = "token-add-pat"
 		a.brokerEditBuf = ""
 		a.brokerEditSecret = true
-		a.addEvent(fmt.Sprintf("🔐 enter PAT for %s (%s), then Enter to add", tokenID, poolName))
+		a.addEvent(fmt.Sprintf("🔐 enter PAT/API key for %s (%s), then Enter", tokenID, poolName))
 		return false
 	case "token-add-pat":
 		poolName := strings.TrimSpace(a.brokerEditPoolName)
@@ -801,23 +804,17 @@ func (a *App) brokerCommitEdit() bool {
 			return true
 		}
 		if pat == "" {
-			a.addEvent("⚠ PAT cannot be empty")
+			a.addEvent("⚠ PAT/API key cannot be empty")
 			return false
 		}
-		idx := a.brokerPoolIndexByName(poolName)
-		if idx < 0 {
-			a.addEvent(fmt.Sprintf("❌ token add failed: pool %s not found", poolName))
-			a.brokerResetEditState()
-			return true
-		}
-		if brokerTokenIDExists(a.brokerPools[idx], tokenID) {
+		if brokerTokenIDExists(a.brokerPools[a.brokerPoolIndexByName(poolName)], tokenID) {
 			a.addEvent(fmt.Sprintf("⚠ token ID %s already exists in %s", tokenID, poolName))
 			a.brokerResetEditState()
 			return true
 		}
+		// Persist PAT/key to secrets file before moving to kind step.
 		patEnv := brokerSuggestedPATEnv(tokenID)
 		_ = os.Setenv(patEnv, pat)
-		// Persist PAT to secrets file
 		secrets, _ := loadBrokerSecrets()
 		if secrets == nil {
 			secrets = make(map[string]string)
@@ -826,10 +823,45 @@ func (a *App) brokerCommitEdit() bool {
 		if err := saveBrokerSecrets(secrets); err != nil {
 			a.addEvent(fmt.Sprintf("⚠ PAT secret save failed: %v", err))
 		} else {
-			a.addEvent(fmt.Sprintf("🔐 PAT persisted to ~/.cella/token_broker_secrets.json (key=%s)", patEnv))
+			a.addEvent(fmt.Sprintf("🔐 key persisted (key=%s)", patEnv))
+		}
+		a.brokerEditPATEnv = patEnv
+		a.brokerEditPAT = pat
+		a.brokerEditKind = "token-add-kind"
+		a.brokerEditBuf = ""
+		a.brokerEditSecret = false
+		// Auto-detect kind from PAT prefix and show as default.
+		detected := brokerDetectTokenKind(pat)
+		a.addEvent(fmt.Sprintf("🔎 detected kind: %s — enter to confirm, or type copilot/gemini/openai to override", brokerKindLabel(detected)))
+		return false
+	case "token-add-kind":
+		poolName := strings.TrimSpace(a.brokerEditPoolName)
+		tokenID := strings.TrimSpace(a.brokerEditTokenID)
+		if poolName == "" || tokenID == "" {
+			a.addEvent("❌ token add failed: invalid edit context")
+			a.brokerResetEditState()
+			return true
+		}
+		idx := a.brokerPoolIndexByName(poolName)
+		if idx < 0 {
+			a.addEvent(fmt.Sprintf("❌ token add failed: pool %s not found", poolName))
+			a.brokerResetEditState()
+			return true
+		}
+		// Accept user input or fall back to auto-detected kind.
+		kindInput := strings.ToLower(strings.TrimSpace(a.brokerEditBuf))
+		pat := a.brokerEditPAT
+		patEnv := a.brokerEditPATEnv
+		var kind string
+		switch kindInput {
+		case "copilot", "gemini", "openai":
+			kind = kindInput
+		default:
+			kind = brokerDetectTokenKind(pat) // auto
 		}
 		a.brokerPools[idx].Tokens = append(a.brokerPools[idx].Tokens, BrokerToken{
 			ID:           tokenID,
+			Kind:         kind,
 			Enabled:      true,
 			Health:       0.85,
 			RemainingRPH: 600,
@@ -842,7 +874,7 @@ func (a *App) brokerCommitEdit() bool {
 			a.brokerTokenCursor = len(pool.Tokens) - 1
 		}
 		a.brokerDirty = true
-		a.addEvent(fmt.Sprintf("✅ token %s added to %s (ID+PAT captured via inline input)", tokenID, poolName))
+		a.addEvent(fmt.Sprintf("✅ token %s (%s) added to %s", tokenID, brokerKindLabel(kind), poolName))
 		a.brokerResetEditState()
 		return true
 	default:
@@ -864,6 +896,35 @@ func brokerSuggestedPATEnv(tokenID string) string {
 		n = "TOKEN"
 	}
 	return "CELLA_BROKER_PAT_" + n
+}
+
+// brokerDetectTokenKind infers the token kind from its value prefix.
+// Returns "" (auto) if no prefix matches — proxy will also auto-detect at runtime.
+func brokerDetectTokenKind(pat string) string {
+	switch {
+	case strings.HasPrefix(pat, "ghu_"):
+		return "copilot"
+	case strings.HasPrefix(pat, "AIza"):
+		return "gemini"
+	case strings.HasPrefix(pat, "sk-"):
+		return "openai"
+	default:
+		return ""
+	}
+}
+
+// brokerKindLabel returns a human-readable label for a token kind.
+func brokerKindLabel(kind string) string {
+	switch kind {
+	case "copilot":
+		return "Copilot (GitHub PAT → exchange)"
+	case "gemini":
+		return "Gemini (API key → x-goog-api-key)"
+	case "openai":
+		return "OpenAI-compat (API key → Bearer)"
+	default:
+		return "auto-detect"
+	}
 }
 
 func (a *App) brokerResolvePAT(t *BrokerToken) (pat string, sourceEnv string) {
@@ -1057,6 +1118,7 @@ func (a *App) brokerRuntimeState() proxy.BrokerState {
 		for _, t := range p.Tokens {
 			poolState.Tokens = append(poolState.Tokens, proxy.BrokerTokenState{
 				ID:           t.ID,
+				Kind:         t.Kind,
 				Enabled:      t.Enabled,
 				Health:       t.Health,
 				RemainingRPH: t.RemainingRPH,
@@ -1913,7 +1975,7 @@ func (a App) renderBrokerPanel() string {
 			if !t.Enabled {
 				flag = red.Render("disabled")
 			}
-			right.WriteString(fmt.Sprintf("Token: %s\nStatus: %s\nHealth: %.2f\nRemaining RPH: %d\nSession: %s\nLast test: %s\nPAT env: %s\nP95: %dms\n", t.ID, flag, t.Health, t.RemainingRPH, t.SessionState, t.LastTest, t.PATEnv, t.P95ms))
+			right.WriteString(fmt.Sprintf("Token: %s\nKind: %s\nStatus: %s\nHealth: %.2f\nRemaining RPH: %d\nSession: %s\nLast test: %s\nPAT env: %s\nP95: %dms\n", t.ID, brokerKindLabel(t.Kind), flag, t.Health, t.RemainingRPH, t.SessionState, t.LastTest, t.PATEnv, t.P95ms))
 			if t.BreakerOpen {
 				right.WriteString(red.Render("Breaker: open") + "\n")
 			}

@@ -205,7 +205,8 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			switch {
 			case isCopilotExchangeReq:
-				// OpenClaw's Copilot exchange endpoint expects GitHub PAT, not session token.
+				// Copilot exchange endpoint expects a raw GitHub PAT, not a session token.
+				// Only Copilot-kind tokens can satisfy this path.
 				pat, srcEnv, err := h.server.resolveBrokerPAT(tok)
 				src := normalizeBrokerAuthSource("pat:" + srcEnv)
 				selectedAuthSource = src
@@ -226,28 +227,16 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				r.Header.Set("Authorization", "Bearer "+pat)
 				r.Header.Set("X-Cella-Broker-Auth-Source", src)
 
-			case h.server.shouldUseBrokerSession(h.domain):
-				session, src, err := h.server.AcquireBrokerSessionToken(tok)
-				selectedAuthSource = normalizeBrokerAuthSource(src)
+			default:
+				// Resolve PAT/API key and determine effective kind.
+				pat, srcEnv, err := h.server.resolveBrokerPAT(tok)
 				if err != nil {
-					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, selectedAuthSource)
+					src := normalizeBrokerAuthSource("pat:" + srcEnv)
+					selectedAuthSource = src
+					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, src)
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusTooManyRequests)
-					fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker session exchange failed (%v)\",\"type\":\"rate_limit_error\",\"code\":\"broker_exchange_failed\"}}", err)
-
-					if h.stats != nil && admissionModel != "" {
-						h.stats.Record(InferenceRequest{
-							Time:       reqStart,
-							Container:  h.container,
-							Domain:     h.domain,
-							Model:      admissionModel,
-							Path:       r.URL.Path,
-							Method:     r.Method,
-							StatusCode: http.StatusTooManyRequests,
-							Error:      "broker_exchange_failed",
-							Latency:    time.Since(reqStart),
-						})
-					}
+					fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker key resolve failed (%v)\",\"type\":\"rate_limit_error\",\"code\":\"broker_exchange_failed\"}}", err)
 					h.server.audit.Add(AuditEntry{
 						Time: reqStart, Container: h.container, Domain: h.domain,
 						Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
@@ -257,9 +246,65 @@ func (h *mitmHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					})
 					return
 				}
-				h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, selectedAuthSource)
-				r.Header.Set("Authorization", "Bearer "+session)
-				r.Header.Set("X-Cella-Broker-Auth-Source", selectedAuthSource)
+
+				kind := resolveBrokerTokenKind(tok, pat)
+				r.Header.Set("X-Cella-Broker-Token-Kind", kind)
+
+				switch kind {
+				case BrokerTokenKindGemini:
+					// Gemini: API key injected directly, no exchange needed.
+					src := normalizeBrokerAuthSource("apikey:" + srcEnv)
+					selectedAuthSource = src
+					r.Header.Set("x-goog-api-key", pat)
+					r.Header.Del("Authorization") // strip any dummy auth
+					r.Header.Set("X-Cella-Broker-Auth-Source", src)
+					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, src)
+
+				case BrokerTokenKindOpenAI:
+					// OpenAI-compatible: API key injected as Bearer token.
+					src := normalizeBrokerAuthSource("apikey:" + srcEnv)
+					selectedAuthSource = src
+					r.Header.Set("Authorization", "Bearer "+pat)
+					r.Header.Set("X-Cella-Broker-Auth-Source", src)
+					h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, src)
+
+				default: // BrokerTokenKindCopilot
+					if h.server.shouldUseBrokerSession(h.domain) {
+						// Exchange PAT for short-lived Copilot session token.
+						session, src, err := h.server.AcquireBrokerSessionToken(tok)
+						selectedAuthSource = normalizeBrokerAuthSource(src)
+						if err != nil {
+							h.server.MarkBrokerTokenExchangeResult(selectedTokenID, false, selectedAuthSource)
+							w.Header().Set("Content-Type", "application/json")
+							w.WriteHeader(http.StatusTooManyRequests)
+							fmt.Fprintf(w, "{\"error\":{\"message\":\"Token broker session exchange failed (%v)\",\"type\":\"rate_limit_error\",\"code\":\"broker_exchange_failed\"}}", err)
+							if h.stats != nil && admissionModel != "" {
+								h.stats.Record(InferenceRequest{
+									Time:       reqStart,
+									Container:  h.container,
+									Domain:     h.domain,
+									Model:      admissionModel,
+									Path:       r.URL.Path,
+									Method:     r.Method,
+									StatusCode: http.StatusTooManyRequests,
+									Error:      "broker_exchange_failed",
+									Latency:    time.Since(reqStart),
+								})
+							}
+							h.server.audit.Add(AuditEntry{
+								Time: reqStart, Container: h.container, Domain: h.domain,
+								Method: r.Method, URL: r.URL.String(), Path: r.URL.Path,
+								Status: "blocked-broker-exchange", TLS: true,
+								BrokerTokenID: selectedTokenID, BrokerAuthSource: selectedAuthSource,
+								Latency: time.Since(reqStart),
+							})
+							return
+						}
+						h.server.MarkBrokerTokenExchangeResult(selectedTokenID, true, selectedAuthSource)
+						r.Header.Set("Authorization", "Bearer "+session)
+						r.Header.Set("X-Cella-Broker-Auth-Source", selectedAuthSource)
+					}
+				}
 			}
 		}
 	}

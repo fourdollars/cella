@@ -263,7 +263,11 @@ func TestBrokerPoolAddDeleteTokenKeys(t *testing.T) {
 	for _, r := range "ghu_pat" {
 		a.handleBrokerPanel(keyRune(r))
 	}
-	a.handleBrokerPanel(keyEnter())
+	a.handleBrokerPanel(keyEnter()) // confirm PAT, advance to token-add-kind
+	if !a.brokerEditMode || a.brokerEditKind != "token-add-kind" {
+		t.Fatalf("expected transition to token-add-kind mode, got %s", a.brokerEditKind)
+	}
+	a.handleBrokerPanel(keyEnter()) // accept auto-detected kind
 
 	pool = a.brokerCurrentPool()
 	if len(pool.Tokens) != before+1 {
@@ -272,6 +276,9 @@ func TestBrokerPoolAddDeleteTokenKeys(t *testing.T) {
 	added := pool.Tokens[len(pool.Tokens)-1]
 	if added.ID != "tok_manual_1" {
 		t.Fatalf("expected manual token id tok_manual_1, got %s", added.ID)
+	}
+	if added.Kind != "copilot" {
+		t.Fatalf("expected auto-detected kind copilot for ghu_ prefix, got %s", added.Kind)
 	}
 	if added.PATEnv == "" {
 		t.Fatalf("expected PAT env assigned for added token")
@@ -327,10 +334,14 @@ func TestBrokerPoolAddTokenRequiresPATInput(t *testing.T) {
 	a.handleBrokerPanel(keyRune('x'))
 	a.handleBrokerPanel(keyBackspace())
 	a.handleBrokerPanel(keyRune('y'))
-	a.handleBrokerPanel(keyEnter())
+	a.handleBrokerPanel(keyEnter()) // confirm PAT, advance to token-add-kind
+	if !a.brokerEditMode || a.brokerEditKind != "token-add-kind" {
+		t.Fatalf("expected transition to token-add-kind mode, got %s", a.brokerEditKind)
+	}
+	a.handleBrokerPanel(keyEnter()) // accept auto-detected kind (empty input = auto)
 	pool = a.brokerCurrentPool()
 	if len(pool.Tokens) != before+1 {
-		t.Fatalf("expected token added after ID+PAT input, before=%d after=%d", before, len(pool.Tokens))
+		t.Fatalf("expected token added after ID+PAT+Kind input, before=%d after=%d", before, len(pool.Tokens))
 	}
 }
 

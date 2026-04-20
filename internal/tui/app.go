@@ -349,6 +349,8 @@ type App struct {
 	brokerEditPoolName string
 	brokerEditTokenID  string
 	brokerEditSecret   bool
+	brokerEditPAT      string // temp: PAT value during token-add-kind step
+	brokerEditPATEnv   string // temp: secrets key name during token-add-kind step
 	brokerDirty              bool
 	brokerApplyConfirm       bool
 	brokerClearGroupsConfirm bool
@@ -2096,9 +2098,13 @@ func (a App) renderStatusBar() string {
 			if strings.TrimSpace(a.brokerEditKind) == "token-add-id" {
 				return fmt.Sprintf(" TOKEN BROKER EDIT │ pool=%s │ Enter token ID │ Enter: next │ Esc: cancel │ ID > %s█", a.brokerEditPoolName, a.brokerEditBuf)
 			}
+			if strings.TrimSpace(a.brokerEditKind) == "token-add-kind" {
+				detected := brokerDetectTokenKind(a.brokerEditPAT)
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s │ Kind [%s] │ Enter: confirm │ or type copilot/gemini/openai │ > %s█", a.brokerEditTokenID, brokerKindLabel(detected), a.brokerEditBuf)
+			}
 			if a.brokerEditSecret {
 				masked := strings.Repeat("*", len([]rune(a.brokerEditBuf)))
-				return fmt.Sprintf(" TOKEN BROKER EDIT │ new token=%s (%s) │ Enter: save │ Esc: cancel │ PAT > %s█", a.brokerEditTokenID, a.brokerEditPoolName, masked)
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ new token=%s (%s) │ Enter: next │ Esc: cancel │ Key > %s█", a.brokerEditTokenID, a.brokerEditPoolName, masked)
 			}
 			return fmt.Sprintf(" TOKEN BROKER EDIT │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditBuf)
 		}
