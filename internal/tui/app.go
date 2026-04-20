@@ -2090,6 +2090,9 @@ func (a App) renderStatusBar() string {
 			return " TOKEN BROKER │ Apply draft changes now? y: confirm │ n: cancel"
 		}
 		if a.brokerEditMode {
+			if strings.TrimSpace(a.brokerEditKind) == "group-edit-match" {
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ Edit group match rule │ Enter: save │ Esc: cancel │ Match > %s█", a.brokerEditBuf)
+			}
 			if strings.TrimSpace(a.brokerEditKind) == "token-add-id" {
 				return fmt.Sprintf(" TOKEN BROKER EDIT │ pool=%s │ Enter token ID │ Enter: next │ Esc: cancel │ ID > %s█", a.brokerEditPoolName, a.brokerEditBuf)
 			}

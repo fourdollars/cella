@@ -744,6 +744,21 @@ func (a *App) brokerBeginTokenAddInput(poolName string) {
 func (a *App) brokerCommitEdit() bool {
 	kind := strings.TrimSpace(a.brokerEditKind)
 	switch kind {
+	case "group-edit-match":
+		newMatch := strings.TrimSpace(a.brokerEditBuf)
+		if newMatch == "" {
+			a.addEvent("⚠ match rule cannot be empty")
+			return false
+		}
+		if a.brokerGroupCursor < len(a.brokerGroups) {
+			g := &a.brokerGroups[a.brokerGroupCursor]
+			old := g.Match
+			g.Match = newMatch
+			a.brokerDirty = true
+			a.addEvent(fmt.Sprintf("✅ group %s match updated: %s → %s", brokerGroupID(*g), old, newMatch))
+		}
+		a.brokerResetEditState()
+		return true
 	case "token-add-id":
 		poolName := strings.TrimSpace(a.brokerEditPoolName)
 		tokenID := strings.TrimSpace(a.brokerEditBuf)
@@ -1545,7 +1560,12 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				pool = a.brokerPools[0].Name
 			}
 			groupID := fmt.Sprintf("group-%d", len(a.brokerGroups)+1)
-			a.brokerGroups = append(a.brokerGroups, BrokerGroup{ID: groupID, Name: groupID, Match: groupID, Pool: pool, Weight: 1, RPHLimit: 1000})
+			// Default match to selected container name for better UX
+			matchRule := groupID
+			if a.selected < len(a.containers) {
+				matchRule = a.containers[a.selected].Name
+			}
+			a.brokerGroups = append(a.brokerGroups, BrokerGroup{ID: groupID, Name: groupID, Match: matchRule, Pool: pool, Weight: 1, RPHLimit: 1000})
 			a.brokerGroupCursor = len(a.brokerGroups) - 1
 			a.brokerReconcilePoliciesAfterGroupChange()
 			a.brokerDirty = true
@@ -1556,7 +1576,18 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.brokerGroups = append(a.brokerGroups[:i], a.brokerGroups[i+1:]...)
 				a.brokerReconcilePoliciesAfterGroupChange()
 				a.brokerDirty = true
-				a.addEvent(fmt.Sprintf("🗑 broker group removed: %s", removedID))
+			a.addEvent(fmt.Sprintf("🗑 broker group removed: %s", removedID))
+			}
+		case "e", "E":
+			if len(a.brokerGroups) > 0 {
+				g := &a.brokerGroups[a.brokerGroupCursor]
+				a.brokerApplyConfirm = false
+				a.brokerClearGroupsConfirm = false
+				a.brokerEditMode = true
+				a.brokerEditKind = "group-edit-match"
+				a.brokerEditBuf = g.Match
+				a.brokerEditSecret = false
+				a.addEvent(fmt.Sprintf("📝 editing match rule for group %s (current: %s)", brokerGroupID(*g), g.Match))
 			}
 		case "x", "X":
 			if len(a.brokerGroups) == 0 {
@@ -1869,7 +1900,7 @@ func (a App) renderBrokerPanel() string {
 		} else {
 			right.WriteString(dim.Render("No groups configured. Press N to create the first group.") + "\n")
 		}
-		right.WriteString("\nKeys: ←/→ pool, +/- weight, N add, D delete, X clear-all\n")
+		right.WriteString("\nKeys: ←/→ pool, +/- weight, E edit-match, N add, D delete, X clear-all\n")
 	case 1:
 		endpoint := strings.TrimSpace(a.brokerExchangeEndpoint)
 		if endpoint == "" {
