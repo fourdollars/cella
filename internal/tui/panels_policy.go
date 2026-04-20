@@ -175,6 +175,24 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				}
 			}
 
+			// Override autostart with effective merged value (profile inheritance)
+			if !autostart && containerCfg != nil {
+				if v, ok := containerCfg.Config["boot.autostart"]; ok && (v == "true" || v == "1") {
+					autostart = true
+				}
+			}
+			if !autostart {
+				for _, pd := range profileDetails {
+					if pd == nil {
+						continue
+					}
+					if v, ok := pd.Config["boot.autostart"]; ok && (v == "true" || v == "1") {
+						autostart = true
+						break
+					}
+				}
+			}
+
 			return policyInfoMsg{
 				egress:              egress,
 				seccomp:             seccompName,
