@@ -42,6 +42,7 @@ tracing, disk I/O, network monitoring, and security policy management.`,
 	rootCmd.AddCommand(infoCmd())
 	rootCmd.AddCommand(createContainerCmd())
 	rootCmd.AddCommand(deleteContainerCmd())
+	rootCmd.AddCommand(proxyCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
