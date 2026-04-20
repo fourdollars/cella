@@ -121,8 +121,11 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			}
 			var autostart bool
 			out7, err7 := exec.Command("lxc", "config", "get", name, "boot.autostart").CombinedOutput()
-			if err7 == nil && strings.TrimSpace(string(out7)) == "true" {
-				autostart = true
+			if err7 == nil {
+				v7 := strings.TrimSpace(string(out7))
+				if v7 == "true" || v7 == "1" {
+					autostart = true
+				}
 			}
 
 			// Read syscall deny list (security.syscalls.deny)
@@ -1084,8 +1087,8 @@ func (a App) renderPolicyPanel() string {
 		// ── Right column: Security Flags + Syscall Intercept ──
 		label := func(v bool) string {
 			if a.policyLoading { return pending }
-			if v { return on }
-			return dim.Render(off)
+			if v { return "on" }
+			return dim.Render("off")
 		}
 		right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
 		privLabel := label(a.policyPrivileged)
