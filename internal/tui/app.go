@@ -323,8 +323,18 @@ type App struct {
 	brokerPolicyCursor int
 	brokerEditMode     bool
 	brokerEditBuf      string
-	brokerDirty        bool
+	brokerEditKind     string
+	brokerEditPoolName string
+	brokerEditTokenID  string
+	brokerEditSecret   bool
+	brokerDirty              bool
+	brokerApplyConfirm       bool
+	brokerClearGroupsConfirm bool
+	brokerExchangeMode       string // mock|real
+	brokerExchangeEndpoint string
+	brokerCounterWindowIdx int // 0=5m,1=15m,2=1h
 	brokerPreviewLines []string
+	brokerDiffLines    []string
 	brokerGroups       []BrokerGroup
 	brokerPools        []BrokerPool
 	brokerPolicies     []BrokerPolicy
@@ -2053,10 +2063,20 @@ func (a App) renderStatusBar() string {
 		}
 		return " ROUTING │ ↑↓ select │ Enter: toggle │ a: add │ d: delete │ p: presets │ S: save │ Esc: back"
 	case panelBroker:
+		if a.brokerApplyConfirm {
+			return " TOKEN BROKER │ Apply draft changes now? y: confirm │ n: cancel"
+		}
 		if a.brokerEditMode {
+			if strings.TrimSpace(a.brokerEditKind) == "token-add-id" {
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ pool=%s │ Enter token ID │ Enter: next │ Esc: cancel │ ID > %s█", a.brokerEditPoolName, a.brokerEditBuf)
+			}
+			if a.brokerEditSecret {
+				masked := strings.Repeat("*", len([]rune(a.brokerEditBuf)))
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ new token=%s (%s) │ Enter: save │ Esc: cancel │ PAT > %s█", a.brokerEditTokenID, a.brokerEditPoolName, masked)
+			}
 			return fmt.Sprintf(" TOKEN BROKER EDIT │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditBuf)
 		}
-		return " TOKEN BROKER │ 1-6 tabs │ ↑↓ select │ Enter/edit │ P preview │ S apply │ U rollback │ Esc: back"
+		return " TOKEN BROKER │ 1-6 tabs │ ↑↓ select │ N add-pool │ A add-token(ID+PAT) │ P preview │ R runtime │ V drift │ W window │ C clear │ S apply │ U rollback │ Esc: back"
 	case panelAudit:
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)
