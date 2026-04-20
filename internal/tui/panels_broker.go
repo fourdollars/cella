@@ -907,6 +907,63 @@ func (a *App) brokerCommitEdit() bool {
 		a.addEvent(fmt.Sprintf("✅ token %s (%s) → %s added to %s", tokenID, brokerKindLabel(kind), ep, poolName))
 		a.brokerResetEditState()
 		return true
+	case "token-edit-kind":
+		// Edit Kind of an existing token.
+		poolName := strings.TrimSpace(a.brokerEditPoolName)
+		tokenID := strings.TrimSpace(a.brokerEditTokenID)
+		idx := a.brokerPoolIndexByName(poolName)
+		if idx < 0 || tokenID == "" {
+			a.addEvent("❌ kind edit failed: invalid context")
+			a.brokerResetEditState()
+			return true
+		}
+		kindInput := strings.ToLower(strings.TrimSpace(a.brokerEditBuf))
+		var newKind string
+		switch kindInput {
+		case "copilot", "gemini", "openai":
+			newKind = kindInput
+		default:
+			newKind = "" // clear = auto-detect
+		}
+		for i := range a.brokerPools[idx].Tokens {
+			if a.brokerPools[idx].Tokens[i].ID == tokenID {
+				a.brokerPools[idx].Tokens[i].Kind = newKind
+				break
+			}
+		}
+		a.brokerDirty = true
+		a.addEvent(fmt.Sprintf("✅ %s kind set to: %s", tokenID, brokerKindLabel(newKind)))
+		a.brokerResetEditState()
+		return true
+	case "token-edit-endpoint":
+		// Edit Endpoint of an existing token.
+		poolName := strings.TrimSpace(a.brokerEditPoolName)
+		tokenID := strings.TrimSpace(a.brokerEditTokenID)
+		idx := a.brokerPoolIndexByName(poolName)
+		if idx < 0 || tokenID == "" {
+			a.addEvent("❌ endpoint edit failed: invalid context")
+			a.brokerResetEditState()
+			return true
+		}
+		newEndpoint := strings.TrimSpace(a.brokerEditBuf)
+		for i := range a.brokerPools[idx].Tokens {
+			if a.brokerPools[idx].Tokens[i].ID == tokenID {
+				a.brokerPools[idx].Tokens[i].Endpoint = newEndpoint
+				break
+			}
+		}
+		a.brokerDirty = true
+		ep := newEndpoint
+		if ep == "" {
+			kind := ""
+			for _, t := range a.brokerPools[idx].Tokens {
+				if t.ID == tokenID { kind = t.Kind; break }
+			}
+			ep = brokerDefaultEndpointForKind(kind) + " (default)"
+		}
+		a.addEvent(fmt.Sprintf("✅ %s endpoint set to: %s", tokenID, ep))
+		a.brokerResetEditState()
+		return true
 	default:
 		a.brokerResetEditState()
 		return true
@@ -1786,6 +1843,27 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			t := &pool.Tokens[a.brokerTokenCursor]
 			a.brokerTestExchangeToken(t)
 			a.brokerDirty = true
+		case "i", "I":
+			// Edit Kind for the selected token inline.
+			t := &pool.Tokens[a.brokerTokenCursor]
+			a.brokerEditTokenID = t.ID
+			a.brokerEditPoolName = pool.Name
+			a.brokerEditKind = "token-edit-kind"
+			a.brokerEditBuf = t.Kind
+			a.brokerEditMode = true
+			a.addEvent(fmt.Sprintf("🔍 editing kind for %s [current: %s] — type copilot/gemini/openai or clear for auto", t.ID, brokerKindLabel(t.Kind)))
+		case "u", "U":
+			// Edit Endpoint for the selected token inline.
+			t := &pool.Tokens[a.brokerTokenCursor]
+			a.brokerEditTokenID = t.ID
+			a.brokerEditPoolName = pool.Name
+			a.brokerEditKind = "token-edit-endpoint"
+			a.brokerEditBuf = t.Endpoint
+			a.brokerEditMode = true
+			a.addEvent(fmt.Sprintf("🌐 editing endpoint for %s [current: %s] — paste URL or clear for default", t.ID, func() string {
+				if t.Endpoint == "" { return brokerDefaultEndpointForKind(t.Kind) + " (default)" }
+				return t.Endpoint
+			}()))
 		}
 	case 2:
 		switch s {

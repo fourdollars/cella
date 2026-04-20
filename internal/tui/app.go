@@ -2107,13 +2107,19 @@ func (a App) renderStatusBar() string {
 				defaultEP := brokerDefaultEndpointForKind(a.brokerEditTokenKind)
 				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s (%s) │ Endpoint [%s] │ Enter: use default │ > %s█", a.brokerEditTokenID, brokerKindLabel(a.brokerEditTokenKind), defaultEP, a.brokerEditBuf)
 			}
+			if strings.TrimSpace(a.brokerEditKind) == "token-edit-kind" {
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s │ Kind [copilot/gemini/openai/clear=auto] │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditTokenID, a.brokerEditBuf)
+			}
+			if strings.TrimSpace(a.brokerEditKind) == "token-edit-endpoint" {
+				return fmt.Sprintf(" TOKEN BROKER EDIT │ token=%s │ Endpoint [clear=default] │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditTokenID, a.brokerEditBuf)
+			}
 			if a.brokerEditSecret {
 				masked := strings.Repeat("*", len([]rune(a.brokerEditBuf)))
 				return fmt.Sprintf(" TOKEN BROKER EDIT │ new token=%s (%s) │ Enter: next │ Esc: cancel │ Key > %s█", a.brokerEditTokenID, a.brokerEditPoolName, masked)
 			}
 			return fmt.Sprintf(" TOKEN BROKER EDIT │ Enter: save │ Esc: cancel │ > %s█", a.brokerEditBuf)
 		}
-		return " TOKEN BROKER │ 1-6 tabs │ ↑↓ select │ N add-pool │ A add-token(ID+PAT) │ P preview │ R runtime │ V drift │ W window │ C clear │ S apply │ U rollback │ Esc: back"
+		return " TOKEN BROKER │ 1-6 tabs │ ↑↓ select │ N add-pool │ A add-token │ I edit-kind │ U edit-endpoint │ P preview │ R runtime │ V drift │ W window │ C clear │ S apply │ Esc: back"
 	case panelAudit:
 		if a.auditFilterMode {
 			return fmt.Sprintf(" AUDIT FILTER │ type to filter → Enter │ Esc: cancel │ > %s█", a.auditFilterInput)

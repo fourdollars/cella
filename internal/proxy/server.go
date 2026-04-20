@@ -531,17 +531,45 @@ func brokerTokenHealthy(t BrokerTokenState) bool {
 //   - kind="" (auto) → matches any domain (legacy / single-provider pools)
 func brokerTokenMatchesDomain(t BrokerTokenState, domain string) bool {
 	kind := strings.TrimSpace(t.Kind)
-	if kind == "" {
-		return true // auto: no filter
-	}
 	d := strings.ToLower(strings.TrimSpace(domain))
+
+	// If the token has a custom Endpoint, match against that hostname first.
+	// e.g. Endpoint="https://openrouter.ai" matches domain="openrouter.ai".
+	if ep := strings.TrimSpace(t.Endpoint); ep != "" {
+		// Strip scheme and path from endpoint to get hostname.
+		epHost := ep
+		if idx := strings.Index(ep, "://"); idx >= 0 {
+			epHost = ep[idx+3:]
+		}
+		if idx := strings.Index(epHost, "/"); idx >= 0 {
+			epHost = epHost[:idx]
+		}
+		epHost = strings.ToLower(strings.TrimSpace(epHost))
+		if epHost != "" && strings.HasSuffix(d, epHost) {
+			return true
+		}
+	}
+
+	if kind == "" {
+		// auto kind with no endpoint: only match if no other token in pool
+		// would be a more specific match. We return true here and let the
+		// caller's sort order prefer more specific (non-auto) tokens.
+		return true
+	}
+
 	switch kind {
 	case BrokerTokenKindGemini:
 		return strings.Contains(d, "googleapis.com")
 	case BrokerTokenKindOpenAI:
+		// OpenAI-compatible: covers OpenAI, Azure OpenAI, and
+		// OpenAI-compat providers (openrouter, together, etc.) that
+		// have explicitly set Kind=openai. Domain filter is broad:
+		// prefer Endpoint-based matching above for specific providers.
 		return strings.Contains(d, "openai.com") ||
 			strings.Contains(d, "azure.com") ||
-			strings.Contains(d, "openai.azure")
+			strings.Contains(d, "openrouter.ai") ||
+			strings.Contains(d, "together.ai") ||
+			strings.Contains(d, "togetherai.com")
 	case BrokerTokenKindCopilot:
 		return strings.Contains(d, "githubcopilot.com") ||
 			strings.Contains(d, "api.github.com")
