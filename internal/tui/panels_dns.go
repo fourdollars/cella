@@ -66,7 +66,7 @@ func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				c := a.containers[a.selected]
 				entry := entries[idx]
 				for _, ip := range entry.IPs {
-					security.AddEgressAllow(c.Name, c.IP, ip, entry.Domain)
+					_ = security.AddEgressAllow(c.Name, c.IP, ip, entry.Domain)
 				}
 				a.dnsMonitor.SetStatus(entry.Domain, "allow")
 				a.addEvent(fmt.Sprintf("🟢 allow %s for %s", entry.Domain, c.Name))
@@ -96,7 +96,7 @@ func (a App) handleDNSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						SrcIP:     c.IP,
 						Allow:     allowIPs,
 					}
-					security.ApplyEgressRules(rule)
+					_ = security.ApplyEgressRules(rule)
 				}
 				a.dnsMonitor.SetStatus(entry.Domain, "deny")
 				a.addEvent(fmt.Sprintf("🔴 deny %s for %s", entry.Domain, c.Name))

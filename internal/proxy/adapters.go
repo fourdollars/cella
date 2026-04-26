@@ -51,13 +51,13 @@ type Adapter interface {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type oaiRequest struct {
-	Model       string    `json:"model"`
-	Messages    []oaiMsg  `json:"messages"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature *float64  `json:"temperature,omitempty"`
-	TopP        *float64  `json:"top_p,omitempty"`
-	Stream      bool      `json:"stream"`
-	Stop        []string  `json:"stop,omitempty"`
+	Model       string   `json:"model"`
+	Messages    []oaiMsg `json:"messages"`
+	MaxTokens   int      `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Stream      bool     `json:"stream"`
+	Stop        []string `json:"stop,omitempty"`
 }
 
 type oaiMsg struct {
@@ -90,15 +90,15 @@ type AnthropicAdapter struct{}
 // -- Anthropic request types --
 
 type anthropicRequest struct {
-	Model         string           `json:"model"`
-	MaxTokens     int              `json:"max_tokens"`
-	System        string           `json:"system,omitempty"`
-	Messages      []anthropicMsg   `json:"messages"`
-	Temperature   *float64         `json:"temperature,omitempty"`
-	TopP          *float64         `json:"top_p,omitempty"`
-	TopK          *int             `json:"top_k,omitempty"`
-	Stream        bool             `json:"stream"`
-	StopSequences []string         `json:"stop_sequences,omitempty"`
+	Model         string         `json:"model"`
+	MaxTokens     int            `json:"max_tokens"`
+	System        string         `json:"system,omitempty"`
+	Messages      []anthropicMsg `json:"messages"`
+	Temperature   *float64       `json:"temperature,omitempty"`
+	TopP          *float64       `json:"top_p,omitempty"`
+	TopK          *int           `json:"top_k,omitempty"`
+	Stream        bool           `json:"stream"`
+	StopSequences []string       `json:"stop_sequences,omitempty"`
 }
 
 type anthropicMsg struct {
@@ -186,13 +186,13 @@ func (a *AnthropicAdapter) TransformRequest(r *http.Request, body []byte, modelO
 // -- Anthropic response types --
 
 type anthropicResponse struct {
-	ID           string                   `json:"id"`
-	Type         string                   `json:"type"`
-	Role         string                   `json:"role"`
-	Model        string                   `json:"model"`
-	Content      []anthropicContentBlock  `json:"content"`
-	StopReason   string                   `json:"stop_reason"`
-	StopSequence *string                  `json:"stop_sequence"`
+	ID           string                  `json:"id"`
+	Type         string                  `json:"type"`
+	Role         string                  `json:"role"`
+	Model        string                  `json:"model"`
+	Content      []anthropicContentBlock `json:"content"`
+	StopReason   string                  `json:"stop_reason"`
+	StopSequence *string                 `json:"stop_sequence"`
 	Usage        struct {
 		InputTokens  int64 `json:"input_tokens"`
 		OutputTokens int64 `json:"output_tokens"`

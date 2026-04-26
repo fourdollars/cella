@@ -560,10 +560,6 @@ func brokerTokenEndpoint(tok BrokerTokenState, globalFallback string) string {
 
 // Deprecated: use brokerDefaultEndpointForKind(BrokerTokenKindCopilot) instead.
 
-func brokerDefaultExchangeEndpoint() string {
-	return brokerDefaultEndpointForKind(BrokerTokenKindCopilot)
-}
-
 func (s *Server) shouldUseBrokerSession(domain string) bool {
 	d := strings.ToLower(strings.TrimSpace(domain))
 	return strings.Contains(d, "githubcopilot.com")

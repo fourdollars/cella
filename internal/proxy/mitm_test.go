@@ -168,7 +168,7 @@ func TestSingleConnListener_CloseUnblocksAccept(t *testing.T) {
 	}
 
 	// Close should unblock
-	ln.Close()
+	_ = ln.Close()
 
 	select {
 	case err := <-done:

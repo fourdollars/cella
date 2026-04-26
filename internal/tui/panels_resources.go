@@ -524,7 +524,7 @@ func (a App) renderSnapshotsPanel() string {
 	if totalW < 60 {
 		totalW = 60
 	}
-	listW := 30 // left column fixed width (name only, no created)
+	listW := 30                   // left column fixed width (name only, no created)
 	detailW := totalW - listW - 3 // 1 for │, 2 for padding
 	if detailW < 20 {
 		detailW = 20

@@ -1,0 +1,59 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - ineffassign
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*os.File).Close
+        - (*net/http.Server).Close
+        - (*net/http.Server).Serve
+        - (*crypto/tls.Conn).Close
+        - fmt.Fprintf
+        - fmt.Fprint
+        - fmt.Fprintln
+        - (net/http.ResponseWriter).Write
+        - (*encoding/json.Encoder).Encode
+        - os.Remove
+        - os.MkdirAll
+        - os.WriteFile
+        - io.Copy
+        - (*os/exec.Cmd).Wait
+        - json.Unmarshal
+        - encoding/json.Unmarshal
+        - (*encoding/json.Decoder).Decode
+        - fmt.Sscanf
+        - (*os/exec.Cmd).CombinedOutput
+        - (net.Conn).Write
+        - (*net/http.Request).Write
+        - (*net/http.Response).Write
+        - (*os.Process).Kill
+      check-blank: false
+    staticcheck:
+      checks:
+        - "all"
+        - "-QF*"       # quickfix suggestions
+        - "-ST*"       # doc comment style — will address separately
+        - "-SA9003"     # empty branch — intentional
+        - "-S1023"      # redundant break — harmless
+formatters:
+  enable:
+    - gofmt
+issues:
+  exclude-dirs:
+    - vendor
+    - scripts
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+  max-issues-per-linter: 50
+  max-same-issues: 5

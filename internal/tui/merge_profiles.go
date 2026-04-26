@@ -74,7 +74,9 @@ func FormatMerged(order []string, profiles map[string]*lxd.Profile, containerCfg
 		sort.Strings(keys)
 		for _, k := range keys {
 			src := origin[k]
-			if src == "" { src = "(unknown)" }
+			if src == "" {
+				src = "(unknown)"
+			}
 			b.WriteString(fmt.Sprintf("  %s = %q  <-- %s\n", k, mergedCfg[k], src))
 		}
 	}
@@ -99,7 +101,9 @@ func FormatMerged(order []string, profiles map[string]*lxd.Profile, containerCfg
 			sort.Strings(keys)
 			for _, k := range keys {
 				src := origin[fmt.Sprintf("%s.%s", d, k)]
-				if src == "" { src = "(unknown)" }
+				if src == "" {
+					src = "(unknown)"
+				}
 				b.WriteString(fmt.Sprintf("    %s = %q  <-- %s\n", k, attrs[k], src))
 			}
 		}

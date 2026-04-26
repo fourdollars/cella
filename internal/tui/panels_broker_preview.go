@@ -2,10 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"github.com/fourdoors/cella/internal/proxy"
 	"sort"
 	"strings"
 	"time"
-	"github.com/fourdoors/cella/internal/proxy"
 )
 
 func (a *App) brokerBuildPreview() []string {

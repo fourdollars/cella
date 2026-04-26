@@ -163,7 +163,7 @@ func (a App) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Quit confirmation mode — intercept all keys
 	if a.confirmQuit {
 		switch msg.String() {
-	case "y", "Y", "ctrl+c":
+		case "y", "Y", "ctrl+c":
 			for _, t := range a.tracers {
 				t.Stop()
 			}
@@ -343,7 +343,7 @@ func (a App) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.dnsMonitor = security.NewDNSMonitor()
 		}
 		if !a.dnsMonitor.IsRunning() {
-			a.dnsMonitor.Start()
+			_ = a.dnsMonitor.Start()
 		}
 		a.dnsScroll = 0
 		a.dnsMode = "view"

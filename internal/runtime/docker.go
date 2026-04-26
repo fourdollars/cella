@@ -399,7 +399,7 @@ func (d *DockerClient) UpdateConfig(ctx context.Context, name string, config map
 	if v, ok := config["limits.memory"]; ok {
 		mem := parseDockerMemory(v)
 		if mem < 6*1024*1024 {
-			return fmt.Errorf("Docker minimum memory limit is 6MB")
+			return fmt.Errorf("docker minimum memory limit is 6MB")
 		}
 		update["Memory"] = mem
 		update["MemorySwap"] = mem * 2 // swap = 2x memory (Docker requires swap >= memory)
@@ -445,9 +445,8 @@ func (d *DockerClient) DeleteSnapshot(ctx context.Context, containerName, snapsh
 	return d.doDelete(ctx, fmt.Sprintf("/images/%s:snapshot", snapshotName))
 }
 
-
 func (d *DockerClient) RenameSnapshot(ctx context.Context, containerName, oldName, newName string) error {
-	return fmt.Errorf("Docker does not support snapshot rename")
+	return fmt.Errorf("docker does not support snapshot rename")
 }
 func (d *DockerClient) CopyContainer(ctx context.Context, source, target string) error {
 	// Docker: commit source to temp image, then create new container from it
@@ -460,7 +459,7 @@ func (d *DockerClient) CopyContainer(ctx context.Context, source, target string)
 	var commitResp struct {
 		ID string `json:"Id"`
 	}
-	json.Unmarshal(commitBody, &commitResp)
+	_ = json.Unmarshal(commitBody, &commitResp)
 
 	// Create container from committed image
 	createPayload := map[string]interface{}{

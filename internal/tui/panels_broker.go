@@ -643,42 +643,6 @@ func (a *App) brokerNextPoolName() string {
 	return fmt.Sprintf("pool_%d", maxN+1)
 }
 
-func (a *App) brokerNextTokenID(poolName string) string {
-	idx := a.brokerPoolIndexByName(poolName)
-	if idx < 0 {
-		return "tok_new1"
-	}
-	tokens := a.brokerPools[idx].Tokens
-	maxN := 0
-	for _, t := range tokens {
-		parts := strings.Split(t.ID, "_")
-		if len(parts) == 0 {
-			continue
-		}
-		last := parts[len(parts)-1]
-		n := 0
-		for _, ch := range last {
-			if ch < '0' || ch > '9' {
-				n = 0
-				break
-			}
-			n = n*10 + int(ch-'0')
-		}
-		if n > maxN {
-			maxN = n
-		}
-	}
-	prefix := "tok"
-	if strings.Contains(poolName, "alpha") {
-		prefix = "tok_a"
-	} else if strings.Contains(poolName, "beta") {
-		prefix = "tok_b"
-	} else if strings.Contains(poolName, "ci") {
-		prefix = "tok_ci"
-	}
-	return fmt.Sprintf("%s%d", prefix, maxN+1)
-}
-
 func (a *App) brokerReconcileMappingsAfterPoolChange() {
 	valid := make(map[string]bool, len(a.brokerPools))
 	for _, p := range a.brokerPools {
@@ -953,7 +917,10 @@ func (a *App) brokerCommitEdit() bool {
 		if ep == "" {
 			kind := ""
 			for _, t := range a.brokerPools[idx].Tokens {
-				if t.ID == tokenID { kind = t.Kind; break }
+				if t.ID == tokenID {
+					kind = t.Kind
+					break
+				}
 			}
 			ep = brokerDefaultEndpointForKind(kind) + " (default)"
 		}

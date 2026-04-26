@@ -309,14 +309,6 @@ func extractDomain(host string) string {
 	return h
 }
 
-func splitHostPort(hostport string) (string, string) {
-	host, port, err := net.SplitHostPort(hostport)
-	if err != nil {
-		return hostport, ""
-	}
-	return host, port
-}
-
 func removeHopByHopHeaders(h http.Header) {
 	hopByHop := []string{
 		"Connection", "Keep-Alive", "Proxy-Authenticate",

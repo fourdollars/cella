@@ -49,9 +49,9 @@ func TestListContainers_ParsesResponse(t *testing.T) {
 
 	instances := []lxdInstance{
 		{
-			Name:   "web-server",
-			Status: "Running",
-			Type:   "container",
+			Name:     "web-server",
+			Status:   "Running",
+			Type:     "container",
 			Profiles: []string{"default"},
 			State: &lxdInstanceState{
 				Status: "Running",

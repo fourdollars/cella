@@ -579,7 +579,6 @@ func (c *Client) DeleteSnapshot(ctx context.Context, containerName, snapshotName
 	return nil
 }
 
-
 // RenameSnapshot renames a snapshot via LXD API (POST with name field)
 func (c *Client) RenameSnapshot(ctx context.Context, containerName, oldName, newName string) error {
 	payload := map[string]interface{}{
@@ -600,6 +599,7 @@ func (c *Client) RenameSnapshot(ctx context.Context, containerName, oldName, new
 	}
 	return nil
 }
+
 // CopyContainer copies/clones an instance to a new name
 func (c *Client) CopyContainer(ctx context.Context, sourceName, targetName string) error {
 	payload := map[string]interface{}{
@@ -667,7 +667,7 @@ func (c *Client) ExecCommand(ctx context.Context, name string, command []string)
 		var opMeta struct {
 			ID string `json:"id"`
 		}
-		json.Unmarshal(resp.Metadata, &opMeta)
+		_ = json.Unmarshal(resp.Metadata, &opMeta)
 		if opMeta.ID != "" {
 			opURL = fmt.Sprintf("/1.0/operations/%s", opMeta.ID)
 		}

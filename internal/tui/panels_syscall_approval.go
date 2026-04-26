@@ -242,14 +242,14 @@ func startSeccompApprovalListener(
 func (a *App) toggleSeccompNotifyForContainer(containerName string) tea.Cmd {
 	return func() tea.Msg {
 		if a.client == nil {
-			return errMsg(fmt.Errorf("syscall blocking requires LXD client"))
+			return errMsg{err: fmt.Errorf("syscall blocking requires LXD client")}
 		}
 		ctx := context.Background()
 
 		// Check current deny list to determine toggle direction
 		current, err := a.client.GetSyscallDenyList(ctx, containerName)
 		if err != nil {
-			return errMsg(fmt.Errorf("get syscall deny list: %w", err))
+			return errMsg{err: fmt.Errorf("get syscall deny list: %w", err)}
 		}
 
 		currentlyEnabled := len(current) > 0
@@ -257,14 +257,14 @@ func (a *App) toggleSeccompNotifyForContainer(containerName string) tea.Cmd {
 		if currentlyEnabled {
 			// Disable: clear the deny list
 			if err := a.client.SetSyscallDenyList(ctx, containerName, nil); err != nil {
-				return errMsg(fmt.Errorf("clear syscall deny list: %w", err))
+				return errMsg{err: fmt.Errorf("clear syscall deny list: %w", err)}
 			}
 			return seccompNotifyToggleMsg{container: containerName, enabled: false}
 		}
 
 		// Enable: apply DangerousSyscalls deny list
 		if err := a.client.SetSyscallDenyList(ctx, containerName, lxd.DangerousSyscalls); err != nil {
-			return errMsg(fmt.Errorf("set syscall deny list: %w", err))
+			return errMsg{err: fmt.Errorf("set syscall deny list: %w", err)}
 		}
 
 		// Initialise bpftrace-based approval channel (idempotent — only once per process)

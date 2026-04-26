@@ -66,7 +66,7 @@ func (s *AutoSetup) SetupContainer(socketPath, container string) error {
 		_ = lxdAPIPatch(socketPath, fmt.Sprintf("/1.0/instances/%s", container), body)
 	}
 
-		// nftables REDIRECT is set up by the caller (transparent.go)
+	// nftables REDIRECT is set up by the caller (transparent.go)
 	return nil
 }
 

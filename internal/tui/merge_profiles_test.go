@@ -12,11 +12,11 @@ func TestMergeProfiles_OrderAndContainerOverlay(t *testing.T) {
 			Name: "base",
 			Config: map[string]string{
 				"net.ipv4.ip_forward": "0",
-				"base.key": "from-base",
+				"base.key":            "from-base",
 			},
 			Devices: map[string]map[string]string{
 				"eth0": {
-					"parent": "br0",
+					"parent":  "br0",
 					"nictype": "bridged",
 				},
 			},
@@ -25,7 +25,7 @@ func TestMergeProfiles_OrderAndContainerOverlay(t *testing.T) {
 			Name: "extra",
 			Config: map[string]string{
 				"net.ipv4.ip_forward": "1",
-				"extra.key": "from-extra",
+				"extra.key":           "from-extra",
 			},
 			Devices: map[string]map[string]string{
 				"eth0": {

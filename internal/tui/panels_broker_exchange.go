@@ -3,15 +3,15 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/fourdoors/cella/internal/proxy"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-	"github.com/fourdoors/cella/internal/proxy"
 )
 
 func (a *App) brokerTestExchangeToken(t *BrokerToken) {
-		a.brokerTestExchangeTokenReal(t)
+	a.brokerTestExchangeTokenReal(t)
 }
 
 func brokerSuggestedPATEnv(tokenID string) string {

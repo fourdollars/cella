@@ -44,7 +44,7 @@ type policyInfoMsg struct {
 	Profiles       []string
 	ProfileDetails map[string]*lxd.Profile
 	ContainerCfg   *lxd.InstanceConfig
-	err         error
+	err            error
 }
 
 // ── Fetch policy info ──
@@ -258,14 +258,22 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.policyInput = ""
 				return a, a.fetchPolicyInfo(c)
 			}
-			a.policyMode = "view"; a.policyInput = ""; return a, nil
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
 		case key == "esc":
-			a.policyMode = "view"; a.policyInput = ""; return a, nil
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
 		case key == "backspace":
-			if len(a.policyInput) > 0 { a.policyInput = a.policyInput[:len(a.policyInput)-1] }
+			if len(a.policyInput) > 0 {
+				a.policyInput = a.policyInput[:len(a.policyInput)-1]
+			}
 			return a, nil
 		default:
-			if len(key) == 1 { a.policyInput += key }
+			if len(key) == 1 {
+				a.policyInput += key
+			}
 			return a, nil
 		}
 	}
@@ -294,14 +302,22 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.policyInput = ""
 				return a, a.fetchPolicyInfo(c)
 			}
-			a.policyMode = "view"; a.policyInput = ""; return a, nil
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
 		case key == "esc":
-			a.policyMode = "view"; a.policyInput = ""; return a, nil
+			a.policyMode = "view"
+			a.policyInput = ""
+			return a, nil
 		case key == "backspace":
-			if len(a.policyInput) > 0 { a.policyInput = a.policyInput[:len(a.policyInput)-1] }
+			if len(a.policyInput) > 0 {
+				a.policyInput = a.policyInput[:len(a.policyInput)-1]
+			}
 			return a, nil
 		default:
-			if len(key) == 1 { a.policyInput += key }
+			if len(key) == 1 {
+				a.policyInput += key
+			}
 			return a, nil
 		}
 	}
@@ -437,30 +453,30 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.selected--
 			a.policyScroll = 0
 			if a.selected < len(a.containers) {
-			// Clear stale policy data immediately -- show loading state until new data arrives
-			a.policyEgress = ""
-			a.policySeccomp = ""
-			a.policyAppArmor = ""
-			a.policyPrivileged = false
-			a.policyNesting = false
-			a.policyDenyList = nil
-			a.policyDevLXD = false
-			a.policyIdmapIso = false
-			a.policyAutostart = false
-			a.policyInterceptMknod = false
-			a.policyInterceptBpf = false
-			a.policyInterceptBpfDev = false
-			a.policyInterceptSetxattr = false
-			a.policyInterceptSched = false
-			a.policyInterceptSysinfo = false
-			a.policyInterceptMount = false
-			a.policyInterceptMountShift = false
-			a.policyInterceptMountFuse = ""
-			a.policyInterceptMountAllow = ""
-			a.policyProfiles = nil
-			a.policyProfileDetails = nil
-			a.policyContainerCfg = nil
-			a.policyLoading = true
+				// Clear stale policy data immediately -- show loading state until new data arrives
+				a.policyEgress = ""
+				a.policySeccomp = ""
+				a.policyAppArmor = ""
+				a.policyPrivileged = false
+				a.policyNesting = false
+				a.policyDenyList = nil
+				a.policyDevLXD = false
+				a.policyIdmapIso = false
+				a.policyAutostart = false
+				a.policyInterceptMknod = false
+				a.policyInterceptBpf = false
+				a.policyInterceptBpfDev = false
+				a.policyInterceptSetxattr = false
+				a.policyInterceptSched = false
+				a.policyInterceptSysinfo = false
+				a.policyInterceptMount = false
+				a.policyInterceptMountShift = false
+				a.policyInterceptMountFuse = ""
+				a.policyInterceptMountAllow = ""
+				a.policyProfiles = nil
+				a.policyProfileDetails = nil
+				a.policyContainerCfg = nil
+				a.policyLoading = true
 				return a, a.fetchPolicyInfo(a.containers[a.selected])
 			}
 		}
@@ -471,30 +487,30 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.selected++
 			a.policyScroll = 0
 			if a.selected < len(a.containers) {
-			// Clear stale policy data immediately -- show loading state until new data arrives
-			a.policyEgress = ""
-			a.policySeccomp = ""
-			a.policyAppArmor = ""
-			a.policyPrivileged = false
-			a.policyNesting = false
-			a.policyDenyList = nil
-			a.policyDevLXD = false
-			a.policyIdmapIso = false
-			a.policyAutostart = false
-			a.policyInterceptMknod = false
-			a.policyInterceptBpf = false
-			a.policyInterceptBpfDev = false
-			a.policyInterceptSetxattr = false
-			a.policyInterceptSched = false
-			a.policyInterceptSysinfo = false
-			a.policyInterceptMount = false
-			a.policyInterceptMountShift = false
-			a.policyInterceptMountFuse = ""
-			a.policyInterceptMountAllow = ""
-			a.policyProfiles = nil
-			a.policyProfileDetails = nil
-			a.policyContainerCfg = nil
-			a.policyLoading = true
+				// Clear stale policy data immediately -- show loading state until new data arrives
+				a.policyEgress = ""
+				a.policySeccomp = ""
+				a.policyAppArmor = ""
+				a.policyPrivileged = false
+				a.policyNesting = false
+				a.policyDenyList = nil
+				a.policyDevLXD = false
+				a.policyIdmapIso = false
+				a.policyAutostart = false
+				a.policyInterceptMknod = false
+				a.policyInterceptBpf = false
+				a.policyInterceptBpfDev = false
+				a.policyInterceptSetxattr = false
+				a.policyInterceptSched = false
+				a.policyInterceptSysinfo = false
+				a.policyInterceptMount = false
+				a.policyInterceptMountShift = false
+				a.policyInterceptMountFuse = ""
+				a.policyInterceptMountAllow = ""
+				a.policyProfiles = nil
+				a.policyProfileDetails = nil
+				a.policyContainerCfg = nil
+				a.policyLoading = true
 				return a, a.fetchPolicyInfo(a.containers[a.selected])
 			}
 		}
@@ -694,7 +710,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ privileged: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.privileged → %s", c.Name, newVal))
-			a.flashText = fmt.Sprintf("🛡 security.privileged → %s for %s", newVal, c.Name)
+				a.flashText = fmt.Sprintf("🛡 security.privileged → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -714,7 +730,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ nesting: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.nesting → %s", c.Name, newVal))
-			a.flashText = fmt.Sprintf("🛡 security.nesting → %s for %s", newVal, c.Name)
+				a.flashText = fmt.Sprintf("🛡 security.nesting → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -734,7 +750,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ devlxd: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.devlxd → %s", c.Name, newVal))
-			a.flashText = fmt.Sprintf("🛡 security.devlxd → %s for %s", newVal, c.Name)
+				a.flashText = fmt.Sprintf("🛡 security.devlxd → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -754,7 +770,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ boot.autostart: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🚀 %s boot.autostart → %s", c.Name, newVal))
-			a.flashText = fmt.Sprintf("🚀 boot.autostart → %s for %s", newVal, c.Name)
+				a.flashText = fmt.Sprintf("🚀 boot.autostart → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -774,7 +790,7 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.addEvent(fmt.Sprintf("⚠ idmap.isolated: %s", strings.TrimSpace(string(out))))
 			} else {
 				a.addEvent(fmt.Sprintf("🛡 %s security.idmap.isolated → %s", c.Name, newVal))
-			a.flashText = fmt.Sprintf("🛡 idmap.isolated → %s for %s", newVal, c.Name)
+				a.flashText = fmt.Sprintf("🛡 idmap.isolated → %s for %s", newVal, c.Name)
 			}
 			return a, a.fetchPolicyInfo(c)
 		}
@@ -784,56 +800,80 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Toggle security.syscalls.intercept.mknod
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mknod: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.mknod: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.mknod", a.policyInterceptMknod)
 		}
 	case "B":
 		// Toggle security.syscalls.intercept.bpf
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.bpf: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.bpf: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.bpf", a.policyInterceptBpf)
 		}
 	case "O":
 		// Toggle security.syscalls.intercept.bpf.devices
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.bpf.devices: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.bpf.devices: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.bpf.devices", a.policyInterceptBpfDev)
 		}
 	case "X":
 		// Toggle security.syscalls.intercept.setxattr
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.setxattr: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.setxattr: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.setxattr", a.policyInterceptSetxattr)
 		}
 	case "C":
 		// Toggle security.syscalls.intercept.sched_setscheduler
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.sched: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.sched: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.sched_setscheduler", a.policyInterceptSched)
 		}
 	case "Y":
 		// Toggle security.syscalls.intercept.sysinfo
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.sysinfo: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.sysinfo: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.sysinfo", a.policyInterceptSysinfo)
 		}
 	case "U":
 		// Toggle security.syscalls.intercept.mount
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mount: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.mount: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.mount", a.policyInterceptMount)
 		}
 	case "H":
 		// Toggle security.syscalls.intercept.mount.shift
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" { a.addEvent("⚠ intercept.mount.shift: LXD only"); return a, nil }
+			if c.Runtime != "lxd" {
+				a.addEvent("⚠ intercept.mount.shift: LXD only")
+				return a, nil
+			}
 			return a.toggleInterceptBool(c, "security.syscalls.intercept.mount.shift", a.policyInterceptMountShift)
 		}
 	case "F":
@@ -902,7 +942,7 @@ func (a *App) applySeccompProfile(name, rtName, profileName string) {
 			a.policySeccomp = profileName
 		}
 	} else {
-		a.addEvent(fmt.Sprintf("⚠ seccomp profiles for Docker require container restart (not yet supported)"))
+		a.addEvent("⚠ seccomp profiles for Docker require container restart (not yet supported)")
 	}
 }
 
@@ -927,13 +967,21 @@ func (a App) renderPolicyPanel() string {
 	off := lipgloss.NewStyle().Foreground(lipgloss.Color("#555")).Render("⚫")
 	pending := dim.Render("…") // shown while policyLoading is true
 	boolIcon := func(v bool) string {
-		if a.policyLoading { return pending }
-		if v { return on }
+		if a.policyLoading {
+			return pending
+		}
+		if v {
+			return on
+		}
 		return off
 	}
 	strVal := func(v string) string {
-		if a.policyLoading { return pending }
-		if v == "" { return dim.Render("(unset)") }
+		if a.policyLoading {
+			return pending
+		}
+		if v == "" {
+			return dim.Render("(unset)")
+		}
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7ec8e3")).Render(v)
 	}
 
@@ -944,12 +992,18 @@ func (a App) renderPolicyPanel() string {
 	left.WriteString(SectionHeaderStyle.Render("Seccomp") + "\n")
 	seccomp := a.policySeccomp
 	if seccomp == "" {
-		if a.policyLoading { seccomp = "…" } else { seccomp = "(not set)" }
+		if a.policyLoading {
+			seccomp = "…"
+		} else {
+			seccomp = "(not set)"
+		}
 	}
 	left.WriteString(fmt.Sprintf("  %s\n", seccomp))
 	for _, p := range []struct{ key, name string }{{"0", "default"}, {"1", "strict"}, {"2", "moderate"}, {"3", "permissive"}} {
 		ind := "  "
-		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) { ind = "▸ " }
+		if strings.Contains(strings.ToLower(a.policySeccomp), p.name) {
+			ind = "▸ "
+		}
 		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
 	}
 
@@ -961,9 +1015,13 @@ func (a App) renderPolicyPanel() string {
 		activeStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c"))
 		left.WriteString(fmt.Sprintf("  %s\n", activeStyle.Render("⛔ ACTIVE")))
 		shown := a.policyDenyList
-		if len(shown) > 5 { shown = shown[:5] }
+		if len(shown) > 5 {
+			shown = shown[:5]
+		}
 		left.WriteString(fmt.Sprintf("  %s", strings.Join(shown, ", ")))
-		if len(a.policyDenyList) > 5 { left.WriteString(fmt.Sprintf(" +%d", len(a.policyDenyList)-5)) }
+		if len(a.policyDenyList) > 5 {
+			left.WriteString(fmt.Sprintf(" +%d", len(a.policyDenyList)-5))
+		}
 		left.WriteString("\n")
 	} else {
 		left.WriteString(fmt.Sprintf("  %s\n", dim.Render("off — [Z] enable")))
@@ -975,12 +1033,18 @@ func (a App) renderPolicyPanel() string {
 	left.WriteString(SectionHeaderStyle.Render("AppArmor") + "\n")
 	aa := a.policyAppArmor
 	if aa == "" {
-		if a.policyLoading { aa = "…" } else { aa = "(not set)" }
+		if a.policyLoading {
+			aa = "…"
+		} else {
+			aa = "(not set)"
+		}
 	}
 	left.WriteString(fmt.Sprintf("  %s\n", aa))
 	for _, p := range []struct{ key, name string }{{"4", "default"}, {"5", "hardened"}, {"6", "net-restricted"}, {"7", "read-only"}} {
 		ind := "  "
-		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) { ind = "▸ " }
+		if strings.Contains(strings.ToLower(a.policyAppArmor), p.name) {
+			ind = "▸ "
+		}
 		left.WriteString(fmt.Sprintf("  %s[%s] %s\n", ind, p.key, p.name))
 	}
 
@@ -1022,7 +1086,9 @@ func (a App) renderPolicyPanel() string {
 				return "#aaaaaa"
 			}
 			sum := 0
-			for i := 0; i < len(name); i++ { sum += int(name[i]) }
+			for i := 0; i < len(name); i++ {
+				sum += int(name[i])
+			}
 			return colors[sum%len(colors)]
 		}
 
@@ -1036,21 +1102,27 @@ func (a App) renderPolicyPanel() string {
 			right.WriteString("    (none)\n")
 		} else {
 			keys := make([]string, 0, len(mergedCfg))
-			for k := range mergedCfg { keys = append(keys, k) }
+			for k := range mergedCfg {
+				keys = append(keys, k)
+			}
 			sort.Strings(keys)
 			for _, k := range keys {
 				val := mergedCfg[k]
 				if !a.policyShowSensitive && isSensitiveKey(k) {
 					val = "<masked>"
 					src := origin[k]
-					if src == "" { src = "(unknown)" }
+					if src == "" {
+						src = "(unknown)"
+					}
 					col := colorForOrigin(src)
 					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
 					right.WriteString(fmt.Sprintf("  %s = %s  <-- %s\n", k, val, tag))
 				} else if strings.Contains(val, "\n") {
 					// Multi-line value: show key + origin, then indented lines
 					src := origin[k]
-					if src == "" { src = "(unknown)" }
+					if src == "" {
+						src = "(unknown)"
+					}
 					col := colorForOrigin(src)
 					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
 					right.WriteString(fmt.Sprintf("  %s  <-- %s\n", k, tag))
@@ -1059,7 +1131,9 @@ func (a App) renderPolicyPanel() string {
 					}
 				} else {
 					src := origin[k]
-					if src == "" { src = "(unknown)" }
+					if src == "" {
+						src = "(unknown)"
+					}
 					col := colorForOrigin(src)
 					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
 					right.WriteString(fmt.Sprintf("  %s = %q  <-- %s\n", k, val, tag))
@@ -1077,13 +1151,17 @@ func (a App) renderPolicyPanel() string {
 			right.WriteString("    (none)\n")
 		} else {
 			devNames := make([]string, 0, len(mergedDevs))
-			for d := range mergedDevs { devNames = append(devNames, d) }
+			for d := range mergedDevs {
+				devNames = append(devNames, d)
+			}
 			sort.Strings(devNames)
 			for _, d := range devNames {
 				right.WriteString(fmt.Sprintf("  %s:\n", d))
 				attrs := mergedDevs[d]
 				keys := make([]string, 0, len(attrs))
-				for k := range attrs { keys = append(keys, k) }
+				for k := range attrs {
+					keys = append(keys, k)
+				}
 				sort.Strings(keys)
 				for _, k := range keys {
 					val := attrs[k]
@@ -1094,7 +1172,9 @@ func (a App) renderPolicyPanel() string {
 						val = fmt.Sprintf("%q", val)
 					}
 					src := origin[fullKey]
-					if src == "" { src = "(unknown)" }
+					if src == "" {
+						src = "(unknown)"
+					}
 					col := colorForOrigin(src)
 					tag := lipgloss.NewStyle().Foreground(lipgloss.Color(col)).Bold(true).Render(src)
 					right.WriteString(fmt.Sprintf("    %s = %s  <-- %s\n", k, val, tag))
@@ -1104,13 +1184,19 @@ func (a App) renderPolicyPanel() string {
 	} else {
 		// ── Right column: Security Flags + Syscall Intercept ──
 		label := func(v bool) string {
-			if a.policyLoading { return pending }
-			if v { return "on" }
+			if a.policyLoading {
+				return pending
+			}
+			if v {
+				return "on"
+			}
 			return dim.Render("off")
 		}
 		right.WriteString(SectionHeaderStyle.Render("Security Flags") + "\n")
 		privLabel := label(a.policyPrivileged)
-		if a.policyPrivileged { privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!") }
+		if a.policyPrivileged {
+			privLabel = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e74c3c")).Render("ON!")
+		}
 		right.WriteString(fmt.Sprintf("  (%s)rivileged  %s %s\n", keyHint.Render("P"), boolIcon(a.policyPrivileged), privLabel))
 		right.WriteString(fmt.Sprintf("  (%s)esting     %s %s\n", keyHint.Render("N"), boolIcon(a.policyNesting), label(a.policyNesting)))
 		right.WriteString(fmt.Sprintf("  (%s)evLXD      %s %s\n", keyHint.Render("V"), boolIcon(a.policyDevLXD), label(a.policyDevLXD)))
@@ -1194,7 +1280,7 @@ func (a App) renderPolicyPanel() string {
 	}
 	// Peek: will there be lines below?
 	if start+visible < len(targetLines) {
-		showBelow = true
+		_ = true  // showBelow removed (ineffassign)
 		visible-- // 1 line for ▼ indicator
 	}
 	if visible < 1 {

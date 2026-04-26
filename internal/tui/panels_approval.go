@@ -21,7 +21,6 @@ type approvalMsg proxy.ApprovalRequest
 type approvalCancelMsg string // request ID
 
 // approvalDismissMsg signals the approval prompt should be dismissed
-type approvalDismissMsg struct{}
 
 // listenApprovals reads one approval request from the channel and returns it as a Msg
 func listenApprovals(ch chan proxy.ApprovalRequest) tea.Cmd {
@@ -186,7 +185,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		items := a.buildListItems()
 		max := len(items) - 1
 
-				// ── add sub-mode ──
+		// ── add sub-mode ──
 		if a.auditAddMode {
 			runes := []rune(a.auditEditInput)
 			switch msg.String() {
@@ -240,7 +239,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
-// ── edit sub-mode ──
+		// ── edit sub-mode ──
 		if a.auditEditMode {
 			runes := []rune(a.auditEditInput)
 			switch msg.String() {
@@ -338,7 +337,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return a, a.moveListItem(it, "allow")
 				}
 			}
-				case "a": // Add new domain to the current list type (allow/deny)
+		case "a": // Add new domain to the current list type (allow/deny)
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				it := items[a.auditListCursor]
 				a.auditAddMode = true
@@ -387,7 +386,7 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if globalProxyServer != nil {
 			globalProxyServer.Audit().Clear()
 			a.addEvent("📋 audit log cleared")
-		a.flashText = "📋 audit log cleared"
+			a.flashText = "📋 audit log cleared"
 		}
 		return a, nil
 	case "/":
@@ -640,7 +639,6 @@ func (a *App) removeListItem(item listItem) tea.Cmd {
 	}
 }
 
-
 // renderAllowDenyLists renders the allowlist and denylist for the current container
 func (a *App) renderAllowDenyLists() string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b949e"))
@@ -717,7 +715,7 @@ func (a *App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "allow", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
-										if a.auditAddMode && a.auditEditOriginal.kind == "allow" {
+					if a.auditAddMode && a.auditEditOriginal.kind == "allow" {
 						addStyle := lipgloss.NewStyle().Background(lipgloss.Color("#1a4a1a")).Foreground(lipgloss.Color("#7ee787")).Bold(true)
 						eRunes := []rune(a.auditEditInput)
 						before := string(eRunes[:a.auditEditCursor])
@@ -755,7 +753,7 @@ func (a *App) renderAllowDenyLists() string {
 				idx := a.listItemIndex(cname, d, "deny", items)
 				if idx == a.auditListCursor {
 					cursorStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
-										if a.auditAddMode && a.auditEditOriginal.kind == "deny" {
+					if a.auditAddMode && a.auditEditOriginal.kind == "deny" {
 						addStyle := lipgloss.NewStyle().Background(lipgloss.Color("#4a1a1a")).Foreground(lipgloss.Color("#f97316")).Bold(true)
 						eRunes := []rune(a.auditEditInput)
 						before := string(eRunes[:a.auditEditCursor])
@@ -919,7 +917,6 @@ func (a *App) moveListItem(item listItem, toKind string) tea.Cmd {
 		}
 	}
 }
-
 
 // editListItem replaces oldItem.domain with newDomain in its allow/deny list.
 func (a *App) editListItem(old listItem, newDomain string) tea.Cmd {
@@ -1299,7 +1296,7 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 		return asyncResultMsg{
 			text: fmt.Sprintf("🔧 intercepting %s (%s) — REDIRECT :9081 + CA cert", container, containerIP),
 			// Attach IP so the caller can record it in interceptedIPs.
-			extra: containerIP,
+			extra:    containerIP,
 			extraKey: container,
 		}
 	}

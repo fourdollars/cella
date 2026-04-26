@@ -154,11 +154,11 @@ func ProfileToJSON(profile *SeccompProfile) (string, error) {
 // ProfileSummary returns a human-readable summary of the profile
 func ProfileSummary(profile *SeccompProfile) string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Container:     %s\n", profile.Container))
-	b.WriteString(fmt.Sprintf("Default:       %s (deny unlisted)\n", profile.DefaultAction))
-	b.WriteString(fmt.Sprintf("Allowed:       %d syscalls\n", len(profile.Syscalls[0].Names)))
-	b.WriteString(fmt.Sprintf("Observed:      %ds (%d samples)\n", profile.ObservedSec, profile.TotalSamples))
-	b.WriteString(fmt.Sprintf("Generated:     %s\n", profile.Generated.Format("2006-01-02 15:04:05")))
-	b.WriteString(fmt.Sprintf("\nSyscalls: %s\n", strings.Join(profile.Syscalls[0].Names, ", ")))
+	fmt.Fprintf(&b, "Container:     %s\n", profile.Container)
+	fmt.Fprintf(&b, "Default:       %s (deny unlisted)\n", profile.DefaultAction)
+	fmt.Fprintf(&b, "Allowed:       %d syscalls\n", len(profile.Syscalls[0].Names))
+	fmt.Fprintf(&b, "Observed:      %ds (%d samples)\n", profile.ObservedSec, profile.TotalSamples)
+	fmt.Fprintf(&b, "Generated:     %s\n", profile.Generated.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&b, "\nSyscalls: %s\n", strings.Join(profile.Syscalls[0].Names, ", "))
 	return b.String()
 }

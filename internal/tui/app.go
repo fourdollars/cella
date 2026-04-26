@@ -5,21 +5,21 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
-	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/fourdoors/cella/internal/lxd"
+	"github.com/fourdoors/cella/internal/proxy"
 	"github.com/fourdoors/cella/internal/runtime"
 	"github.com/fourdoors/cella/internal/security"
 	"github.com/fourdoors/cella/internal/trace"
-	"github.com/fourdoors/cella/internal/proxy"
 )
 
 // cellaUserHomeDir returns the real user's home directory, even under sudo.
@@ -79,15 +79,15 @@ const sparklineLen = 30
 
 // Package-level proxy state — survives Bubbletea model copies
 var (
-	globalProxyServer     *proxy.Server
-	globalTproxyListener  *proxy.TransparentListener
-	globalApprovalCh      chan proxy.ApprovalRequest
+	globalProxyServer       *proxy.Server
+	globalTproxyListener    *proxy.TransparentListener
+	globalApprovalCh        chan proxy.ApprovalRequest
 	globalListeningApprvals bool
 )
 
 type tickMsg time.Time
 type containersMsg []runtime.ContainerInfo
-type errMsg error
+type errMsg struct{ err error }
 type lxdEventMsg string
 type execResultMsg struct {
 	stdout string
@@ -149,23 +149,23 @@ type prevState struct {
 
 // App is the main TUI model
 type App struct {
-	client        *lxd.Client           // LXD client (for events, host resources)
-	runtimes      []runtime.Runtime     // all active runtimes
+	client        *lxd.Client             // LXD client (for events, host resources)
+	runtimes      []runtime.Runtime       // all active runtimes
 	allContainers []runtime.ContainerInfo // unfiltered
 	containers    []runtime.ContainerInfo // filtered view (used by all panels)
 	metrics       map[string]*ContainerMetrics
-	prev       map[string]*prevState
-	selected   int
-	focus      panel
-	prevFocus  panel // remember focus before syscall panel
-	width      int
-	height     int
-	ready      bool
-	err        error
-	events     []timedEvent
-	lastUpdate time.Time
-	sortBy     string
-	eventCh    chan string
+	prev          map[string]*prevState
+	selected      int
+	focus         panel
+	prevFocus     panel // remember focus before syscall panel
+	width         int
+	height        int
+	ready         bool
+	err           error
+	events        []timedEvent
+	lastUpdate    time.Time
+	sortBy        string
+	eventCh       chan string
 
 	// Exec mode
 	execInput   string
@@ -177,56 +177,54 @@ type App struct {
 	tracers map[string]*trace.Tracer // container name → tracer
 
 	// Seccomp profile generator
-	seccompJSON   string
+	seccompJSON    string
 	seccompSummary string
-	seccompScroll int
+	seccompScroll  int
 
 	// Container logs
-	logLines    []string
-	logScroll   int
-	logTarget   string
-	logFollow   bool // true = streaming mode
-	logCancel   context.CancelFunc // cancel log stream
-	logCh       chan string // log stream channel
+	logLines  []string
+	logScroll int
+	logTarget string
+	logFollow bool               // true = streaming mode
+	logCancel context.CancelFunc // cancel log stream
+	logCh     chan string        // log stream channel
 
 	// Flash message (temporary notification)
 	flashText   string
 	flashExpiry time.Time
 
 	// Resource limits panel
-	resConfig    *runtime.InstanceConfig
-	resTarget    string
-	resRuntime   string // runtime of target container
-	resCursor    int // 0=cpu, 1=memory
-	resInput     string
-	resEditing   bool
-	hostRes      *lxd.HostResources
-	prevCPURaw   []lxd.HostCPURaw
-	perCPUUsage  []lxd.PerCPUUsage
+	resConfig   *runtime.InstanceConfig
+	resTarget   string
+	resCursor   int // 0=cpu, 1=memory
+	resInput    string
+	resEditing  bool
+	hostRes     *lxd.HostResources
+	prevCPURaw  []lxd.HostCPURaw
+	perCPUUsage []lxd.PerCPUUsage
 
 	// Snapshots panel
-	snapshots    []runtime.SnapshotInfo
-	snapTarget   string
-	snapRuntime  string // runtime of target container
-	snapCursor   int
-	snapInput    string
-	snapNaming   bool // entering snapshot name
-	snapCloning  bool // entering clone target name
-	snapRenaming bool // entering new name for rename
-	snapRenameOld         string // old name being renamed
-	snapConfirmDelete     bool   // waiting y/n to confirm snapshot delete
-	snapConfirmRestore    bool   // waiting y/n to confirm snapshot restore
-	snapConfirmName       string // snapshot name pending confirm
+	snapshots          []runtime.SnapshotInfo
+	snapTarget         string
+	snapCursor         int
+	snapInput          string
+	snapNaming         bool   // entering snapshot name
+	snapCloning        bool   // entering clone target name
+	snapRenaming       bool   // entering new name for rename
+	snapRenameOld      string // old name being renamed
+	snapConfirmDelete  bool   // waiting y/n to confirm snapshot delete
+	snapConfirmRestore bool   // waiting y/n to confirm snapshot restore
+	snapConfirmName    string // snapshot name pending confirm
 
 	// Help overlay
 	showHelp bool
 
 	// Network panel
-	netTarget   string
-	netConns    []string   // connection lines
-	netListens  []string   // listening ports
-	netRxHist   []int64    // RX rate history (bytes/s)
-	netTxHist   []int64    // TX rate history (bytes/s)
+	netTarget  string
+	netConns   []string // connection lines
+	netListens []string // listening ports
+	netRxHist  []int64  // RX rate history (bytes/s)
+	netTxHist  []int64  // TX rate history (bytes/s)
 
 	// Sidebar scroll
 	sideScroll int
@@ -260,29 +258,29 @@ type App struct {
 	policyAppArmor   string // current AppArmor profile
 	policyPrivileged bool
 	policyNesting    bool
-	policyDenyList   []string          // security.syscalls.deny active list
-	policyDevLXD     bool              // security.devlxd enabled
-	policyIdmapIso   bool              // security.idmap.isolated enabled
-	policyAutostart  bool              // boot.autostart
+	policyDenyList   []string // security.syscalls.deny active list
+	policyDevLXD     bool     // security.devlxd enabled
+	policyIdmapIso   bool     // security.idmap.isolated enabled
+	policyAutostart  bool     // boot.autostart
 	// LXD profiles (loaded when policy panel fetches info)
-	policyProfiles          []string
-	policyProfileDetails    map[string]*lxd.Profile
-	policyContainerCfg      *lxd.InstanceConfig
+	policyProfiles       []string
+	policyProfileDetails map[string]*lxd.Profile
+	policyContainerCfg   *lxd.InstanceConfig
 	// Show sensitive fields in merged view
-	policyShowSensitive    bool
+	policyShowSensitive bool
 	// security.syscalls.intercept.*
-	policyInterceptMknod     bool
-	policyInterceptBpf       bool
-	policyInterceptBpfDev    bool
-	policyInterceptSetxattr  bool
-	policyInterceptSched     bool
-	policyInterceptSysinfo   bool
-	policyInterceptMount     bool
+	policyInterceptMknod      bool
+	policyInterceptBpf        bool
+	policyInterceptBpfDev     bool
+	policyInterceptSetxattr   bool
+	policyInterceptSched      bool
+	policyInterceptSysinfo    bool
+	policyInterceptMount      bool
 	policyInterceptMountShift bool
-	policyInterceptMountFuse  string // e.g. "ext4=fuse2fs"
-	policyInterceptMountAllow string // e.g. "ext4,btrfs"
-	policyLoading     bool              // true while fetchPolicyInfo is in-flight
-	syscallBlocked   map[string]bool   // container name → syscall blocking active
+	policyInterceptMountFuse  string          // e.g. "ext4=fuse2fs"
+	policyInterceptMountAllow string          // e.g. "ext4,btrfs"
+	policyLoading             bool            // true while fetchPolicyInfo is in-flight
+	syscallBlocked            map[string]bool // container name → syscall blocking active
 
 	// DNS monitor (H panel)
 	dnsMonitor *security.DNSMonitor
@@ -298,11 +296,11 @@ type App struct {
 	// interceptedIPs tracks containers with active nftables REDIRECT rules.
 	// Key = container name, Value = container IP.
 	// Used to clean up rules on exit.
-	interceptedIPs    map[string]string
-	pendingAutoSetup  []string // containers to auto-setup proxy on first containerList
+	interceptedIPs   map[string]string
+	pendingAutoSetup []string // containers to auto-setup proxy on first containerList
 
 	// Proxy + Operator Approval
-	pendingApproval *proxy.ApprovalRequest
+	pendingApproval   *proxy.ApprovalRequest
 	auditScroll       int
 	auditFilterMode   bool
 	auditFilterInput  string
@@ -321,15 +319,15 @@ type App struct {
 		domain    string
 		kind      string
 	}
-	inferenceScroll   int
+	inferenceScroll int
 
 	// RPH editor state
-	rphEditMode   bool
-	rphEditStep   int
-	rphEditCursor int
-	rphEditBuf    string
-	rphNewPattern string
-	rphEditModels []rphModelEntry
+	rphEditMode      bool
+	rphEditStep      int
+	rphEditCursor    int
+	rphEditBuf       string
+	rphNewPattern    string
+	rphEditModels    []rphModelEntry
 	routingCursor    int
 	routingInputMode bool
 	routingInputStep int
@@ -337,30 +335,30 @@ type App struct {
 	routingNewRoute  proxy.InferenceRoute
 
 	// Token Broker panel (Phase 1)
-	brokerTab          int // 0=groups 1=pools 2=policy 3=eevdf 4=health 5=preview
-	brokerGroupCursor  int
-	brokerTokenCursor  int
-	brokerPolicyCursor int
-	brokerEditMode     bool
-	brokerEditBuf      string
-	brokerEditKind     string
-	brokerEditPoolName string
-	brokerEditTokenID  string
-	brokerEditSecret   bool
-	brokerEditPAT      string // temp: PAT value during token-add-kind step
-	brokerEditPATEnv   string // temp: secrets key name during token-add-kind step
-	brokerEditTokenKind string // temp: resolved kind during token-add-endpoint step
+	brokerTab                int // 0=groups 1=pools 2=policy 3=eevdf 4=health 5=preview
+	brokerGroupCursor        int
+	brokerTokenCursor        int
+	brokerPolicyCursor       int
+	brokerEditMode           bool
+	brokerEditBuf            string
+	brokerEditKind           string
+	brokerEditPoolName       string
+	brokerEditTokenID        string
+	brokerEditSecret         bool
+	brokerEditPAT            string // temp: PAT value during token-add-kind step
+	brokerEditPATEnv         string // temp: secrets key name during token-add-kind step
+	brokerEditTokenKind      string // temp: resolved kind during token-add-endpoint step
 	brokerDirty              bool
 	brokerApplyConfirm       bool
 	brokerClearGroupsConfirm bool
-	brokerExchangeEndpoint string
-	brokerCounterWindowIdx int // 0=5m,1=15m,2=1h
-	brokerPreviewLines []string
-	brokerDiffLines    []string
-	brokerGroups       []BrokerGroup
-	brokerPools        []BrokerPool
-	brokerPolicies     []BrokerPolicy
-	brokerLastApplied  *BrokerSnapshot
+	brokerExchangeEndpoint   string
+	brokerCounterWindowIdx   int // 0=5m,1=15m,2=1h
+	brokerPreviewLines       []string
+	brokerDiffLines          []string
+	brokerGroups             []BrokerGroup
+	brokerPools              []BrokerPool
+	brokerPolicies           []BrokerPolicy
+	brokerLastApplied        *BrokerSnapshot
 
 	// Seccomp Notify Operator Approval
 	pendingSeccompApproval *SeccompApprovalRequest
@@ -496,7 +494,7 @@ func (a App) listenEvents() tea.Cmd {
 func fetchAllContainers(runtimes []runtime.Runtime) tea.Cmd {
 	return func() tea.Msg {
 		if len(runtimes) == 0 {
-			return errMsg(fmt.Errorf("no container runtimes available"))
+			return errMsg{err: fmt.Errorf("no container runtimes available")}
 		}
 
 		type result struct {
@@ -564,27 +562,8 @@ func resolveCgroupPath(c runtime.ContainerInfo) string {
 }
 
 // filteredContainers returns containers matching current runtime filter
-func (a App) filteredContainers() []runtime.ContainerInfo {
-	if a.runtimeFilter == "" {
-		return a.containers
-	}
-	var result []runtime.ContainerInfo
-	for _, c := range a.containers {
-		if c.Runtime == a.runtimeFilter {
-			result = append(result, c)
-		}
-	}
-	return result
-}
 
 // selectedContainer returns the currently selected container (filter-aware)
-func (a App) selectedContainer() *runtime.ContainerInfo {
-	filtered := a.filteredContainers()
-	if a.selected >= 0 && a.selected < len(filtered) {
-		return &filtered[a.selected]
-	}
-	return nil
-}
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(tickInterval, func(t time.Time) tea.Msg {
@@ -1022,7 +1001,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		a.fetching = false
-		a.err = msg
+		a.err = msg.err
 		return a, nil
 
 	case tickMsg:
@@ -1465,4 +1444,3 @@ func (a App) renderStatusBar() string {
 		return "" + searchIndicator
 	}
 }
-

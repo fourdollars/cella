@@ -214,17 +214,6 @@ func (c *Client) SendSeccompVerdict(ctx context.Context, notifyID string, verdic
 //   Enable:  client.SetSyscallDenyList(ctx, name, lxd.DangerousSyscalls)
 //   Disable: client.SetSyscallDenyList(ctx, name, nil)
 
-// ── Internal helpers used by parseSeccompEvent (kept for future use) ────────
-
-func isInterceptable(syscall string) bool {
-	for _, s := range InterceptableSyscalls {
-		if s == syscall {
-			return true
-		}
-	}
-	return false
-}
-
 // isDangerous returns true if the syscall is in the DangerousSyscalls list.
 func IsDangerous(syscall string) bool {
 	for _, s := range DangerousSyscalls {

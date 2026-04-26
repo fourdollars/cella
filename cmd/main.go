@@ -445,16 +445,6 @@ func statusOrder(s string) int {
 	}
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	if max <= 2 {
-		return s[:max]
-	}
-	return s[:max-2] + ".."
-}
-
 func formatBytes(b int64) string {
 	switch {
 	case b >= 1<<30:

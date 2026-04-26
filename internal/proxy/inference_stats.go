@@ -222,7 +222,7 @@ func (s *InferenceStats) Record(req InferenceRequest) {
 	}
 
 	tt := timeToken{t: req.Time, tokensIn: req.TokensIn, tokensOut: req.TokensOut}
-	
+
 	// Exclude local proxy 429 blocks from the RPM/RPH arrays so they don't artificially keep limits exceeded
 	if req.StatusCode != 429 || req.Error != "rph_limit_exceeded" {
 		ms.minuteRequests = append(ms.minuteRequests, tt)
@@ -462,14 +462,15 @@ func ParseInferenceRequest(body []byte) (model string) {
 // Supports OpenAI chat/completions, OpenAI Responses API (/responses), and Anthropic formats.
 //
 // Formats handled:
-//   OpenAI /chat/completions:
-//     data: {"model":"gpt-4o","usage":{"prompt_tokens":100,"completion_tokens":50}}
-//   OpenAI /responses (GitHub Copilot):
-//     event: response.completed
-//     data: {"type":"response.completed","response":{"model":"gpt-5-mini","usage":{"input_tokens":25,"output_tokens":100}}}
-//   Anthropic /v1/messages:
-//     data: {"type":"message_start","message":{"model":"claude-...","usage":{"input_tokens":120}}}
-//     data: {"type":"message_delta","usage":{"output_tokens":45}}
+//
+//	OpenAI /chat/completions:
+//	  data: {"model":"gpt-4o","usage":{"prompt_tokens":100,"completion_tokens":50}}
+//	OpenAI /responses (GitHub Copilot):
+//	  event: response.completed
+//	  data: {"type":"response.completed","response":{"model":"gpt-5-mini","usage":{"input_tokens":25,"output_tokens":100}}}
+//	Anthropic /v1/messages:
+//	  data: {"type":"message_start","message":{"model":"claude-...","usage":{"input_tokens":120}}}
+//	  data: {"type":"message_delta","usage":{"output_tokens":45}}
 func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
 	lines := splitLines(body)
 	for _, line := range lines {
@@ -544,6 +545,7 @@ func ParseSSETokens(body []byte) (model string, tokensIn, tokensOut int64) {
 	}
 	return
 }
+
 // IsStreamingResponse returns true if the Content-Type indicates SSE streaming.
 func IsStreamingResponse(contentType string) bool {
 	return hasPrefix(strings.ToLower(contentType), "text/event-stream")
@@ -584,7 +586,6 @@ func FormatTokens(n int64) string {
 	}
 	return fmt.Sprintf("%d", n)
 }
-
 
 var (
 	rphLimitsMu sync.RWMutex
@@ -696,7 +697,7 @@ func GetAllRPHLimits() map[string]int64 {
 	}
 	rphLimitsMu.RLock()
 	defer rphLimitsMu.RUnlock()
-	
+
 	res := make(map[string]int64)
 	for k, v := range rphLimits {
 		res[k] = v
@@ -725,7 +726,7 @@ func SetRPHLimit(pattern string, limit int64) error {
 	}
 	rphLimitsMu.Lock()
 	defer rphLimitsMu.Unlock()
-	
+
 	rphLimits[pattern] = limit
 	return saveRPHLimits()
 }
@@ -737,7 +738,7 @@ func DeleteRPHLimit(pattern string) error {
 	}
 	rphLimitsMu.Lock()
 	defer rphLimitsMu.Unlock()
-	
+
 	delete(rphLimits, pattern)
 	return saveRPHLimits()
 }

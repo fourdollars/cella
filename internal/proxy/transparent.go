@@ -21,7 +21,7 @@ func SetupTransparentRedirect(containerIP string, proxyPort int) error {
 	tag := fmt.Sprintf("cella_tproxy_%s", sanitizeName2(containerIP))
 
 	// Remove any stale rules for this IP first (best-effort)
-	removeTransparentRules(table, chain, tag)
+	_ = removeTransparentRules(table, chain, tag)
 
 	// Build a single atomic batch:
 	//   add table / add chain (idempotent) + add rules
@@ -90,7 +90,7 @@ func SetupHostRedirect(proxyPort, uid int) error {
 	tag := "cella_tproxy_host"
 
 	// Remove stale rules first
-	removeTransparentRules(table, chain, tag)
+	_ = removeTransparentRules(table, chain, tag)
 
 	batch := fmt.Sprintf(
 		"add table ip %s\n"+

@@ -2,11 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fourdoors/cella/internal/proxy"
+	"sort"
+	"strings"
 )
 
 func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -178,7 +178,7 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.brokerGroups = append(a.brokerGroups[:i], a.brokerGroups[i+1:]...)
 				a.brokerReconcilePoliciesAfterGroupChange()
 				a.brokerDirty = true
-			a.addEvent(fmt.Sprintf("🗑 broker group removed: %s", removedID))
+				a.addEvent(fmt.Sprintf("🗑 broker group removed: %s", removedID))
 			}
 		case "e", "E":
 			if len(a.brokerGroups) > 0 {
@@ -301,7 +301,9 @@ func (a *App) handleBrokerPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.brokerEditBuf = t.Endpoint
 			a.brokerEditMode = true
 			a.addEvent(fmt.Sprintf("🌐 editing endpoint for %s [current: %s] — paste URL or clear for default", t.ID, func() string {
-				if t.Endpoint == "" { return brokerDefaultEndpointForKind(t.Kind) + " (default)" }
+				if t.Endpoint == "" {
+					return brokerDefaultEndpointForKind(t.Kind) + " (default)"
+				}
 				return t.Endpoint
 			}()))
 		}

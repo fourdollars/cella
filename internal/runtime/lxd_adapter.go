@@ -127,7 +127,6 @@ func (r *LXDRuntime) DeleteSnapshot(ctx context.Context, containerName, snapshot
 	return r.Client.DeleteSnapshot(ctx, containerName, snapshotName)
 }
 
-
 func (r *LXDRuntime) RenameSnapshot(ctx context.Context, containerName, oldName, newName string) error {
 	return r.Client.RenameSnapshot(ctx, containerName, oldName, newName)
 }

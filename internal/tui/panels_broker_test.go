@@ -753,7 +753,7 @@ func TestBrokerRuntimePreviewKey(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		Groups:       []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
+		Groups: []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
 		Pools: []proxy.BrokerPoolState{{
 			Name:   "pool_alpha",
 			Tokens: []proxy.BrokerTokenState{{ID: "tok_a1", Enabled: true, Health: 0.91, RemainingRPH: 321, SessionState: "in-use", LastTest: "ok"}},
@@ -853,7 +853,7 @@ func TestBrokerRuntimePreviewShowsCounters(t *testing.T) {
 	defer func() { globalProxyServer = oldProxy }()
 
 	globalProxyServer.SetBrokerState(proxy.BrokerState{
-		Groups:       []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
+		Groups: []proxy.BrokerGroupState{{Name: "team-a", Pool: "pool_alpha", Weight: 1}},
 		Pools: []proxy.BrokerPoolState{{
 			Name:   "pool_alpha",
 			Tokens: []proxy.BrokerTokenState{{ID: "tok_a1", Enabled: true, Health: 0.90, RemainingRPH: 300, SessionState: "fresh", LastTest: "ok"}},

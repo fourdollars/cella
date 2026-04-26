@@ -79,7 +79,7 @@ func (t *TransparentListener) handleMITMTransparent(
 			WriteTimeout: 60 * time.Second,
 		}
 		ln := newSingleConnListener(tlsConn)
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		httpServer.Serve(ln)
 	}
 }
@@ -585,17 +585,6 @@ func (l *singleConnListener) Close() error {
 
 func (l *singleConnListener) Addr() net.Addr {
 	return l.conn.LocalAddr()
-}
-
-// removeHopByHopHeadersMITM is a proxy-specific version
-func removeHopByHopHeadersMITM(h http.Header) {
-	for _, hdr := range []string{
-		"Connection", "Keep-Alive", "Proxy-Authenticate",
-		"Proxy-Authorization", "Te", "Trailers",
-		"Transfer-Encoding", "Upgrade", "Proxy-Connection",
-	} {
-		h.Del(hdr)
-	}
 }
 
 // DumpRequest returns a summary of the request for debugging
