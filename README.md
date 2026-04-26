@@ -6,7 +6,7 @@
 
 A terminal UI and CLI for managing and monitoring LXD + Docker containers — real-time metrics, syscall tracing, HTTPS interception with operator approval, and AI inference monitoring.
 
-![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-WIP-orange)
 [![GitHub Pages](https://img.shields.io/badge/Docs-GitHub%20Pages-blue)](https://fourdollars.github.io/cella/)
@@ -59,6 +59,15 @@ Feedback, bug reports, and contributions welcome.
 - Session breakdown by container
 - `M` key for inference stats panel, `S` to export JSON
 
+### 🏦 Token Broker *(WIP)*
+- Multi-token management with pool/group/policy architecture
+- Automatic PAT exchange for GitHub Copilot session tokens
+- Health-based token selection with circuit breakers
+- Per-token RPH limits and fair scheduling (EEVDF-like)
+- Support for Copilot, OpenAI, and Gemini token kinds
+- TUI panel with CRUD, live telemetry, and drift detection
+-  key for Token Broker panel
+
 ### 🔀 Inference Routing *(WIP)*
 - Redirect AI API calls to alternative backends transparently
 - Presets: OpenAI/Anthropic/Copilot/Gemini → local Ollama or NVIDIA Endpoint
@@ -103,7 +112,7 @@ cd cella
 go build -o cella ./cmd/
 ```
 
-Requires Go 1.20+, Linux kernel 5.8+ (for bpftrace / eBPF features).
+Requires Go 1.25+, Linux kernel 5.8+ (for bpftrace / eBPF features).
 
 ---
 
@@ -168,7 +177,7 @@ sudo ./cella
 cella is written in Go using [Bubbletea](https://github.com/charmbracelet/bubbletea) for the TUI. It communicates with LXD via its Unix socket REST API, and with Docker via the Docker socket.
 
 ```
-cella (~15MB binary, 14,514 lines of Go, 52 files)
+cella (~15MB binary, 26,000+ lines of Go, 79 files)
 ├── cmd/            CLI entry point (cobra) + subcommands
 ├── internal/
 │   ├── proxy/      HTTP interception, MITM, audit, inference routing
@@ -195,6 +204,7 @@ cella (~15MB binary, 14,514 lines of Go, 52 files)
 | HTTPS interception | 🚧 WIP |
 | Inference stats | 🚧 WIP |
 | Inference routing | 🚧 WIP |
+| Token Broker | 🚧 WIP |
 | Inference request body capture | 📋 Planned |
 | Multi-host support | 📋 Planned |
 
