@@ -14,3 +14,4 @@ cella-linux-*
 juju-*.json
 tmp.yaml
 .orig
+*.bak
