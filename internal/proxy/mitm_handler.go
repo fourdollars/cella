@@ -78,7 +78,9 @@ func (t *TransparentListener) handleMITMTransparent(
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 60 * time.Second,
 		}
-		httpServer.Serve(&singleConnListener{conn: tlsConn})
+		ln := newSingleConnListener(tlsConn)
+		defer ln.Close()
+		httpServer.Serve(ln)
 	}
 }
 
@@ -549,22 +551,35 @@ func extractModelFromPath(path string) string {
 	return ""
 }
 
-// singleConnListener wraps a single net.Conn as a net.Listener
+// singleConnListener wraps a single net.Conn as a net.Listener.
+// After the one connection is served, Accept blocks until Close is called,
+// preventing goroutine leaks in http.Server.Serve.
 type singleConnListener struct {
 	conn   net.Conn
 	served bool
+	done   chan struct{}
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	return &singleConnListener{conn: conn, done: make(chan struct{})}
 }
 
 func (l *singleConnListener) Accept() (net.Conn, error) {
 	if l.served {
-		// Block until connection is closed
-		select {}
+		// Block until Close is called — avoids goroutine leak.
+		<-l.done
+		return nil, net.ErrClosed
 	}
 	l.served = true
 	return l.conn, nil
 }
 
 func (l *singleConnListener) Close() error {
+	select {
+	case <-l.done:
+	default:
+		close(l.done)
+	}
 	return l.conn.Close()
 }
 

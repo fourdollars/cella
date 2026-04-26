@@ -61,16 +61,22 @@ func NewMITMConfig(dataDir string) (*MITMConfig, error) {
 }
 
 // GetCertForHost returns a TLS certificate for the given hostname, signed by our CA.
-// Certs are cached and reused.
+// Certs are cached and reused. Expired or nearly-expired certs are automatically
+// re-signed so that long-running proxy sessions do not lose MITM capability.
 func (m *MITMConfig) GetCertForHost(host string) (*tls.Certificate, error) {
 	m.mu.RLock()
 	if cert, ok := m.certCache[host]; ok {
-		m.mu.RUnlock()
-		return cert, nil
+		// Check whether the cached cert is still valid (with 5-minute buffer).
+		leaf, err := x509.ParseCertificate(cert.Certificate[0])
+		if err == nil && time.Now().Add(5*time.Minute).Before(leaf.NotAfter) {
+			m.mu.RUnlock()
+			return cert, nil
+		}
+		// Expired or about to expire — fall through to re-sign.
 	}
 	m.mu.RUnlock()
 
-	// Generate new cert for this host
+	// Generate (or re-generate) cert for this host
 	cert, err := m.signHost(host)
 	if err != nil {
 		return nil, err
