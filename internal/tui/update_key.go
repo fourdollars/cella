@@ -324,6 +324,7 @@ func (a App) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.policyScroll = 0
 			a.policyMode = "view"
 			a.policyInput = ""
+			a.policyLoading = true // show … immediately while data loads
 			a.prevFocus = a.focus
 			a.focus = panelPolicy
 			return a, a.fetchPolicyInfo(c)
