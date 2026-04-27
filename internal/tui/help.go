@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ── Help overlay ──
+// ── Help overlay — rendered from keymap.go definitions ──
 
 func (a App) renderHelpOverlay() string {
 	titleStyle := lipgloss.NewStyle().
@@ -26,94 +26,24 @@ func (a App) renderHelpOverlay() string {
 	descStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#c9d1d9"))
 
-	renderSection := func(title string, keys [][]string) string {
+	renderSection := func(s HelpSection) string {
 		var b strings.Builder
-		b.WriteString(secStyle.Render(title) + "\n")
-		for _, h := range keys {
-			b.WriteString(fmt.Sprintf(" %s %s\n", keyStyle.Render(h[0]), descStyle.Render(h[1])))
+		b.WriteString(secStyle.Render(s.Title) + "\n")
+		for _, e := range s.Entries {
+			b.WriteString(fmt.Sprintf(" %s %s\n", keyStyle.Render(e.Key), descStyle.Render(e.Desc)))
 		}
 		return b.String()
 	}
 
-	// Column 1: Navigation + Container Actions
-	col1 := renderSection("Navigation", [][]string{
-		{"↑/k", "Move up"},
-		{"↓/j", "Move down"},
-		{"1/2/3", "Sort: name/cpu/mem"},
-		{"f", "Filter runtime"},
-		{"/", "Search by name"},
-		{"g", "Goto container #"},
-		{"Ctrl+L", "Clear search"},
-	})
-	col1 += "\n"
-	col1 += renderSection("Container", [][]string{
-		{"s", "Start"},
-		{"x", "Stop"},
-		{"p", "Pause/Unpause"},
-		{"e", "Exec command"},
-		{"l", "Logs (stream)"},
-		{"+", "Create new"},
-		{"d", "Delete (stopped)"},
-	})
-
-	// Column 2: Panels
-	col2 := renderSection("Monitor Panels", [][]string{
-		{"w", "Network"},
-		{"r", "Resource limits"},
-		{"n", "Snapshots/Clone"},
-		{"V", "Recent events"},
-		{"M", "Inference stats (RPM/TPM/cost)"},
-		{"R", "Inference routing"},
-	})
-	col2 += "\n"
-	col2 += renderSection("Security Panels", [][]string{
-		{"P", "Policy (seccomp/egress/AppArmor/flags)"},
-		{"Z", "Toggle syscall blocking (LXD BPF deny)"},
-		{"D", "DNS monitor"},
-		{"t", "Start syscall trace (bpftrace)"},
-		{"T", "Stop syscall trace"},
-		{"G", "Generate seccomp profile from trace"},
-		{"S", "Save seccomp JSON"},
-	})
-	col2 += "\n"
-	col2 += renderSection("In Policy Panel", [][]string{
-		{"[b]", "Toggle boot.autostart"},
-		{"[P]", "Toggle security.privileged"},
-		{"[N]", "Toggle security.nesting"},
-		{"[V]", "Toggle security.devlxd"},
-		{"[M]", "Toggle idmap.isolated"},
-		{"1-3", "Apply seccomp profile"},
-		{"4-7", "Apply AppArmor profile"},
-		{"a/d", "Add/remove egress rule"},
-	})
-
-	// Column 3: HTTPS Interception + General
-	col3 := renderSection("HTTPS Interception", [][]string{
-		{"A", "API audit log + interception setup"},
-		{"y", "Approve request (once)"},
-		{"Y", "Approve request (always)"},
-		{"n", "Deny request (once)"},
-		{"N", "Deny request (always)"},
-	})
-	col3 += "\n"
-	col3 += renderSection("In Audit Panel", [][]string{
-		{"/", "Filter text"},
-		{"f", "Filter by status"},
-		{"H", "Toggle host machine interception"},
-		{"L", "Show allow/deny lists"},
-		{"S", "Export audit JSON"},
-		{"c", "Clear log"},
-		{"p", "Setup HTTPS interception (container)"},
-		{"u", "Remove interception setup"},
-	})
-	col3 += "\n"
-	col3 += renderSection("General", [][]string{
-		{"E", "Export config JSON"},
-		{"I", "Import config"},
-		{"?", "This help"},
-		{"q", "Quit"},
-		{"esc", "Back / close"},
-	})
+	cols := HelpColumns()
+	var rendered [3]string
+	for i, sections := range cols {
+		var parts []string
+		for _, s := range sections {
+			parts = append(parts, renderSection(s))
+		}
+		rendered[i] = strings.Join(parts, "\n")
+	}
 
 	// Render columns side by side
 	colWidth := (a.width - 12) / 3
@@ -127,9 +57,9 @@ func (a App) renderHelpOverlay() string {
 	colStyle := lipgloss.NewStyle().Width(colWidth).PaddingRight(1)
 
 	columns := lipgloss.JoinHorizontal(lipgloss.Top,
-		colStyle.Render(col1),
-		colStyle.Render(col2),
-		colStyle.Render(col3),
+		colStyle.Render(rendered[0]),
+		colStyle.Render(rendered[1]),
+		colStyle.Render(rendered[2]),
 	)
 
 	title := titleStyle.Render("📖 cella — Keyboard Shortcuts")

@@ -1,6 +1,3 @@
-//go:build ignore
-// +build ignore
-
 package main
 
 import (
@@ -31,7 +28,7 @@ func main() {
 	srv.EnableMITM(mitmCfg)
 
 	st := proxy.BrokerState{
-		ExchangeMode: "real",
+		ExchangeEndpoint: "https://api.github.com/copilot_internal/v2/token",
 		Groups: []proxy.BrokerGroupState{
 			{ID: "ci", Match: "127.0.0.1", Pool: "ci-pool"},
 		},
