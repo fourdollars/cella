@@ -470,6 +470,10 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "esc", "q":
+		if a.policyMode == "help" {
+			a.policyMode = "view"
+			return a, nil
+		}
 		a.focus = a.prevFocus
 		return a, nil
 	case "up", "k":
@@ -915,6 +919,15 @@ func (a App) handlePolicyPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.policyInput = a.policyInterceptMountAllow
 			return a, nil
 		}
+	case "?":
+		// Toggle help overlay
+		if a.policyMode == "help" {
+			a.policyMode = "view"
+		} else {
+			a.policyMode = "help"
+			a.policyScroll = 0
+		}
+		return a, nil
 	}
 	return a, nil
 }
@@ -1384,7 +1397,119 @@ func (a App) renderPolicyPanel() string {
 	}
 
 	// ── Status bar ──
-	hint := dim.Render("(r)efresh  ↑↓ switch container  (a) add egress  (d) remove  (e) export  (i) import  (esc) back")
+	hint := dim.Render("(?) help  (r) refresh  ↑↓ switch container  (a) add egress  (d) remove  (e) export  (i) import  (esc) back")
 
 	return title + "\n\n" + columns + "\n" + egress.String() + "\n" + hint
+}
+
+// ── Policy help overlay — full-screen, centered ──
+
+func (a App) renderPolicyHelpOverlay() string {
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58a6ff"))
+	secStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#f0a500"))
+	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7ec8e3")).Width(5)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#c9d1d9"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#666")).Italic(true)
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#e74c3c")).Bold(true)
+
+	type entry struct{ key, desc string }
+	type section struct {
+		title   string
+		entries []entry
+	}
+
+	col1 := []section{
+		{"Seccomp (syscall filter)", []entry{
+			{"[0]", "default    — reset to LXD default (unset raw.lxc)"},
+			{"[1]", "strict     — minimal allowed syscalls; deny all others"},
+			{"[2]", "moderate   — deny high-risk syscalls (ptrace, mount…)"},
+			{"[3]", "permissive — log violations only, never block"},
+		}},
+		{"Syscall Block", []entry{
+			{"[Z]", "live seccomp-notify: violations prompt approval dialog"},
+		}},
+		{"AppArmor (MAC)", []entry{
+			{"[4]", "default        — standard LXD AppArmor profile"},
+			{"[5]", "hardened       — restrict proc/sys writes, raw sockets"},
+			{"[6]", "net-restricted — essential network operations only"},
+			{"[7]", "read-only      — mount root filesystem read-only"},
+		}},
+		{"Security Flags", []entry{
+			{"[P]", "security.privileged  — root, no uid remap " + warnStyle.Render("⚠ high risk")},
+			{"[N]", "security.nesting     — allow nested LXD/Docker"},
+			{"[V]", "security.devlxd      — expose /dev/lxd (host metadata)"},
+			{"[M]", "security.idmap.iso   — dedicated uid/gid map (strong isolation)"},
+		}},
+		{"Lifecycle", []entry{
+			{"[b]", "boot.autostart — start container on host boot"},
+		}},
+	}
+
+	col2 := []section{
+		{"Syscall Intercept (LXD → host kernel)", []entry{
+			{"[I]", "mknod         — create device nodes inside container"},
+			{"[B]", "bpf           — load BPF programs (proxied by host)"},
+			{"[O]", "bpf.devices   — manage device access via BPF"},
+			{"[X]", "setxattr      — set security.* / trusted.* xattrs"},
+			{"[C]", "sched_set     — real-time scheduling (SCHED_FIFO/RR)"},
+			{"[Y]", "sysinfo       — container-scoped memory/uptime view"},
+			{"[U]", "mount         — mount syscall (host validates & mounts)"},
+			{"[H]", "mount.shift   — auto uid/gid shift on mounts"},
+			{"[F]", "mount.fuse    — allowed FUSE binary (empty = any)"},
+			{"[L]", "mount.allowed — whitelisted fs types (empty = all)"},
+		}},
+		{"Egress (nftables outbound)", []entry{
+			{"[a]", "add rule: domain → resolve IPs → nftables"},
+			{"[d]", "remove all egress rules for this container"},
+		}},
+		{"Other", []entry{
+			{"[e]", "export policy to YAML"},
+			{"[i]", "import policy from YAML"},
+			{"[m]", "toggle merged LXD profiles view"},
+			{"[r]", "refresh policy info"},
+			{"↑↓", "switch container"},
+			{"PgUp", "PgDn / [ ] — scroll panel"},
+			{"Esc", "close this help / leave Policy panel"},
+		}},
+	}
+
+	renderCol := func(sections []section) string {
+		var b strings.Builder
+		for _, s := range sections {
+			b.WriteString(secStyle.Render(s.title) + "\n")
+			for _, e := range s.entries {
+				b.WriteString(" " + keyStyle.Render(e.key) + " " + descStyle.Render(e.desc) + "\n")
+			}
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+
+	colWidth := (a.width - 14) / 2
+	if colWidth < 36 {
+		colWidth = 36
+	}
+	if colWidth > 62 {
+		colWidth = 62
+	}
+
+	colStyle := lipgloss.NewStyle().Width(colWidth).PaddingRight(2)
+
+	columns := lipgloss.JoinHorizontal(lipgloss.Top,
+		colStyle.Render(renderCol(col1)),
+		colStyle.Render(renderCol(col2)),
+	)
+
+	title := titleStyle.Render("🛡 Policy Panel — Keyboard Reference")
+	hint := dimStyle.Render("Press ? or Esc to close")
+
+	content := title + "\n\n" + columns + "\n" + hint
+
+	overlay := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#58a6ff")).
+		Padding(1, 3).
+		Render(content)
+
+	return lipgloss.Place(a.width, a.height, lipgloss.Center, lipgloss.Center, overlay)
 }

@@ -1131,6 +1131,11 @@ func (a App) View() string {
 	if a.showHelp {
 		return a.renderHelpOverlay()
 	}
+
+	// Policy panel help overlay (full-screen)
+	if a.focus == panelPolicy && a.policyMode == "help" {
+		return a.renderPolicyHelpOverlay()
+	}
 	if a.err != nil && len(a.containers) == 0 {
 		return fmt.Sprintf("\n  ❌ Error: %v\n\n  Make sure LXD is running and accessible.\n  Press q to quit.\n", a.err)
 	}

@@ -317,6 +317,24 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if max >= 0 {
 				a.auditListCursor = max
 			}
+		case "pgup":
+			step := (a.height - 13) / 2
+			if step < 1 {
+				step = 1
+			}
+			a.auditListCursor -= step
+			if a.auditListCursor < 0 {
+				a.auditListCursor = 0
+			}
+		case "pgdown":
+			step := (a.height - 13) / 2
+			if step < 1 {
+				step = 1
+			}
+			a.auditListCursor += step
+			if max >= 0 && a.auditListCursor > max {
+				a.auditListCursor = max
+			}
 		case "x", "delete":
 			if a.auditListCursor >= 0 && a.auditListCursor < len(items) {
 				return a, a.removeListItem(items[a.auditListCursor])
@@ -651,7 +669,7 @@ func (a *App) renderAllowDenyLists() string {
 
 	var b strings.Builder
 	b.WriteString(blue.Render("📋 Allow / Deny Lists") + "\n")
-	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  a: add  │  e: edit  │  c: copy  │  p: paste  │  D: →deny  │  A: →allow  │  x: del  │  L/Esc: back") + "\n")
+	b.WriteString(dim.Render("  ↑/↓ j/k: move  │  PgUp/PgDn: page  │  a: add  │  e: edit  │  c: copy  │  p: paste  │  D: →deny  │  A: →allow  │  x: del  │  L/Esc: back") + "\n")
 	b.WriteString(dim.Render(strings.Repeat("─", 70)) + "\n")
 
 	if globalProxyServer == nil {
