@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -112,7 +113,7 @@ func loadPricing() {
 	}
 	defer func() { pricingLoaded = true }()
 
-	home, err := os.UserHomeDir()
+	home, err := realUserHome()
 	if err != nil {
 		return
 	}
@@ -593,6 +594,18 @@ var (
 	rphLoaded   bool
 )
 
+// realUserHome returns the home directory of the real invoking user.
+// When running under sudo, os.UserHomeDir() / $HOME resolve to /root;
+// SUDO_USER tells us who actually invoked sudo, so we look them up instead.
+func realUserHome() (string, error) {
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" {
+		if u, err := user.Lookup(sudoUser); err == nil {
+			return u.HomeDir, nil
+		}
+	}
+	return os.UserHomeDir()
+}
+
 func loadRPHLimits() {
 	rphLimitsMu.Lock()
 	defer rphLimitsMu.Unlock()
@@ -602,7 +615,8 @@ func loadRPHLimits() {
 	rphLimits = make(map[string]int64)
 	defer func() { rphLoaded = true }()
 
-	home, err := os.UserHomeDir()
+	// Respect the real invoking user when running under sudo.
+	home, err := realUserHome()
 	if err != nil {
 		return
 	}
@@ -707,7 +721,7 @@ func GetAllRPHLimits() map[string]int64 {
 
 // saveRPHLimits writes the current in-memory limits to the YAML config file
 func saveRPHLimits() error {
-	home, err := os.UserHomeDir()
+	home, err := realUserHome()
 	if err != nil {
 		return err
 	}
