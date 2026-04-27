@@ -17,89 +17,108 @@ th{text-align:left;padding:.5rem;color:var(--muted);border-bottom:2px solid var(
 td{padding:.5rem;border-bottom:1px solid var(--line);font-size:.9rem;color:#c9d1d9;}
 td:first-child{font-family:'JetBrains Mono',monospace;color:var(--accent);white-space:nowrap;}
 .next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+.updated{color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;}
 </style></head><body>
 <div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
 <h1>📚 Complete Key Binding Reference</h1>
 <p>All keyboard shortcuts available in cella, organized by context.</p>
+<p class="updated">Updated 2026-04-27 — synced with keymap.go (single source of truth)</p>
 
-<h2>Global (available from any panel)</h2>
+<h2>Navigation</h2>
 <table>
 <tr><th>Key</th><th>Action</th></tr>
 <tr><td>↑ / k</td><td>Move selection up</td></tr>
 <tr><td>↓ / j</td><td>Move selection down</td></tr>
-<tr><td>PgUp</td><td>Scroll up half page</td></tr>
-<tr><td>PgDn</td><td>Scroll down half page</td></tr>
-<tr><td>q / Ctrl+C</td><td>Quit cella</td></tr>
-<tr><td>?</td><td>Toggle help overlay</td></tr>
-<tr><td>/</td><td>Search / filter</td></tr>
-<tr><td>Ctrl+L</td><td>Force refresh</td></tr>
-<tr><td>Esc</td><td>Return to previous panel / close overlay</td></tr>
+<tr><td>1</td><td>Sort by name</td></tr>
+<tr><td>2</td><td>Sort by CPU usage</td></tr>
+<tr><td>3</td><td>Sort by memory usage</td></tr>
+<tr><td>f</td><td>Cycle runtime filter: All → LXD → Docker → All</td></tr>
+<tr><td>/</td><td>Search by name</td></tr>
+<tr><td>g</td><td>Goto container # (number input)</td></tr>
+<tr><td>Ctrl+L</td><td>Clear search filter</td></tr>
 </table>
 
 <h2>Container Operations</h2>
 <table>
 <tr><th>Key</th><th>Action</th></tr>
-<tr><td>s</td><td>Start selected container</td></tr>
-<tr><td>x</td><td>Stop selected container</td></tr>
-<tr><td>p</td><td>Pause selected container (or setup proxy in Audit panel)</td></tr>
+<tr><td>s</td><td>Start container / Unfreeze if frozen</td></tr>
+<tr><td>x</td><td>Stop container</td></tr>
+<tr><td>p</td><td>Pause / Unpause container</td></tr>
 <tr><td>e</td><td>Exec — interactive shell in container</td></tr>
+<tr><td>l</td><td>Logs — streaming container logs</td></tr>
 <tr><td>+</td><td>Create new container (wizard)</td></tr>
-<tr><td>d</td><td>Delete selected container</td></tr>
+<tr><td>d</td><td>Delete container (must be stopped)</td></tr>
 </table>
 
-<h2>Panel Navigation</h2>
+<h2>Monitor Panels</h2>
 <table>
 <tr><th>Key</th><th>Panel</th></tr>
-<tr><td>g</td><td>Dashboard (default view)</td></tr>
-<tr><td>l</td><td>Logs — streaming container logs</td></tr>
 <tr><td>w</td><td>Network — RX/TX, ports, connections</td></tr>
-<tr><td>r</td><td>Resources — CPU/memory limits, per-CPU bars</td></tr>
-<tr><td>n</td><td>Snapshots — create, restore, clone</td></tr>
-<tr><td>t</td><td>Syscall Trace — bpftrace passive monitoring</td></tr>
-<tr><td>G</td><td>Seccomp Generator — generate OCI seccomp JSON</td></tr>
-<tr><td>P</td><td>Policy — seccomp + AppArmor + egress overview</td></tr>
+<tr><td>r</td><td>Resource limits — per-CPU bars, live editing</td></tr>
+<tr><td>n</td><td>Snapshots / Clone</td></tr>
+<tr><td>V</td><td>Recent events (LXD event stream)</td></tr>
+<tr><td>M</td><td>Inference stats — RPM/TPM/cost per model</td></tr>
+<tr><td>R</td><td>Inference routing — redirect AI APIs</td></tr>
+<tr><td>B</td><td>Token Broker — group/pool/token management</td></tr>
+</table>
+
+<h2>Security Panels</h2>
+<table>
+<tr><th>Key</th><th>Panel</th></tr>
+<tr><td>P</td><td>Policy — seccomp/egress/AppArmor/flags overview</td></tr>
 <tr><td>Z</td><td>Toggle syscall blocking (LXD BPF deny)</td></tr>
-<tr><td>D</td><td>DNS Monitor — DNS traffic + allow/deny</td></tr>
-<tr><td>A</td><td>API Audit — HTTP proxy log + approvals</td></tr>
-<tr><td>M</td><td>Inference Stats — RPM/TPM/cost per model</td></tr>
-<tr><td>R</td><td>Inference Routing — redirect AI APIs</td></tr>
-<tr><td>V</td><td>Events — LXD event log</td></tr>
-<tr><td>E</td><td>Export — container config to JSON</td></tr>
-<tr><td>I</td><td>Import — apply config from JSON</td></tr>
-<tr><td>T</td><td>Stop syscall tracing</td></tr>
+<tr><td>D</td><td>DNS monitor</td></tr>
+<tr><td>t</td><td>Start syscall trace (bpftrace)</td></tr>
+<tr><td>T</td><td>Stop syscall trace</td></tr>
+<tr><td>G</td><td>Generate seccomp profile from trace</td></tr>
+<tr><td>S</td><td>Save seccomp JSON</td></tr>
 </table>
 
-<h2>Sorting</h2>
-<table>
-<tr><th>Key</th><th>Sort Order</th></tr>
-<tr><td>1</td><td>Sort by name</td></tr>
-<tr><td>2</td><td>Sort by status</td></tr>
-<tr><td>3</td><td>Sort by CPU usage</td></tr>
-</table>
-
-<h2>Runtime Filter</h2>
+<h2>HTTPS Interception (Approval Overlays)</h2>
 <table>
 <tr><th>Key</th><th>Action</th></tr>
-<tr><td>f</td><td>Cycle filter: All → LXD → Docker → All</td></tr>
+<tr><td>A</td><td>Open API audit log + interception setup</td></tr>
+<tr><td>y</td><td>Approve request (once)</td></tr>
+<tr><td>Y</td><td>Approve request (always)</td></tr>
+<tr><td>n</td><td>Deny request (once)</td></tr>
+<tr><td>N</td><td>Deny request (always)</td></tr>
 </table>
 
-<h2>Approval Overlays</h2>
+<h2>In Policy Panel</h2>
 <table>
 <tr><th>Key</th><th>Action</th></tr>
-<tr><td>Y</td><td>Always allow</td></tr>
-<tr><td>y</td><td>Allow once</td></tr>
-<tr><td>n</td><td>Deny</td></tr>
+<tr><td>b</td><td>Toggle boot.autostart</td></tr>
+<tr><td>P</td><td>Toggle security.privileged</td></tr>
+<tr><td>N</td><td>Toggle security.nesting</td></tr>
+<tr><td>V</td><td>Toggle security.devlxd</td></tr>
+<tr><td>M</td><td>Toggle idmap.isolated</td></tr>
+<tr><td>1-3</td><td>Apply seccomp profile (strict/moderate/permissive)</td></tr>
+<tr><td>4-7</td><td>Apply AppArmor profile</td></tr>
+<tr><td>a / d</td><td>Add / remove egress rule</td></tr>
 </table>
 
-<h2>Audit Panel</h2>
+<h2>In Audit Panel</h2>
 <table>
 <tr><th>Key</th><th>Action</th></tr>
-<tr><td>p</td><td>Set up proxy for selected container</td></tr>
-<tr><td>u</td><td>Undo proxy setup</td></tr>
-<tr><td>S</td><td>Export audit log</td></tr>
-<tr><td>c</td><td>Clear audit log</td></tr>
+<tr><td>/</td><td>Filter text</td></tr>
 <tr><td>f</td><td>Filter by status</td></tr>
+<tr><td>H</td><td>Toggle host machine interception</td></tr>
+<tr><td>L</td><td>Show allow/deny lists</td></tr>
+<tr><td>S</td><td>Export audit JSON</td></tr>
+<tr><td>c</td><td>Clear log</td></tr>
+<tr><td>p</td><td>Setup HTTPS interception (container)</td></tr>
+<tr><td>u</td><td>Remove interception setup</td></tr>
 </table>
 
-<div class="next"><a href="../index.html">← Home</a></div>
+<h2>General</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>E</td><td>Export container config JSON</td></tr>
+<tr><td>I</td><td>Import config from JSON</td></tr>
+<tr><td>?</td><td>Toggle help overlay</td></tr>
+<tr><td>q / Ctrl+C</td><td>Quit (with confirmation)</td></tr>
+<tr><td>Esc</td><td>Back / close panel</td></tr>
+</table>
+
+<div class="next"><a href="panels.html">Panel Reference →</a> · <a href="../index.html">← Home</a></div>
 </body></html>

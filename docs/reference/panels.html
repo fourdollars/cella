@@ -18,10 +18,14 @@ code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);pad
 .panel-entry h3{margin:0 0 .3rem;}
 .tag{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--accent);border:1px solid var(--line);padding:.1rem .35rem;border-radius:.25rem;margin-right:.5rem;}
 .next{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--line);}
+.updated{color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;}
 </style></head><body>
 <div class="breadcrumb"><a href="../index.html">← cella</a> / Reference</div>
 <h1>📚 TUI Panel Reference</h1>
-<p>Detailed description of all 20 panels available in cella.</p>
+<p>Detailed description of all 21 panels available in cella.</p>
+<p class="updated">Updated 2026-04-27 — added Token Broker panel</p>
+
+<h2>Container Management</h2>
 
 <div class="panel-entry">
 <h3>📈 Dashboard</h3><span class="tag">default</span>
@@ -35,8 +39,20 @@ code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);pad
 
 <div class="panel-entry">
 <h3>📜 Logs</h3><span class="tag">l</span>
-<p>Streams live logs from the selected container. Uses <code>journalctl -f</code> for LXD and <code>docker logs -f</code> for Docker. Supports search with <kbd>/</kbd>.</p>
+<p>Streams live logs from the selected container. Uses <code>journalctl -f</code> for LXD and <code>docker logs -f</code> for Docker. Supports scroll, search, and follow mode.</p>
 </div>
+
+<div class="panel-entry">
+<h3>➕ Create</h3><span class="tag">+</span>
+<p>Container creation wizard. Select runtime (LXD/Docker), choose image, set name, and launch a new container.</p>
+</div>
+
+<div class="panel-entry">
+<h3>📦 Export / Import</h3><span class="tag">E / I</span>
+<p>Export container configuration as JSON (<kbd>E</kbd>) or import a previously exported config (<kbd>I</kbd>) to apply it to a container via the LXD API.</p>
+</div>
+
+<h2>Monitoring</h2>
 
 <div class="panel-entry">
 <h3>🌐 Network</h3><span class="tag">w</span>
@@ -52,6 +68,37 @@ code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);pad
 <h3>📸 Snapshots</h3><span class="tag">n</span>
 <p>List, create, restore, and clone snapshots. Shows snapshot size (with fallback to <code>du -sb</code> for <code>dir</code> storage backends). Supports ZFS, Btrfs, LVM, and dir.</p>
 </div>
+
+<div class="panel-entry">
+<h3>📡 Events</h3><span class="tag">V</span>
+<p>Live LXD event stream showing all lifecycle events (container start/stop/restart, snapshot creation, config changes, etc.).</p>
+</div>
+
+<h2>AI / Inference</h2>
+
+<div class="panel-entry">
+<h3>📊 Inference Stats</h3><span class="tag">M</span>
+<p>AI inference monitoring: requests per minute (RPM), tokens per minute (TPM), input/output token counts, and estimated USD cost for 27+ models across OpenAI, Anthropic, Gemini, and Copilot families. Per-minute sparklines.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🔀 Inference Routing</h3><span class="tag">R</span>
+<p>Configure routing rules to redirect AI API traffic to alternative backends. Includes presets for OpenAI→Ollama, Anthropic→Ollama, Copilot→NVIDIA, and Gemini→Ollama.</p>
+</div>
+
+<div class="panel-entry">
+<h3>🏦 Token Broker</h3><span class="tag">B</span>
+<p>Manages Copilot token pools with group→pool→policy architecture. Features include:</p>
+<ul>
+<li><strong>Groups</strong>: match containers to pools by IP/name pattern</li>
+<li><strong>Pools</strong>: contain multiple PAT-backed tokens with health scoring</li>
+<li><strong>Policies</strong>: RPH guardrails, admission control, EEVDF-like fair scheduling</li>
+<li><strong>Exchange</strong>: auto session-token exchange, caching, and refresh from PATs</li>
+<li><strong>Preview</strong>: draft/preview/apply/rollback config flow (no manual file editing)</li>
+</ul>
+</div>
+
+<h2>Security</h2>
 
 <div class="panel-entry">
 <h3>🔬 Syscall Trace</h3><span class="tag">t</span>
@@ -70,7 +117,7 @@ code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);pad
 
 <div class="panel-entry">
 <h3>🛡️ Policy</h3><span class="tag">P</span>
-<p>Overview of security policies for all containers: seccomp profile (strict/moderate/permissive), AppArmor profile, and nftables egress rules. Includes a "Merged view" showing the full LXD config with expanded <code>raw.lxc</code> values.</p>
+<p>Overview of security policies for all containers: seccomp profile (strict/moderate/permissive), AppArmor profile, and nftables egress rules. Includes a "Merged view" showing the full LXD config with expanded <code>raw.lxc</code> values. Supports toggle flags: boot.autostart, security.privileged, security.nesting, security.devlxd, idmap.isolated.</p>
 </div>
 
 <div class="panel-entry">
@@ -85,33 +132,13 @@ code{font-family:'JetBrains Mono',monospace;background:rgba(255,255,255,.06);pad
 
 <div class="panel-entry">
 <h3>📋 API Audit</h3><span class="tag">A</span>
-<p>HTTP proxy audit log showing all intercepted requests: timestamp, method, domain, path, status code, latency, and MITM indicator. Includes domain approval management and export.</p>
+<p>HTTP proxy audit log showing all intercepted requests: timestamp, method, domain, path, status code, latency, and MITM indicator. Includes domain approval management, host machine interception toggle, and export.</p>
 </div>
 
 <div class="panel-entry">
-<h3>📊 Inference Stats</h3><span class="tag">M</span>
-<p>AI inference monitoring: requests per minute (RPM), tokens per minute (TPM), input/output token counts, and estimated USD cost for 27+ models across OpenAI, Anthropic, Gemini, and Copilot families. Per-minute sparklines.</p>
+<h3>👤 Network Approval</h3><span class="tag">auto</span>
+<p>Overlay that appears when an HTTP/HTTPS request hits an unknown domain. Operator can approve once (<kbd>y</kbd>), always (<kbd>Y</kbd>), deny once (<kbd>n</kbd>), or deny always (<kbd>N</kbd>).</p>
 </div>
 
-<div class="panel-entry">
-<h3>🔀 Inference Routing</h3><span class="tag">R</span>
-<p>Configure routing rules to redirect AI API traffic to alternative backends. Includes presets for OpenAI→Ollama, Anthropic→Ollama, Copilot→NVIDIA, and Gemini→Ollama.</p>
-</div>
-
-<div class="panel-entry">
-<h3>📡 Events</h3><span class="tag">V</span>
-<p>Live LXD event stream showing all lifecycle events (container start/stop/restart, snapshot creation, config changes, etc.).</p>
-</div>
-
-<div class="panel-entry">
-<h3>➕ Create</h3><span class="tag">+</span>
-<p>Container creation wizard. Select image, set name, configure resources, and launch a new container.</p>
-</div>
-
-<div class="panel-entry">
-<h3>📦 Export / Import</h3><span class="tag">E / I</span>
-<p>Export container configuration as JSON (<kbd>E</kbd>) or import a previously exported config (<kbd>I</kbd>) to apply it to a container via the LXD API.</p>
-</div>
-
-<div class="next"><a href="../index.html">← Home</a></div>
+<div class="next"><a href="keybindings.html">Key Binding Reference →</a> · <a href="../index.html">← Home</a></div>
 </body></html>
