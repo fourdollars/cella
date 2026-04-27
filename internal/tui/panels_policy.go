@@ -119,12 +119,21 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 			if err6 == nil && strings.TrimSpace(string(out6)) == "true" {
 				idmapIso = true
 			}
+			// autostartExplicit: true = container layer explicitly set a value (overrides profiles)
+			// autostart: the resolved bool value
 			var autostart bool
+			autostartExplicit := false
 			out7, err7 := exec.Command("lxc", "config", "get", name, "boot.autostart").CombinedOutput()
 			if err7 == nil {
 				v7 := strings.TrimSpace(string(out7))
-				if v7 == "true" || v7 == "1" {
+				switch v7 {
+				case "true", "1":
 					autostart = true
+					autostartExplicit = true
+				case "false", "0":
+					autostart = false
+					autostartExplicit = true
+					// empty string = not set at container level, fall through to profile check
 				}
 			}
 
@@ -175,20 +184,36 @@ func (a App) fetchPolicyInfo(c runtime.ContainerInfo) tea.Cmd {
 				}
 			}
 
-			// Override autostart with effective merged value (profile inheritance)
-			if !autostart && containerCfg != nil {
-				if v, ok := containerCfg.Config["boot.autostart"]; ok && (v == "true" || v == "1") {
-					autostart = true
-				}
-			}
-			if !autostart {
-				for _, pd := range profileDetails {
-					if pd == nil {
-						continue
+			// Override autostart with effective merged value (profile inheritance).
+			// LXD merge semantics: container config overrides profiles.
+			// Only consult profiles when the container layer has no explicit value.
+			if !autostartExplicit {
+				// Check effective config from JSON (already merged by LXD, most accurate)
+				if containerCfg != nil {
+					if v, ok := containerCfg.Config["boot.autostart"]; ok {
+						switch v {
+						case "true", "1":
+							autostart = true
+						case "false", "0":
+							autostart = false
+						}
+						autostartExplicit = true
 					}
-					if v, ok := pd.Config["boot.autostart"]; ok && (v == "true" || v == "1") {
-						autostart = true
-						break
+				}
+				// Fall back to iterating profiles (oldest to newest, last wins)
+				if !autostartExplicit {
+					for _, pd := range profileDetails {
+						if pd == nil {
+							continue
+						}
+						if v, ok := pd.Config["boot.autostart"]; ok {
+							switch v {
+							case "true", "1":
+								autostart = true
+							case "false", "0":
+								autostart = false
+							}
+						}
 					}
 				}
 			}
