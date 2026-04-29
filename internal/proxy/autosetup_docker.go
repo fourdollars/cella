@@ -77,6 +77,21 @@ func (s *AutoSetup) SetupDockerContainer(dockerSocket, container string) error {
 			"sh", "-c",
 			"grep -q 'NODE_OPTIONS.*use-openssl-ca' /etc/environment 2>/dev/null || printf 'NODE_OPTIONS=--use-openssl-ca\n' >> /etc/environment",
 		})
+
+		// 7. Inject CA env vars into user dotfiles (.bashrc / .profile)
+		//    so that "docker exec -u <user> bash -lc '...'" and login
+		//    shells automatically trust the cella CA. Non-invasive:
+		//    only user-level dotfiles are modified, no system binaries.
+		_ = dockerExec(dockerSocket, container, []string{
+			"sh", "-c",
+			`for HOMEDIR in /root $(awk -F: '$NF ~ /sh$/{print $6}' /etc/passwd 2>/dev/null); do ` +
+				`[ -d "$HOMEDIR" ] || continue; ` +
+				`for RC in .bashrc .profile; do ` +
+				`grep -q 'NODE_EXTRA_CA_CERTS.*cella' "$HOMEDIR/$RC" 2>/dev/null && continue; ` +
+				`printf '\n# cella MITM CA trust\nexport NODE_EXTRA_CA_CERTS=` + certPath + `\nexport NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"\n' >> "$HOMEDIR/$RC"; ` +
+				`done; done`,
+		})
+
 	}
 
 	return nil
@@ -88,6 +103,21 @@ func (s *AutoSetup) RemoveDockerSetup(dockerSocket, container string) error {
 	if dockerSocket == "" {
 		dockerSocket = "/var/run/docker.sock"
 	}
+
+	// Remove CA env vars from user dotfiles
+	_ = dockerExec(dockerSocket, container, []string{
+		"sh", "-c",
+		`for HOMEDIR in /root $(awk -F: '$NF ~ /sh$/{print $6}' /etc/passwd 2>/dev/null); do ` +
+			`[ -d "$HOMEDIR" ] || continue; ` +
+			`for RC in .bashrc .profile; do ` +
+			`sed -i '/# cella MITM CA trust/d;/NODE_EXTRA_CA_CERTS.*cella/d;/NODE_OPTIONS.*use-openssl-ca/d' "$HOMEDIR/$RC" 2>/dev/null; ` +
+			`done; done`,
+	})
+	// Also restore node binary if it was wrapped by an older version
+	_ = dockerExec(dockerSocket, container, []string{
+		"sh", "-c",
+		`NODE=$(command -v node 2>/dev/null) && [ -f "${NODE}.real" ] && mv "${NODE}.real" "$NODE" || true`,
+	})
 
 	_ = dockerExec(dockerSocket, container, []string{
 		"sh", "-c", "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && sed -i '/NODE_EXTRA_CA_CERTS.*cella/d' /etc/environment 2>/dev/null; sed -i '/NODE_OPTIONS.*use-openssl-ca/d' /etc/environment 2>/dev/null; command -v npm >/dev/null 2>&1 && npm config delete cafile 2>/dev/null; update-ca-certificates 2>/dev/null || true",
