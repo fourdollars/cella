@@ -116,7 +116,7 @@ func (a App) updateContainers(msg containersMsg) (tea.Model, tea.Cmd) {
 	}
 	// Auto-setup proxy for containers loaded from persisted allow/deny lists
 	var autoSetupCmds []tea.Cmd
-	if len(a.pendingAutoSetup) > 0 && a.client != nil {
+	if len(a.pendingAutoSetup) > 0 {
 		var stillPending []string
 		for _, name := range a.pendingAutoSetup {
 			// Find the container in the current list
@@ -127,9 +127,9 @@ func (a App) updateContainers(msg containersMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
-			if found != nil && found.Runtime == "lxd" && found.Status == "Running" && found.IP != "" && found.IP != "-" && net.ParseIP(found.IP) != nil {
+			if found != nil && (found.Runtime == "lxd" || found.Runtime == "docker") && found.Status == "Running" && found.IP != "" && found.IP != "-" && net.ParseIP(found.IP) != nil {
 				a.addEvent(fmt.Sprintf("🔧 auto-setup proxy: %s (%s)", name, found.IP))
-				autoSetupCmds = append(autoSetupCmds, a.autoSetupProxy(name, globalProxyServer, a.client.SocketPath()))
+				autoSetupCmds = append(autoSetupCmds, a.autoSetupProxy(name, found.Runtime, globalProxyServer))
 			} else {
 				stillPending = append(stillPending, name)
 			}

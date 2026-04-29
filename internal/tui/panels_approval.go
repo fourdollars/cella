@@ -437,8 +437,8 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Auto-setup interception on selected container
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime != "lxd" {
-				return a, a.setFlash("❌ Auto-setup only for LXD containers")
+			if c.Runtime != "lxd" && c.Runtime != "docker" {
+				return a, a.setFlash("❌ Auto-setup only for LXD or Docker containers")
 			}
 			if c.Status != "Running" {
 				return a, a.setFlash("❌ Container must be running")
@@ -485,18 +485,15 @@ func (a *App) handleAuditPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.brokerSyncRuntimeState()
 			}
 			a.addEvent(fmt.Sprintf("🔧 setting up interception on %s...", c.Name))
-			return a, a.autoSetupProxy(c.Name, globalProxyServer, a.client.SocketPath())
+			return a, a.autoSetupProxy(c.Name, c.Runtime, globalProxyServer)
 		}
 		return a, nil
 	case "u":
 		// Remove interception from selected container
 		if a.selected < len(a.containers) {
 			c := a.containers[a.selected]
-			if c.Runtime == "lxd" {
-				a.addEvent(fmt.Sprintf("🔧 removing proxy from %s...", c.Name))
-				return a, a.removeProxySetup(c.Name)
-			}
-			return a, a.setFlash("❌ Only LXD containers supported")
+			a.addEvent(fmt.Sprintf("🔧 removing proxy from %s...", c.Name))
+			return a, a.removeProxySetup(c.Name)
 		}
 		return a, nil
 	case "S":
@@ -1252,16 +1249,25 @@ func (a App) renderAuditPanel() string {
 	return b.String()
 }
 
-// autoSetupProxy configures proxy env + CA cert on a container via LXD API
-func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket string) tea.Cmd {
+// autoSetupProxy configures proxy interception for a container.
+func (a *App) autoSetupProxy(container string, runtimeName string, srv *proxy.Server) tea.Cmd {
 	return func() tea.Msg {
-		if a.client == nil {
-			return asyncResultMsg{err: fmt.Errorf("LXD client not available")}
-		}
-
 		// Server/MITM/Listener already initialized by p key handler in Update()
 		if srv == nil {
 			return asyncResultMsg{err: fmt.Errorf("proxy not initialized")}
+		}
+
+		rt := a.runtimeByName(runtimeName)
+		if rt == nil {
+			rt = a.runtimeFor(container)
+		}
+		if rt == nil {
+			return asyncResultMsg{err: fmt.Errorf("runtime not available for %s", container)}
+		}
+
+		runtimeType := strings.TrimSpace(runtimeName)
+		if runtimeType == "" {
+			runtimeType = rt.Name()
 		}
 
 		// Find container IP
@@ -1294,12 +1300,19 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 		}
 
 		// 2. CA cert inject + update-ca-certificates
-		socketPath := lxdSocket
-		setup := &proxy.AutoSetup{
-			MITMPem: srv.MITMCAPem(),
-		}
-		if err := setup.SetupContainer(socketPath, container); err != nil {
-			return asyncResultMsg{err: fmt.Errorf("CA cert: %w", err)}
+		setup := &proxy.AutoSetup{MITMPem: srv.MITMCAPem()}
+		if runtimeType == "docker" {
+			sockProvider, ok := rt.(interface{ SocketPath() string })
+			if !ok {
+				return asyncResultMsg{err: fmt.Errorf("docker socket unavailable for %s", container)}
+			}
+			if err := setup.SetupDockerContainer(sockProvider.SocketPath(), container); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("CA cert: %w", err)}
+			}
+		} else {
+			if err := setup.SetupContainerRuntime(rt, container); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("CA cert: %w", err)}
+			}
 		}
 
 		// Update container IP mapping for the proxy
@@ -1323,14 +1336,35 @@ func (a *App) autoSetupProxy(container string, srv *proxy.Server, lxdSocket stri
 // removeProxySetup removes proxy configuration from a container
 func (a *App) removeProxySetup(container string) tea.Cmd {
 	return func() tea.Msg {
-		if globalProxyServer == nil || a.client == nil {
-			return asyncResultMsg{err: fmt.Errorf("proxy or LXD client not available")}
+		if globalProxyServer == nil {
+			return asyncResultMsg{err: fmt.Errorf("proxy not available")}
+		}
+
+		runtimeType := strings.TrimSpace(a.containerRuntime(container))
+		rt := a.runtimeByName(runtimeType)
+		if rt == nil {
+			rt = a.runtimeFor(container)
+		}
+		if rt == nil {
+			return asyncResultMsg{err: fmt.Errorf("runtime not available for %s", container)}
+		}
+		if runtimeType == "" {
+			runtimeType = rt.Name()
 		}
 
 		setup := &proxy.AutoSetup{}
-		socketPath := a.client.SocketPath()
-		if err := setup.RemoveSetup(socketPath, container); err != nil {
-			return asyncResultMsg{err: fmt.Errorf("remove proxy %s: %w", container, err)}
+		if runtimeType == "docker" {
+			sockProvider, ok := rt.(interface{ SocketPath() string })
+			if !ok {
+				return asyncResultMsg{err: fmt.Errorf("docker socket unavailable for %s", container)}
+			}
+			if err := setup.RemoveDockerSetup(sockProvider.SocketPath(), container); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("remove proxy %s: %w", container, err)}
+			}
+		} else {
+			if err := setup.RemoveSetupRuntime(rt, container); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("remove proxy %s: %w", container, err)}
+			}
 		}
 
 		// Remove transparent redirect

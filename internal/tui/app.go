@@ -541,6 +541,16 @@ func (a App) runtimeFor(containerName string) runtime.Runtime {
 	return nil
 }
 
+// runtimeByName returns the Runtime for a runtime identifier like "lxd" or "docker".
+func (a App) runtimeByName(name string) runtime.Runtime {
+	for _, rt := range a.runtimes {
+		if rt.Name() == name {
+			return rt
+		}
+	}
+	return nil
+}
+
 // containerRuntime returns the runtime string for a container name
 func (a App) containerRuntime(name string) string {
 	for _, c := range a.containers {

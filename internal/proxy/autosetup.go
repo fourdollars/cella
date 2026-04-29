@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/fourdoors/cella/internal/runtime"
 )
 
 // AutoSetup configures a container to use the cella transparent proxy.
@@ -98,6 +101,82 @@ func DetectBridgeIP() string {
 		}
 	}
 	return ""
+}
+
+// SetupContainerRuntime injects the MITM CA cert into a container using the
+// runtime abstraction so it works for both LXD and Docker containers.
+func (s *AutoSetup) SetupContainerRuntime(rt runtime.Runtime, container string) error {
+	if rt == nil {
+		return fmt.Errorf("runtime not available")
+	}
+	if len(s.MITMPem) == 0 {
+		return nil
+	}
+
+	if err := runtimeExecShell(rt, container, "mkdir -p /usr/local/share/ca-certificates /etc/profile.d"); err != nil {
+		return fmt.Errorf("create cert dirs: %w", err)
+	}
+	if err := runtimeWriteFile(rt, container, "/usr/local/share/ca-certificates", "cella-proxy.crt", s.MITMPem); err != nil {
+		return fmt.Errorf("write CA cert: %w", err)
+	}
+	_ = runtimeExecShell(rt, container, "update-ca-certificates 2>/dev/null || true")
+
+	profile := []byte("#!/bin/sh\nexport NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/cella-proxy.crt\n")
+	if err := runtimeWriteFile(rt, container, "/etc/profile.d", "cella-node-ca.sh", profile); err != nil {
+		return fmt.Errorf("write node env: %w", err)
+	}
+
+	// Also write to /etc/environment so non-login shells (docker exec, cron,
+	// systemd services) pick up NODE_EXTRA_CA_CERTS automatically.
+	_ = runtimeExecShell(rt, container, "grep -q 'NODE_EXTRA_CA_CERTS.*cella' /etc/environment 2>/dev/null || printf 'NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/cella-proxy.crt\n' >> /etc/environment")
+
+	// Configure npm cafile + NODE_OPTIONS so npm and Node.js trust
+	// the system CA store even in non-login shells.
+	_ = runtimeExecShell(rt, container, "command -v npm >/dev/null 2>&1 && npm config set cafile /usr/local/share/ca-certificates/cella-proxy.crt 2>/dev/null || true")
+	_ = runtimeExecShell(rt, container, "grep -q 'NODE_OPTIONS.*use-openssl-ca' /etc/environment 2>/dev/null || printf 'NODE_OPTIONS=--use-openssl-ca\n' >> /etc/environment")
+
+	return nil
+}
+
+// RemoveSetupRuntime removes the MITM CA cert from a container using the
+// runtime abstraction so it works for both LXD and Docker containers.
+func (s *AutoSetup) RemoveSetupRuntime(rt runtime.Runtime, container string) error {
+	if rt == nil {
+		return fmt.Errorf("runtime not available")
+	}
+	_ = runtimeExecShell(rt, container, "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && sed -i '/NODE_EXTRA_CA_CERTS.*cella/d' /etc/environment 2>/dev/null; sed -i '/NODE_OPTIONS.*use-openssl-ca/d' /etc/environment 2>/dev/null; command -v npm >/dev/null 2>&1 && npm config delete cafile 2>/dev/null; update-ca-certificates 2>/dev/null || true")
+	return nil
+}
+
+func runtimeExecShell(rt runtime.Runtime, container, script string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := rt.ExecCommand(ctx, container, []string{"sh", "-c", script})
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		msg := strings.TrimSpace(res.Stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(res.Stdout)
+		}
+		if msg == "" {
+			msg = "command failed"
+		}
+		return fmt.Errorf("exit %d: %s", res.ExitCode, msg)
+	}
+	return nil
+}
+
+func runtimeWriteFile(rt runtime.Runtime, container, dir, filename string, content []byte) error {
+	encoded := base64.StdEncoding.EncodeToString(content)
+	target := dir + "/" + filename
+	script := fmt.Sprintf("mkdir -p %s && printf %%s %s | base64 -d > %s", shellQuote(dir), shellQuote(encoded), shellQuote(target))
+	return runtimeExecShell(rt, container, script)
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
 // ── LXD API helpers (unix socket) ──
