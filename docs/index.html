@@ -387,12 +387,103 @@
       .stats { grid-template-columns: repeat(2, minmax(120px,1fr)); }
     }
 
+    /* ── Carousel ── */
+    .carousel {
+      position: relative;
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 56px rgba(0,0,0,.45);
+      max-width: 100%;
+      background: #0d1117;
+      border: 1px solid var(--line);
+    }
+    .carousel-track {
+      display: flex;
+      transition: transform .5s cubic-bezier(.4,0,.2,1);
+      will-change: transform;
+    }
+    .carousel-slide {
+      min-width: 100%;
+      position: relative;
+    }
+    .carousel-slide img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .carousel-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: .6rem 1rem;
+      background: linear-gradient(transparent, rgba(13,17,23,.92));
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .carousel-label .key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .75rem;
+      border: 1px solid #3a4350;
+      border-radius: .35rem;
+      color: var(--primary-2);
+      padding: .1rem .4rem;
+      background: rgba(0,0,0,.5);
+    }
+    .carousel-label span {
+      color: #e6edf3;
+      font-size: .85rem;
+      font-weight: 600;
+    }
+    .carousel-dots {
+      display: flex;
+      justify-content: center;
+      gap: .45rem;
+      padding: .7rem 0;
+      background: rgba(13,17,23,.8);
+    }
+    .carousel-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      border: none;
+      background: #30363d;
+      cursor: pointer;
+      transition: background .25s, transform .25s;
+      padding: 0;
+    }
+    .carousel-dot.active {
+      background: var(--primary);
+      transform: scale(1.25);
+    }
+    .carousel-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(13,17,23,.7);
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 1.1rem;
+      display: grid;
+      place-items: center;
+      transition: background .2s;
+      z-index: 2;
+    }
+    .carousel-nav:hover { background: rgba(13,17,23,.9); }
+    .carousel-prev { left: .75rem; }
+    .carousel-next { right: .75rem; }
+
     @media (max-width: 760px) {
       .nav-links { display: none; }
       .dia-grid { grid-template-columns: 1fr; }
       .grid-3 { grid-template-columns: 1fr; }
       .panels { grid-template-columns: repeat(2, minmax(150px,1fr)); }
-  
+      .carousel-nav { width: 30px; height: 30px; font-size: .9rem; }
     }
   </style>
 </head>
@@ -435,12 +526,60 @@
         <a class="btn btn-ghost" href="https://github.com/fourdollars/cella" target="_blank" rel="noreferrer">⭐ GitHub</a>
       </div>
 
-      <div class="demo-video reveal" style="border-radius:14px; overflow:hidden; box-shadow: 0 24px 56px rgba(0,0,0,.45); max-width: 100%; background: #282d35;">
-        <video autoplay loop muted playsinline style="width:100%; height:auto; display:block; border-radius:14px;">
-          <source src="screenshots/cella-main.webm" type="video/webm">
-          <source src="screenshots/cella-main.webp" type="image/webp">
-          Your browser does not support the video tag.
-        </video>
+      <div class="carousel reveal" id="heroCarousel">
+        <div class="carousel-track" id="carouselTrack">
+          <div class="carousel-slide">
+            <img src="screenshots/panel-dashboard.png" alt="Dashboard — CPU/MEM/NET/DISK sparklines" loading="eager" />
+            <div class="carousel-label"><span class="key">default</span><span>Dashboard</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-help.png" alt="Help overlay — all keybindings" loading="lazy" />
+            <div class="carousel-label"><span class="key">?</span><span>Help Overlay</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-network.png" alt="Network panel — RX/TX, ports, connections" loading="lazy" />
+            <div class="carousel-label"><span class="key">w</span><span>Network</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-resources.png" alt="Resources panel — CPU/MEM limits" loading="lazy" />
+            <div class="carousel-label"><span class="key">r</span><span>Resources</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-snapshots.png" alt="Snapshots panel — create/restore/clone" loading="lazy" />
+            <div class="carousel-label"><span class="key">n</span><span>Snapshots</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-trace.png" alt="Syscall trace — bpftrace monitor" loading="lazy" />
+            <div class="carousel-label"><span class="key">t</span><span>Syscall Trace</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-policy.png" alt="Policy panel — seccomp, AppArmor, egress" loading="lazy" />
+            <div class="carousel-label"><span class="key">P</span><span>Security Policy</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-audit.png" alt="Audit panel — HTTP proxy audit" loading="lazy" />
+            <div class="carousel-label"><span class="key">A</span><span>Audit</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-allowdeny.png" alt="Allow/Deny Lists — egress control" loading="lazy" />
+            <div class="carousel-label"><span class="key">L</span><span>Allow/Deny Lists</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-logs.png" alt="Logs panel — streaming logs" loading="lazy" />
+            <div class="carousel-label"><span class="key">l</span><span>Logs</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-inference.png" alt="Inference Stats — RPM/TPM/cost" loading="lazy" />
+            <div class="carousel-label"><span class="key">M</span><span>Inference Stats</span></div>
+          </div>
+          <div class="carousel-slide">
+            <img src="screenshots/panel-tokenbroker.png" alt="Token Broker — token pool management" loading="lazy" />
+            <div class="carousel-label"><span class="key">B</span><span>Token Broker</span></div>
+          </div>
+        </div>
+        <button class="carousel-nav carousel-prev" onclick="carouselGo(-1)" aria-label="Previous">‹</button>
+        <button class="carousel-nav carousel-next" onclick="carouselGo(1)" aria-label="Next">›</button>
+        <div class="carousel-dots" id="carouselDots"></div>
       </div>
     </section>
 
@@ -679,6 +818,54 @@
   </footer>
 
   <script>
+    /* ── Carousel logic ── */
+    (function() {
+      const track = document.getElementById('carouselTrack');
+      const dotsBox = document.getElementById('carouselDots');
+      const slides = track.children;
+      const total = slides.length;
+      let idx = 0;
+      let timer;
+
+      // Build dots
+      for (let i = 0; i < total; i++) {
+        const d = document.createElement('button');
+        d.className = 'carousel-dot' + (i === 0 ? ' active' : '');
+        d.setAttribute('aria-label', 'Slide ' + (i + 1));
+        d.onclick = () => goTo(i);
+        dotsBox.appendChild(d);
+      }
+
+      function goTo(n) {
+        idx = ((n % total) + total) % total;
+        track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+        dotsBox.querySelectorAll('.carousel-dot').forEach((d, i) =>
+          d.classList.toggle('active', i === idx));
+        resetTimer();
+      }
+
+      function resetTimer() {
+        clearInterval(timer);
+        timer = setInterval(() => goTo(idx + 1), 4000);
+      }
+
+      window.carouselGo = (dir) => goTo(idx + dir);
+      resetTimer();
+
+      // Pause on hover
+      const el = document.getElementById('heroCarousel');
+      el.addEventListener('mouseenter', () => clearInterval(timer));
+      el.addEventListener('mouseleave', resetTimer);
+
+      // Swipe support
+      let sx;
+      el.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, {passive:true});
+      el.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - sx;
+        if (Math.abs(dx) > 40) goTo(idx + (dx < 0 ? 1 : -1));
+      }, {passive:true});
+    })();
+
     function copyCode(btn) {
       const text = btn.nextElementSibling.innerText;
       navigator.clipboard.writeText(text).then(() => {
