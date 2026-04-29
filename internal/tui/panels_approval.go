@@ -1282,21 +1282,36 @@ func (a *App) autoSetupProxy(container string, runtimeName string, srv *proxy.Se
 			return asyncResultMsg{err: fmt.Errorf("no valid IP for %s (got %q) — container may still be starting", container, containerIP)}
 		}
 
-		// 1. nftables REDIRECT (port 80/443 → :9081)
-		// Always try to remove any stale rules for this container first
-		// (handles IP change after container restart, or leftover rules).
-		for _, oldIP := range func() []string {
-			var ips []string
-			if prev, ok := a.interceptedIPs[container]; ok && prev != containerIP {
-				ips = append(ips, prev)
+		// 1. Network redirect (port 80/443 → :9081)
+		// Docker: nsenter into container netns + iptables OUTPUT DNAT
+		// LXD:    nftables PREROUTING REDIRECT on host
+		if runtimeType == "docker" {
+			// Docker bridge traffic doesn't traverse host PREROUTING,
+			// so we use nsenter to add iptables rules inside the container netns.
+			sockProvider, ok := rt.(interface{ SocketPath() string })
+			dockerSock := ""
+			if ok {
+				dockerSock = sockProvider.SocketPath()
 			}
-			ips = append(ips, containerIP) // also clean current IP before re-adding
-			return ips
-		}() {
-			_ = proxy.RemoveTransparentRedirect(oldIP) // best-effort cleanup
-		}
-		if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
-			return asyncResultMsg{err: fmt.Errorf("nftables REDIRECT for %s (%s): %w", container, containerIP, err)}
+			_ = proxy.RemoveDockerTransparentRedirect(dockerSock, container) // cleanup stale
+			if err := proxy.SetupDockerTransparentRedirect(dockerSock, container, 9081); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("docker nsenter redirect for %s: %w", container, err)}
+			}
+		} else {
+			// LXD: host-side nftables PREROUTING REDIRECT
+			for _, oldIP := range func() []string {
+				var ips []string
+				if prev, ok := a.interceptedIPs[container]; ok && prev != containerIP {
+					ips = append(ips, prev)
+				}
+				ips = append(ips, containerIP) // also clean current IP before re-adding
+				return ips
+			}() {
+				_ = proxy.RemoveTransparentRedirect(oldIP) // best-effort cleanup
+			}
+			if err := proxy.SetupTransparentRedirect(containerIP, 9081); err != nil {
+				return asyncResultMsg{err: fmt.Errorf("nftables REDIRECT for %s (%s): %w", container, containerIP, err)}
+			}
 		}
 
 		// 2. CA cert inject + update-ca-certificates
@@ -1368,10 +1383,19 @@ func (a *App) removeProxySetup(container string) tea.Cmd {
 		}
 
 		// Remove transparent redirect
-		for _, c := range a.allContainers {
-			if c.Name == container && c.IP != "" {
-				_ = proxy.RemoveTransparentRedirect(c.IP)
-				break
+		if runtimeType == "docker" {
+			sockProvider, ok := rt.(interface{ SocketPath() string })
+			dockerSock := ""
+			if ok {
+				dockerSock = sockProvider.SocketPath()
+			}
+			_ = proxy.RemoveDockerTransparentRedirect(dockerSock, container)
+		} else {
+			for _, c := range a.allContainers {
+				if c.Name == container && c.IP != "" {
+					_ = proxy.RemoveTransparentRedirect(c.IP)
+					break
+				}
 			}
 		}
 

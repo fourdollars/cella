@@ -120,6 +120,136 @@ func RemoveHostRedirect() error {
 	return removeTransparentRules("cella_tproxy", "output", "cella_tproxy_host")
 }
 
+// SetupDockerTransparentRedirect configures iptables DNAT inside a Docker
+// container's network namespace so that outbound port 80/443 traffic is
+// redirected to the cella proxy on the host.
+//
+// Unlike LXD containers whose bridge traffic traverses the host's PREROUTING
+// chain, Docker default-bridge containers route packets via FORWARD and never
+// hit host-side nftables REDIRECT rules. The workaround is to enter the
+// container's network namespace with nsenter and add iptables OUTPUT DNAT
+// rules there.
+//
+// dockerSocket may be empty (defaults to /var/run/docker.sock).
+func SetupDockerTransparentRedirect(dockerSocket, containerName string, proxyPort int) error {
+	if dockerSocket == "" {
+		dockerSocket = "/var/run/docker.sock"
+	}
+
+	pid, err := dockerContainerPID(dockerSocket, containerName)
+	if err != nil {
+		return fmt.Errorf("get container PID: %w", err)
+	}
+
+	gatewayIP := DetectDockerBridgeIP()
+	if gatewayIP == "" {
+		gatewayIP = "172.17.0.1" // fallback
+	}
+	dest := fmt.Sprintf("%s:%d", gatewayIP, proxyPort)
+
+	// Remove stale rules first (best-effort)
+	_ = removeDockerNsRules(pid, dest)
+
+	// Add OUTPUT DNAT rules for port 443 and 80
+	for _, port := range []int{443, 80} {
+		args := []string{
+			"--target", pid, "--net",
+			"iptables", "-t", "nat", "-A", "OUTPUT",
+			"-p", "tcp", "--dport", fmt.Sprintf("%d", port),
+			"-j", "DNAT", "--to-destination", dest,
+			"-m", "comment", "--comment", "cella_tproxy",
+		}
+		cmd := nsenterCmd(args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("nsenter iptables port %d: %s: %w", port, strings.TrimSpace(string(out)), err)
+		}
+	}
+	return nil
+}
+
+// RemoveDockerTransparentRedirect removes the DNAT rules from a Docker
+// container's network namespace.
+func RemoveDockerTransparentRedirect(dockerSocket, containerName string) error {
+	if dockerSocket == "" {
+		dockerSocket = "/var/run/docker.sock"
+	}
+
+	pid, err := dockerContainerPID(dockerSocket, containerName)
+	if err != nil {
+		return nil // container may have stopped — nothing to clean up
+	}
+
+	gatewayIP := DetectDockerBridgeIP()
+	if gatewayIP == "" {
+		gatewayIP = "172.17.0.1"
+	}
+	dest := fmt.Sprintf("%s:%d", gatewayIP, 9081)
+
+	return removeDockerNsRules(pid, dest)
+}
+
+// removeDockerNsRules removes all cella_tproxy iptables rules from a container netns.
+func removeDockerNsRules(pid, dest string) error {
+	// List rules and delete by comment match (best-effort, up to 10 passes)
+	for i := 0; i < 10; i++ {
+		listArgs := []string{
+			"--target", pid, "--net",
+			"iptables", "-t", "nat", "-L", "OUTPUT", "--line-numbers", "-n",
+		}
+		listCmd := nsenterCmd(listArgs...)
+		out, err := listCmd.CombinedOutput()
+		if err != nil {
+			return nil // no iptables or container gone
+		}
+		// Find last line with our comment (delete from bottom to preserve line numbers)
+		found := false
+		lines := strings.Split(string(out), "\n")
+		for j := len(lines) - 1; j >= 0; j-- {
+			if strings.Contains(lines[j], "cella_tproxy") {
+				parts := strings.Fields(lines[j])
+				if len(parts) > 0 {
+					lineNum := parts[0]
+					delArgs := []string{
+						"--target", pid, "--net",
+						"iptables", "-t", "nat", "-D", "OUTPUT", lineNum,
+					}
+					delCmd := nsenterCmd(delArgs...)
+					delCmd.CombinedOutput() // best-effort
+					found = true
+					break // re-list after delete (line numbers shift)
+				}
+			}
+		}
+		if !found {
+			break
+		}
+	}
+	return nil
+}
+
+// dockerContainerPID returns the host PID of a Docker container's init process.
+func dockerContainerPID(socketPath, containerName string) (string, error) {
+	cmd := exec.Command("docker", "inspect", containerName, "--format", "{{.State.Pid}}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect %s: %s: %w", containerName, strings.TrimSpace(string(out)), err)
+	}
+	pid := strings.TrimSpace(string(out))
+	if pid == "" || pid == "0" {
+		return "", fmt.Errorf("container %s not running (pid=%s)", containerName, pid)
+	}
+	return pid, nil
+}
+
+func nsenterCmd(args ...string) *exec.Cmd {
+	if os.Getuid() == 0 {
+		return exec.Command("nsenter", args...)
+	}
+	full := append([]string{"-n", "nsenter"}, args...)
+	return exec.Command("sudo", full...)
+}
+
 func nftCmd2(args ...string) *exec.Cmd {
 	if os.Getuid() == 0 {
 		return exec.Command("nft", args...)
