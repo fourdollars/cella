@@ -1,28 +1,16 @@
 # cella
 
-> **⚠️ Work In Progress** — actively developed, interfaces may change
-
 > Latin: *cella* — a small room. The original container.
 
 A terminal UI and CLI for managing and monitoring LXD + Docker containers — real-time metrics, syscall tracing, HTTPS interception with operator approval, and AI inference monitoring.
 
 ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-WIP-orange)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen)
 [![GitHub Pages](https://img.shields.io/badge/Docs-GitHub%20Pages-blue)](https://fourdollars.github.io/cella/)
 
 ---
 
-## ⚠️ Work In Progress
-
-cella is under active development. Core features work well, but:
-- APIs and key bindings may change between versions
-- Some features require root / `sudo` (bpftrace, nftables)
-- The HTTPS interception and inference routing features are experimental
-
-Feedback, bug reports, and contributions welcome.
-
----
 
 ## Features
 
@@ -44,7 +32,7 @@ Feedback, bug reports, and contributions welcome.
   - Blocks dangerous syscalls (`ptrace`, `mount`, `bpf`, `kexec_load`, etc.) with EPERM
   - Operator approval overlay: bpftrace detects attempts → `[y]` unblock once / `[Y]` permanent / `[n]` keep blocked
 
-### 🔐 HTTPS Interception + Operator Approval *(WIP)*
+### 🔐 HTTPS Interception + Operator Approval
 - Transparent MITM proxy via **nftables REDIRECT** — no proxy env vars needed
 - Works with Node.js (via `NODE_EXTRA_CA_CERTS`), Python, curl, and more
 - **One key setup** (`A` → `p`): auto-generates CA cert, sets up nftables REDIRECT, injects CA into container
@@ -52,14 +40,14 @@ Feedback, bug reports, and contributions welcome.
 - **HTTP/2 aware** — intercepts modern APIs including GitHub Copilot
 - Audit log with filtering, text search, and JSON export
 
-### 📊 AI Inference Monitoring *(WIP)*
+### 📊 AI Inference Monitoring
 - Tracks API calls to OpenAI, Anthropic, GitHub Copilot, Gemini, and more
 - Per-model stats: requests, tokens in/out, RPM, RPH, TPM
 - **Cost estimation** for 27+ models with per-minute sparklines
 - Session breakdown by container
 - `M` key for inference stats panel, `S` to export JSON
 
-### 🏦 Token Broker *(WIP)*
+### 🏦 Token Broker
 - Multi-token management with pool/group/policy architecture
 - Automatic PAT exchange for GitHub Copilot session tokens
 - Health-based token selection with circuit breakers
@@ -68,7 +56,7 @@ Feedback, bug reports, and contributions welcome.
 - TUI panel with CRUD, live telemetry, and drift detection
 -  key for Token Broker panel
 
-### 🔀 Inference Routing *(WIP)*
+### 🔀 Inference Routing
 - Redirect AI API calls to alternative backends transparently
 - Presets: OpenAI/Anthropic/Copilot/Gemini → local Ollama or NVIDIA Endpoint
 - Custom route wizard, enable/disable per-domain, save to file
@@ -177,7 +165,7 @@ sudo ./cella
 cella is written in Go using [Bubbletea](https://github.com/charmbracelet/bubbletea) for the TUI. It communicates with LXD via its Unix socket REST API, and with Docker via the Docker socket.
 
 ```
-cella (~15MB binary, 26,000+ lines of Go, 79 files)
+cella (~15MB binary, 27,000+ lines of Go, 83 files)
 ├── cmd/            CLI entry point (cobra) + subcommands
 ├── internal/
 │   ├── proxy/      HTTP interception, MITM, audit, inference routing
@@ -201,10 +189,10 @@ cella (~15MB binary, 26,000+ lines of Go, 79 files)
 | Syscall tracing (bpftrace) | ✅ Stable |
 | Syscall blocking (LXD BPF deny) | ✅ Stable |
 | Security policy | ✅ Stable |
-| HTTPS interception | 🚧 WIP |
-| Inference stats | 🚧 WIP |
-| Inference routing | 🚧 WIP |
-| Token Broker | 🚧 WIP |
+| HTTPS interception | ✅ Stable |
+| Inference stats | ✅ Stable |
+| Inference routing | ✅ Stable |
+| Token Broker | ✅ Stable |
 | Inference request body capture | 📋 Planned |
 | Multi-host support | 📋 Planned |
 
