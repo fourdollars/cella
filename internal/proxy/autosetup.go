@@ -126,14 +126,6 @@ func (s *AutoSetup) SetupContainerRuntime(rt runtime.Runtime, container string) 
 		return fmt.Errorf("write node env: %w", err)
 	}
 
-	// Also write to /etc/environment so non-login shells (docker exec, cron,
-	// systemd services) pick up NODE_EXTRA_CA_CERTS automatically.
-	_ = runtimeExecShell(rt, container, "grep -q 'NODE_EXTRA_CA_CERTS.*cella' /etc/environment 2>/dev/null || printf 'NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/cella-proxy.crt\n' >> /etc/environment")
-
-	// Configure npm cafile + NODE_OPTIONS so npm and Node.js trust
-	// the system CA store even in non-login shells.
-	_ = runtimeExecShell(rt, container, "command -v npm >/dev/null 2>&1 && npm config set cafile /usr/local/share/ca-certificates/cella-proxy.crt 2>/dev/null || true")
-	_ = runtimeExecShell(rt, container, "grep -q 'NODE_OPTIONS.*use-openssl-ca' /etc/environment 2>/dev/null || printf 'NODE_OPTIONS=--use-openssl-ca\n' >> /etc/environment")
 
 	return nil
 }
@@ -144,7 +136,7 @@ func (s *AutoSetup) RemoveSetupRuntime(rt runtime.Runtime, container string) err
 	if rt == nil {
 		return fmt.Errorf("runtime not available")
 	}
-	_ = runtimeExecShell(rt, container, "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && sed -i '/NODE_EXTRA_CA_CERTS.*cella/d' /etc/environment 2>/dev/null; sed -i '/NODE_OPTIONS.*use-openssl-ca/d' /etc/environment 2>/dev/null; command -v npm >/dev/null 2>&1 && npm config delete cafile 2>/dev/null; update-ca-certificates 2>/dev/null || true")
+	_ = runtimeExecShell(rt, container, "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && update-ca-certificates 2>/dev/null || true")
 	return nil
 }
 
