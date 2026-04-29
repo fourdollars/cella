@@ -16,111 +16,62 @@ import (
 
 // SetupDockerContainer injects the MITM CA cert into a Docker container so
 // that it trusts cella's transparent HTTPS proxy.
-// The nftables REDIRECT rule is set up by the caller (transparent.go).
+//
+// This mirrors the LXD approach: inject CA cert + update-ca-certificates +
+// profile.d script for NODE_EXTRA_CA_CERTS. No other system modifications.
 func (s *AutoSetup) SetupDockerContainer(dockerSocket, container string) error {
 	if dockerSocket == "" {
 		dockerSocket = "/var/run/docker.sock"
 	}
 
-	if len(s.MITMPem) > 0 {
-		// 1. Create the CA directory
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c", "mkdir -p /usr/local/share/ca-certificates",
-		})
-
-		// 2. Write CA cert file via Docker archive PUT API
-		if err := dockerWriteFile(dockerSocket, container,
-			"/usr/local/share/ca-certificates/",
-			"cella-proxy.crt",
-			s.MITMPem); err != nil {
-			return fmt.Errorf("write CA cert: %w", err)
-		}
-
-		// 3. Update CA certificates (best-effort — some images may not have it)
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c", "update-ca-certificates 2>/dev/null || true",
-		})
-
-		// 4. Set NODE_EXTRA_CA_CERTS env var.
-		// Docker doesn't support live env modification like LXD, so we
-		// write a profile script that sets it for all shell sessions.
-		envScript := []byte(
-			"#!/bin/sh\nexport NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/cella-proxy.crt\n",
-		)
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c", "mkdir -p /etc/profile.d",
-		})
-		_ = dockerWriteFile(dockerSocket, container,
-			"/etc/profile.d/",
-			"cella-node-ca.sh",
-			envScript)
-
-		// 5. Append NODE_EXTRA_CA_CERTS to /etc/environment so it is
-		//    available in non-login shells (docker exec, cron, systemd).
-		//    /etc/environment is read by PAM on many distros and by
-		//    Node.js when started from non-interactive contexts.
-		certPath := "/usr/local/share/ca-certificates/cella-proxy.crt"
-		envLine := "NODE_EXTRA_CA_CERTS=" + certPath + "\n"
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c",
-			"grep -q 'NODE_EXTRA_CA_CERTS.*cella' /etc/environment 2>/dev/null || printf '" + envLine + "' >> /etc/environment",
-		})
-
-		// 6. Configure npm to use our CA cert (npm has its own TLS
-		//    handling and ignores NODE_EXTRA_CA_CERTS in many cases).
-		//    Also set NODE_OPTIONS=--use-openssl-ca so Node.js reads
-		//    the system CA store for all tools (not just npm).
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c", "command -v npm >/dev/null 2>&1 && npm config set cafile " + certPath + " 2>/dev/null || true",
-		})
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c",
-			"grep -q 'NODE_OPTIONS.*use-openssl-ca' /etc/environment 2>/dev/null || printf 'NODE_OPTIONS=--use-openssl-ca\n' >> /etc/environment",
-		})
-
-		// 7. Inject CA env vars into user dotfiles (.bashrc / .profile)
-		//    so that "docker exec -u <user> bash -lc '...'" and login
-		//    shells automatically trust the cella CA. Non-invasive:
-		//    only user-level dotfiles are modified, no system binaries.
-		_ = dockerExec(dockerSocket, container, []string{
-			"sh", "-c",
-			`for HOMEDIR in /root $(awk -F: '$NF ~ /sh$/{print $6}' /etc/passwd 2>/dev/null); do ` +
-				`[ -d "$HOMEDIR" ] || continue; ` +
-				`for RC in .bashrc .profile; do ` +
-				`grep -q 'NODE_EXTRA_CA_CERTS.*cella' "$HOMEDIR/$RC" 2>/dev/null && continue; ` +
-				`printf '\n# cella MITM CA trust\nexport NODE_EXTRA_CA_CERTS=` + certPath + `\nexport NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--use-openssl-ca"\n' >> "$HOMEDIR/$RC"; ` +
-				`done; done`,
-		})
-
+	if len(s.MITMPem) == 0 {
+		return nil
 	}
+
+	// 1. Create the CA directory
+	_ = dockerExec(dockerSocket, container, []string{
+		"sh", "-c", "mkdir -p /usr/local/share/ca-certificates /etc/profile.d",
+	})
+
+	// 2. Write CA cert file via Docker archive PUT API
+	if err := dockerWriteFile(dockerSocket, container,
+		"/usr/local/share/ca-certificates/",
+		"cella-proxy.crt",
+		s.MITMPem); err != nil {
+		return fmt.Errorf("write CA cert: %w", err)
+	}
+
+	// 3. Update CA certificates (best-effort — some images may not have it)
+	_ = dockerExec(dockerSocket, container, []string{
+		"sh", "-c", "update-ca-certificates 2>/dev/null || true",
+	})
+
+	// 4. Write profile.d script for NODE_EXTRA_CA_CERTS
+	//    (same approach as LXD SetupContainerRuntime)
+	envScript := []byte("#!/bin/sh\nexport NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/cella-proxy.crt\n")
+	_ = dockerWriteFile(dockerSocket, container,
+		"/etc/profile.d/",
+		"cella-node-ca.sh",
+		envScript)
 
 	return nil
 }
 
 // RemoveDockerSetup removes the MITM CA cert from a Docker container.
-// The nftables REDIRECT rule is torn down by the caller (transparent.go).
 func (s *AutoSetup) RemoveDockerSetup(dockerSocket, container string) error {
 	if dockerSocket == "" {
 		dockerSocket = "/var/run/docker.sock"
 	}
 
-	// Remove CA env vars from user dotfiles
-	_ = dockerExec(dockerSocket, container, []string{
-		"sh", "-c",
-		`for HOMEDIR in /root $(awk -F: '$NF ~ /sh$/{print $6}' /etc/passwd 2>/dev/null); do ` +
-			`[ -d "$HOMEDIR" ] || continue; ` +
-			`for RC in .bashrc .profile; do ` +
-			`sed -i '/# cella MITM CA trust/d;/NODE_EXTRA_CA_CERTS.*cella/d;/NODE_OPTIONS.*use-openssl-ca/d' "$HOMEDIR/$RC" 2>/dev/null; ` +
-			`done; done`,
-	})
-	// Also restore node binary if it was wrapped by an older version
+	// Restore node binary if wrapped by an older cella version
 	_ = dockerExec(dockerSocket, container, []string{
 		"sh", "-c",
 		`NODE=$(command -v node 2>/dev/null) && [ -f "${NODE}.real" ] && mv "${NODE}.real" "$NODE" || true`,
 	})
 
+	// Remove CA cert + profile script + update CA store
 	_ = dockerExec(dockerSocket, container, []string{
-		"sh", "-c", "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && sed -i '/NODE_EXTRA_CA_CERTS.*cella/d' /etc/environment 2>/dev/null; sed -i '/NODE_OPTIONS.*use-openssl-ca/d' /etc/environment 2>/dev/null; command -v npm >/dev/null 2>&1 && npm config delete cafile 2>/dev/null; update-ca-certificates 2>/dev/null || true",
+		"sh", "-c", "rm -f /usr/local/share/ca-certificates/cella-proxy.crt /etc/profile.d/cella-node-ca.sh && update-ca-certificates 2>/dev/null || true",
 	})
 
 	return nil
@@ -162,7 +113,6 @@ func DetectDockerSocket() string {
 func dockerExec(socketPath, container string, command []string) error {
 	client := newDockerHTTPClient(socketPath)
 
-	// Step 1: Create exec instance
 	execReq := map[string]interface{}{
 		"AttachStdout": true,
 		"AttachStderr": true,
@@ -196,7 +146,6 @@ func dockerExec(socketPath, container string, command []string) error {
 		return fmt.Errorf("docker exec parse: %w", err)
 	}
 
-	// Step 2: Start exec (blocking, wait for completion)
 	startReq, _ := http.NewRequest("POST",
 		fmt.Sprintf("http://unix/v1.45/exec/%s/start", execResp.ID),
 		strings.NewReader(`{"Detach":false,"Tty":false}`))
@@ -207,17 +156,14 @@ func dockerExec(socketPath, container string, command []string) error {
 		return fmt.Errorf("docker exec start: %w", err)
 	}
 	defer startResp.Body.Close()
-	io.Copy(io.Discard, startResp.Body) // drain
+	io.Copy(io.Discard, startResp.Body)
 
 	return nil
 }
 
-// dockerWriteFile writes a single file into a Docker container using the
-// PUT /containers/{id}/archive API (tar format).
 func dockerWriteFile(socketPath, container, dir, filename string, content []byte) error {
 	client := newDockerHTTPClient(socketPath)
 
-	// Build an in-memory tar archive with the single file
 	var tarBuf bytes.Buffer
 	tw := tar.NewWriter(&tarBuf)
 	hdr := &tar.Header{
@@ -233,7 +179,6 @@ func dockerWriteFile(socketPath, container, dir, filename string, content []byte
 	}
 	tw.Close()
 
-	// PUT /containers/{id}/archive?path={dir}
 	req, err := http.NewRequest("PUT",
 		fmt.Sprintf("http://unix/v1.45/containers/%s/archive?path=%s", container, dir),
 		&tarBuf)
